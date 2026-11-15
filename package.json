@@ -8,6 +8,11 @@
   "build": {
     "appId": "com.masarat.alpha",
     "productName": "Masarat MVP",
+    "linux": {
+      "target": [
+        "AppImage"
+      ]
+    },
     "win": {
       "target": [
         "nsis",

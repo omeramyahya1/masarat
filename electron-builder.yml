@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: masarat
+appId: com.masarat.alpha
+productName: Masarat MVP
 directories:
   buildResources: build
 files:

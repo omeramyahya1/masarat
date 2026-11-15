@@ -169,3 +169,105 @@ code {
     display: none;
   }
 }
+
+/* Update notification banner */
+.update-banner {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background-color: rgba(32, 33, 39, 0.95);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 12px 18px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.update-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.update-icon {
+  font-size: 20px;
+}
+
+.update-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ev-c-text-1, #fff);
+}
+
+.update-desc {
+  font-size: 12px;
+  color: var(--ev-c-text-2, rgba(255, 255, 255, 0.7));
+}
+
+.update-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.update-btn {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.update-btn-primary {
+  background-color: #3b82f6;
+  color: #fff;
+}
+
+.update-btn-primary:hover {
+  background-color: #2563eb;
+}
+
+.update-btn-secondary {
+  background-color: transparent;
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--ev-c-text-2, rgba(255, 255, 255, 0.8));
+}
+
+.update-btn-secondary:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--ev-c-text-1, #fff);
+}
+
+.update-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+

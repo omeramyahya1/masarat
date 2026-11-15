@@ -1,8 +1,12 @@
 import Versions from './components/Versions'
+import UpdateNotification from './components/UpdateNotification'
 import electronLogo from './assets/electron.svg'
 
 function App(): React.JSX.Element {
   const ipcHandle = (): void => window.electron.ipcRenderer.send('ping')
+  const checkUpdates = (): void => {
+    window.api?.updater?.checkForUpdates()
+  }
 
   return (
     <>
@@ -26,8 +30,14 @@ function App(): React.JSX.Element {
             Send IPC
           </a>
         </div>
+        <div className="action">
+          <a target="_blank" rel="noreferrer" onClick={checkUpdates}>
+            Check Updates
+          </a>
+        </div>
       </div>
       <Versions />
+      <UpdateNotification />
     </>
   )
 }

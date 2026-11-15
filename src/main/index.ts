@@ -1,11 +1,86 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { autoUpdater } from 'electron-updater'
+import log from 'electron-log'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
+// Configure updater logging
+autoUpdater.logger = log
+
+let mainWindow: BrowserWindow | null = null
+let updaterConfigured = false
+
+function sendUpdateMessage(channel: string, payload: unknown): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, payload)
+  }
+}
+
+function configureAutoUpdater(): void {
+  if (updaterConfigured) return
+  updaterConfigured = true
+
+  // Automatically download updates when available
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('checking-for-update', () => {
+    sendUpdateMessage('updater:status', { status: 'checking' })
+  })
+
+  autoUpdater.on('update-available', (info) => {
+    sendUpdateMessage('updater:status', {
+      status: 'available',
+      version: info.version
+    })
+  })
+
+  autoUpdater.on('update-not-available', () => {
+    sendUpdateMessage('updater:status', { status: 'not-available' })
+  })
+
+  autoUpdater.on('download-progress', (progressObj) => {
+    sendUpdateMessage('updater:progress', {
+      percent: Math.round(progressObj.percent),
+      transferred: progressObj.transferred,
+      total: progressObj.total
+    })
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    sendUpdateMessage('updater:status', {
+      status: 'downloaded',
+      version: info.version
+    })
+  })
+
+  autoUpdater.on('error', (err) => {
+    sendUpdateMessage('updater:status', {
+      status: 'error',
+      error: err ? err.message : 'Unknown error'
+    })
+  })
+
+  // IPC Handlers for renderer
+  ipcMain.handle('updater:check', async () => {
+    try {
+      return await autoUpdater.checkForUpdates()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to check for updates'
+      log.error('Failed to check for updates:', err)
+      return { error: message }
+    }
+  })
+
+  ipcMain.handle('updater:quit-and-install', () => {
+    autoUpdater.quitAndInstall()
+  })
+}
+
 function createWindow(): void {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     width: 900,
     height: 670,
     show: false,
@@ -17,11 +92,20 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+  // Keep the updater pointed at the current window without retaining closed windows.
+  mainWindow = window
+
+  window.on('closed', () => {
+    if (mainWindow === window) {
+      mainWindow = null
+    }
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  window.on('ready-to-show', () => {
+    window.show()
+  })
+
+  window.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
@@ -29,10 +113,20 @@ function createWindow(): void {
   // HMR for renderer base on electron-vite cli.
   // Load the remote URL for development or the local html file for production.
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    window.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    window.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  // Check for updates once we are ready. electron-updater does not support
+  // the supplied Linux build, so do not invoke it there.
+  window.once('ready-to-show', () => {
+    if (process.platform !== 'linux' && app.isPackaged) {
+      autoUpdater.checkForUpdates().catch((err) => {
+        log.error('Auto-check for updates failed:', err)
+      })
+    }
+  })
 }
 
 // This method will be called when Electron has finished
@@ -52,6 +146,7 @@ app.whenReady().then(() => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
+  configureAutoUpdater()
   createWindow()
 
   app.on('activate', function () {

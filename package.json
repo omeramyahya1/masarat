@@ -16,8 +16,8 @@
     },
     "publish": {
       "provider": "github",
-      "url": "omeramyahya1",
-      "releaseType": "release"
+      "owner": "omeramyahya1",
+      "repo": "masarat"
     }
   },
   "scripts": {

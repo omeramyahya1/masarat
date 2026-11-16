@@ -15,6 +15,13 @@
       "when": 1794816202434,
       "tag": "0001_seed_reference_data",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794831668900,
+      "tag": "0002_city_arabic_names",
+      "breakpoints": true
     }
   ]
 }

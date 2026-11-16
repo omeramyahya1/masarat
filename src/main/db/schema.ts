@@ -1,20 +1,16 @@
 import { sql } from 'drizzle-orm'
 import { sqliteTable, text, integer, real, index, check } from 'drizzle-orm/sqlite-core'
+import {
+  VEHICLE_TYPES,
+  QUANTITY_UNITS,
+  CARGO_TYPES,
+  MANIFEST_STATUSES,
+  PAYMENT_STATUSES
+} from '../../shared/fleet'
 
-// Enum values (exported so the UI and services share one source of truth)
+// Enum values live in src/shared so the renderer can use them too
 export const USER_ROLES = ['owner', 'govt'] as const
-export const VEHICLE_TYPES = [
-  'heavy_duty_truck',
-  'lorry',
-  'light_duty_truck',
-  'jumbo_truck',
-  'tanker',
-  'container_truck'
-] as const
-export const QUANTITY_UNITS = ['ton', 'liter'] as const
-export const CARGO_TYPES = ['fuel', 'containers', 'general_cargo'] as const
-export const MANIFEST_STATUSES = ['draft', 'billed', 'paid', 'certified', 'cancelled'] as const
-export const PAYMENT_STATUSES = ['pending', 'paid', 'expired', 'failed'] as const
+export { VEHICLE_TYPES, QUANTITY_UNITS, CARGO_TYPES, MANIFEST_STATUSES, PAYMENT_STATUSES }
 
 // SQLite does not enforce text enums, so each one is backed by a CHECK constraint
 const inList = (values: readonly string[]): ReturnType<typeof sql.raw> =>
@@ -51,6 +47,8 @@ export const users = sqliteTable(
 export const cities = sqliteTable('cities', {
   id,
   name: text('name').notNull().unique(),
+  // Arabic display name; the UI falls back to `name` when it's missing
+  nameAr: text('name_ar'),
   state: text('state').notNull(),
   lat: real('lat').notNull(),
   lng: real('lng').notNull(),

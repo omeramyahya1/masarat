@@ -1,6 +1,14 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { AuthResult, AuthUser, LogInInput, SignUpInput, UserRole } from '../shared/auth'
+import type {
+  FleetResult,
+  TripInput,
+  TripRecord,
+  TripReferenceData,
+  VehicleInput,
+  VehicleRecord
+} from '../shared/fleet'
 
 export interface UpdateStatus {
   status:
@@ -30,9 +38,22 @@ const api = {
     getSession: (role: UserRole): Promise<AuthUser | null> =>
       ipcRenderer.invoke('auth:get-session', role)
   },
-  db: {
-    getVehicles: (): Promise<unknown[]> => ipcRenderer.invoke('db:get-vehicles'),
-    addVehicle: (data: unknown): Promise<unknown> => ipcRenderer.invoke('db:add-vehicle', data)
+  fleet: {
+    listVehicles: (): Promise<FleetResult<VehicleRecord[]>> =>
+      ipcRenderer.invoke('fleet:list-vehicles'),
+    addVehicle: (input: VehicleInput): Promise<FleetResult<VehicleRecord>> =>
+      ipcRenderer.invoke('fleet:add-vehicle', input),
+    updateVehicle: (id: number, input: VehicleInput): Promise<FleetResult<VehicleRecord>> =>
+      ipcRenderer.invoke('fleet:update-vehicle', id, input),
+    deleteVehicle: (id: number): Promise<FleetResult<null>> =>
+      ipcRenderer.invoke('fleet:delete-vehicle', id)
+  },
+  trips: {
+    getReferenceData: (): Promise<FleetResult<TripReferenceData>> =>
+      ipcRenderer.invoke('trips:get-reference-data'),
+    list: (): Promise<FleetResult<TripRecord[]>> => ipcRenderer.invoke('trips:list'),
+    create: (input: TripInput): Promise<FleetResult<TripRecord>> =>
+      ipcRenderer.invoke('trips:create', input)
   },
   updater: {
     checkForUpdates: (): Promise<unknown> => ipcRenderer.invoke('updater:check'),

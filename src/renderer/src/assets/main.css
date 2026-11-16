@@ -124,9 +124,23 @@
   }
 
   button,
-  input {
+  input,
+  select {
     font: inherit;
     color: inherit;
+  }
+
+  table {
+    border-collapse: collapse;
+  }
+
+  fieldset {
+    border: none;
+    min-width: 0;
+  }
+
+  legend {
+    padding: 0;
   }
 
   button {
@@ -175,6 +189,15 @@
     transition:
       border-color 0.15s,
       box-shadow 0.15s;
+  }
+
+  select.input {
+    padding-inline-end: 8px;
+  }
+
+  .input-invalid,
+  .input-invalid:hover {
+    border-color: var(--color-red-500);
   }
 
   .input::placeholder {
@@ -240,6 +263,64 @@
     border-color: var(--color-stone-400);
   }
 
+  .btn-danger {
+    background-color: var(--color-red-700);
+    color: #ffffff;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background-color: var(--color-red-800);
+  }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-md);
+    color: var(--color-stone-500);
+    transition:
+      background-color 0.15s,
+      color 0.15s;
+  }
+
+  .icon-btn:hover:not(:disabled) {
+    background-color: var(--color-stone-100);
+    color: var(--color-stone-900);
+  }
+
+  .icon-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+  }
+
+  .data-table {
+    width: 100%;
+    font-size: 14px;
+  }
+
+  .data-table th {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--color-stone-200);
+    background-color: var(--color-stone-50);
+    color: var(--color-stone-500);
+    font-size: 12px;
+    font-weight: 500;
+    text-align: start;
+    white-space: nowrap;
+  }
+
+  .data-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-stone-100);
+    vertical-align: middle;
+  }
+
+  .data-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
   .link {
     color: var(--color-brand-700);
     font-weight: 500;
@@ -258,6 +339,18 @@
     border-radius: var(--radius-md);
     background-color: var(--color-red-50);
     color: var(--color-red-800);
+    font-size: 13px;
+  }
+
+  .alert-success {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-brand-200);
+    border-radius: var(--radius-md);
+    background-color: var(--color-brand-50);
+    color: var(--color-brand-800);
     font-size: 13px;
   }
 }

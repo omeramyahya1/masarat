@@ -4,10 +4,12 @@ import log from 'electron-log'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { eq } from 'drizzle-orm'
-import { initDb, closeDb, getDb, vehicles, type NewVehicle } from './db'
+import { initDb, closeDb } from './db'
 import { getSession, logIn, logOut, signUp } from './services/auth'
+import { addVehicle, deleteVehicle, listVehicles, updateVehicle } from './services/fleet'
+import { createTrip, getReferenceData, listTrips } from './services/trips'
 import type { AuthResult, LogInInput, SignUpInput, UserRole } from '../shared/auth'
+import type { FleetResult, TripInput, VehicleInput } from '../shared/fleet'
 
 // Configure updater logging
 autoUpdater.logger = log
@@ -143,33 +145,44 @@ function createWindow(): void {
   })
 }
 
-// Database Handlers
-type VehicleInput = Pick<NewVehicle, 'plateNumber' | 'vehicleType' | 'capacity' | 'capacityUnit'>
+// Fleet and trip handlers. Access is scoped to the signed-in fleet owner; the renderer never
+// picks the owner.
+function runFleet<T>(action: (ownerId: number) => FleetResult<T>): FleetResult<T> {
+  const owner = getSession('owner')
+  if (!owner) return { ok: false, error: 'not_signed_in' }
+  try {
+    return action(owner.id)
+  } catch (err) {
+    log.error('Fleet request failed:', err)
+    return { ok: false, error: 'unknown' }
+  }
+}
 
-function registerDbHandlers(): void {
+function registerFleetHandlers(): void {
   initDb()
 
-  // Vehicle access is scoped to the signed-in fleet owner; the renderer never picks the owner
-  const requireOwnerId = (): number => {
-    const owner = getSession('owner')
-    if (!owner) throw new Error('Not signed in as a fleet owner')
-    return owner.id
-  }
+  ipcMain.handle('fleet:list-vehicles', () =>
+    runFleet((ownerId) => ({ ok: true, data: listVehicles(ownerId) }))
+  )
+  ipcMain.handle('fleet:add-vehicle', (_event, input: VehicleInput) =>
+    runFleet((ownerId) => addVehicle(ownerId, input))
+  )
+  ipcMain.handle('fleet:update-vehicle', (_event, id: number, input: VehicleInput) =>
+    runFleet((ownerId) => updateVehicle(ownerId, id, input))
+  )
+  ipcMain.handle('fleet:delete-vehicle', (_event, id: number) =>
+    runFleet((ownerId) => deleteVehicle(ownerId, id))
+  )
 
-  ipcMain.handle('db:get-vehicles', async () => {
-    const ownerId = requireOwnerId()
-    return getDb().select().from(vehicles).where(eq(vehicles.ownerId, ownerId)).all()
-  })
-
-  ipcMain.handle('db:add-vehicle', async (_event, data: VehicleInput) => {
-    const ownerId = requireOwnerId()
-    const { plateNumber, vehicleType, capacity, capacityUnit } = data
-    return getDb()
-      .insert(vehicles)
-      .values({ ownerId, plateNumber, vehicleType, capacity, capacityUnit })
-      .returning()
-      .get()
-  })
+  ipcMain.handle('trips:get-reference-data', () =>
+    runFleet(() => ({ ok: true, data: getReferenceData() }))
+  )
+  ipcMain.handle('trips:list', () =>
+    runFleet((ownerId) => ({ ok: true, data: listTrips(ownerId) }))
+  )
+  ipcMain.handle('trips:create', (_event, input: TripInput) =>
+    runFleet((ownerId) => createTrip(ownerId, input))
+  )
 }
 
 // Auth Handlers
@@ -206,7 +219,7 @@ app.whenReady().then(() => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
-  registerDbHandlers()
+  registerFleetHandlers()
   registerAuthHandlers()
   configureAutoUpdater()
   createWindow()

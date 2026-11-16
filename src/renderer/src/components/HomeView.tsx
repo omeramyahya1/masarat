@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { LogOut, UserRound } from 'lucide-react'
 import type { AuthUser } from '../../../shared/auth'
+import OwnerWorkspace from './OwnerWorkspace'
 
 interface HomeViewProps {
   user: AuthUser
@@ -30,9 +31,13 @@ function HomeView({ user, onLogOut }: HomeViewProps): React.JSX.Element {
         </button>
       </div>
 
-      <div className="flex flex-1 items-center justify-center p-8">
-        <h1 className="text-2xl font-semibold text-stone-900">{t('home.welcome')}</h1>
-      </div>
+      {user.role === 'owner' ? (
+        <OwnerWorkspace />
+      ) : (
+        <div className="flex flex-1 items-center justify-center p-8">
+          <h1 className="text-2xl font-semibold text-stone-900">{t('home.welcome')}</h1>
+        </div>
+      )}
     </div>
   )
 }

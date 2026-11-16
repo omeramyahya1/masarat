@@ -1,5 +1,13 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type { AuthResult, AuthUser, LogInInput, SignUpInput, UserRole } from '../shared/auth'
+import type {
+  FleetResult,
+  TripInput,
+  TripRecord,
+  TripReferenceData,
+  VehicleInput,
+  VehicleRecord
+} from '../shared/fleet'
 
 export interface UpdateStatus {
   status:
@@ -27,9 +35,17 @@ export interface UpdaterAPI {
   onProgress: (callback: (progress: UpdateProgress) => void) => () => void
 }
 
-export interface DatabaseAPI {
-  getVehicles: () => Promise<unknown[]>
-  addVehicle: (data: unknown) => Promise<unknown>
+export interface FleetAPI {
+  listVehicles: () => Promise<FleetResult<VehicleRecord[]>>
+  addVehicle: (input: VehicleInput) => Promise<FleetResult<VehicleRecord>>
+  updateVehicle: (id: number, input: VehicleInput) => Promise<FleetResult<VehicleRecord>>
+  deleteVehicle: (id: number) => Promise<FleetResult<null>>
+}
+
+export interface TripsAPI {
+  getReferenceData: () => Promise<FleetResult<TripReferenceData>>
+  list: () => Promise<FleetResult<TripRecord[]>>
+  create: (input: TripInput) => Promise<FleetResult<TripRecord>>
 }
 
 export interface AuthAPI {
@@ -41,7 +57,8 @@ export interface AuthAPI {
 
 export interface CustomAPI {
   auth: AuthAPI
-  db: DatabaseAPI
+  fleet: FleetAPI
+  trips: TripsAPI
   updater: UpdaterAPI
 }
 

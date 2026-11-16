@@ -1,4 +1,5 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
+import type { AuthResult, AuthUser, LogInInput, SignUpInput, UserRole } from '../shared/auth'
 
 export interface UpdateStatus {
   status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
@@ -24,7 +25,15 @@ export interface DatabaseAPI {
   addVehicle: (data: unknown) => Promise<unknown>
 }
 
+export interface AuthAPI {
+  signUp: (input: SignUpInput) => Promise<AuthResult>
+  logIn: (input: LogInInput) => Promise<AuthResult>
+  logOut: (role: UserRole) => Promise<void>
+  getSession: (role: UserRole) => Promise<AuthUser | null>
+}
+
 export interface CustomAPI {
+  auth: AuthAPI
   db: DatabaseAPI
   updater: UpdaterAPI
 }

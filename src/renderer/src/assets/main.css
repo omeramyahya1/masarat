@@ -1,15 +1,31 @@
 /*
- * Tailwind v4 without Preflight: our own reset below is kept so the existing look is unchanged.
+ * Tailwind v4 without Preflight: the small reset in the base layer below replaces it.
  * Everything lives in cascade layers so Tailwind utilities can override the classes below
  * (unlayered CSS would otherwise always win over utilities).
  */
 @layer theme, base, components, utilities;
 @import 'tailwindcss/theme.css' layer(theme);
-@import './base.css' layer(base);
 @import 'tailwindcss/utilities.css' layer(utilities);
 
+/* Masarat palette: a muted, official green on a warm light canvas */
+@theme {
+  --color-brand-50: #eef6f0;
+  --color-brand-100: #d6ebdc;
+  --color-brand-200: #acd5b8;
+  --color-brand-300: #78b98c;
+  --color-brand-400: #4c9b66;
+  --color-brand-500: #2f8550;
+  --color-brand-600: #1f7041;
+  --color-brand-700: #185b36;
+  --color-brand-800: #13492c;
+  --color-brand-900: #0e3821;
+  --color-canvas: #f5f6f2;
+}
+
 @layer base {
-  * {
+  *,
+  *::before,
+  *::after {
     box-sizing: border-box;
     margin: 0;
     padding: 0;
@@ -20,11 +36,19 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background-color: #0b0f19;
-    color: #f1f5f9;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-stone-900);
     font-family:
-      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans',
+      'Noto Sans Arabic', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
     user-select: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
   }
 
   #root {
@@ -33,340 +57,146 @@
     display: flex;
     flex-direction: column;
   }
+
+  ul {
+    list-style: none;
+  }
+
+  button,
+  input {
+    font: inherit;
+    color: inherit;
+  }
+
+  button {
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  input {
+    user-select: text;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
 }
 
 @layer components {
-  /* App Header / Top Navigation Bar */
-  .app-header {
-    height: 60px;
-    background-color: #0f172a;
-    border-bottom: 1px solid #1e293b;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 24px;
-    flex-shrink: 0;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-    z-index: 50;
+  .card {
+    background-color: #ffffff;
+    border: 1px solid var(--color-stone-200);
+    border-radius: var(--radius-xl);
+    box-shadow: 0 1px 2px rgb(28 25 23 / 0.04);
   }
 
-  .brand-section {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .brand-icon {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    background: linear-gradient(135deg, #2563eb, #1d4ed8);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4);
-    font-weight: 700;
-    font-size: 16px;
-    color: #ffffff;
-  }
-
-  .brand-info {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .brand-title {
-    font-size: 16px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: #f8fafc;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .brand-badge {
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    background: rgba(37, 99, 235, 0.2);
-    color: #60a5fa;
-    border: 1px solid rgba(59, 130, 246, 0.3);
-    padding: 2px 6px;
-    border-radius: 4px;
-    letter-spacing: 0.05em;
-  }
-
-  .brand-tagline {
-    font-size: 11px;
-    color: #94a3b8;
-  }
-
-  /* Toggle Switcher */
-  .view-switcher {
-    display: flex;
-    background-color: #1e293b;
-    padding: 3px;
-    border-radius: 10px;
-    border: 1px solid #334155;
-    gap: 4px;
-  }
-
-  .toggle-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 7px 16px;
-    border-radius: 7px;
+  .label {
     font-size: 13px;
-    font-weight: 600;
-    border: none;
-    background: transparent;
-    color: #94a3b8;
-    cursor: pointer;
-    transition: all 0.18s ease-in-out;
+    font-weight: 500;
+    color: var(--color-stone-700);
   }
 
-  .toggle-btn:hover {
-    color: #f8fafc;
-    background-color: rgba(255, 255, 255, 0.04);
+  .field-hint {
+    font-size: 12px;
+    color: var(--color-stone-500);
   }
 
-  .toggle-btn.active {
-    background-color: #2563eb;
-    color: #ffffff;
-    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
-  }
-
-  .toggle-icon {
-    font-size: 14px;
-  }
-
-  /* Workspace Main Container */
-  .workspace-container {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: auto;
-    position: relative;
-    background: radial-gradient(circle at 50% 10%, #172033 0%, #0b0f19 75%);
-  }
-
-  .panel-view {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 40px 24px;
-    animation: fadeIn 0.2s ease-out;
-    text-align: center;
-  }
-
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .portal-card {
-    max-width: 680px;
+  .input {
     width: 100%;
-    background-color: rgba(30, 41, 59, 0.7);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
-    padding: 48px 36px;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+    height: 40px;
+    padding-inline: 12px;
+    border: 1px solid var(--color-stone-300);
+    border-radius: var(--radius-md);
+    background-color: #ffffff;
+    color: var(--color-stone-900);
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
   }
 
-  .portal-avatar {
-    width: 72px;
-    height: 72px;
-    border-radius: 20px;
-    display: flex;
+  .input::placeholder {
+    color: var(--color-stone-400);
+  }
+
+  .input:hover {
+    border-color: var(--color-stone-400);
+  }
+
+  .input:focus {
+    outline: none;
+    border-color: var(--color-brand-600);
+    box-shadow: 0 0 0 3px var(--color-brand-100);
+  }
+
+  .btn {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 32px;
-    margin-bottom: 20px;
-  }
-
-  .portal-avatar.govt {
-    background: linear-gradient(135deg, rgba(37, 99, 235, 0.25), rgba(30, 58, 138, 0.4));
-    border: 1px solid rgba(96, 165, 250, 0.3);
-    color: #60a5fa;
-  }
-
-  .portal-avatar.fleet {
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(6, 95, 70, 0.4));
-    border: 1px solid rgba(52, 211, 153, 0.3);
-    color: #34d399;
-  }
-
-  .portal-tag {
-    display: inline-block;
-    padding: 4px 12px;
-    border-radius: 9999px;
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 14px;
-  }
-
-  .portal-tag.govt {
-    background: rgba(37, 99, 235, 0.15);
-    color: #60a5fa;
-    border: 1px solid rgba(96, 165, 250, 0.3);
-  }
-
-  .portal-tag.fleet {
-    background: rgba(16, 185, 129, 0.15);
-    color: #34d399;
-    border: 1px solid rgba(52, 211, 153, 0.3);
-  }
-
-  .portal-title {
-    font-size: 28px;
-    font-weight: 800;
-    color: #ffffff;
-    margin-bottom: 12px;
-    letter-spacing: -0.02em;
-  }
-
-  .portal-desc {
-    font-size: 15px;
-    line-height: 1.6;
-    color: #94a3b8;
-    max-width: 480px;
-    margin-bottom: 28px;
-  }
-
-  .portal-pills {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-
-  .pill-item {
-    font-size: 12px;
-    color: #cbd5e1;
-    background-color: #0f172a;
-    border: 1px solid #334155;
-    padding: 6px 14px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  /* Update notification banner */
-  .update-banner {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    background-color: rgba(32, 33, 39, 0.95);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 14px;
-    padding: 12px 18px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
-    z-index: 1000;
-    animation: slideUp 0.3s ease-out;
-  }
-
-  @keyframes slideUp {
-    from {
-      transform: translateY(20px);
-      opacity: 0;
-    }
-    to {
-      transform: translateY(0);
-    }
-  }
-
-  .update-content {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .update-icon {
-    font-size: 20px;
-  }
-
-  .update-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: #fff;
-  }
-
-  .update-desc {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  .update-actions {
-    display: flex;
-    align-items: center;
     gap: 8px;
-  }
-
-  .update-btn {
-    font-family: inherit;
-    font-size: 13px;
-    font-weight: 600;
-    padding: 6px 14px;
-    border-radius: 8px;
+    height: 40px;
+    padding-inline: 16px;
     border: 1px solid transparent;
-    cursor: pointer;
-    transition: all 0.2s ease;
+    border-radius: var(--radius-md);
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition:
+      background-color 0.15s,
+      border-color 0.15s,
+      color 0.15s;
   }
 
-  .update-btn-primary {
-    background-color: #3b82f6;
-    color: #fff;
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
   }
 
-  .update-btn-primary:hover {
-    background-color: #2563eb;
+  .btn-sm {
+    height: 34px;
+    padding-inline: 12px;
+    font-size: 13px;
   }
 
-  .update-btn-secondary {
-    background-color: transparent;
-    border-color: rgba(255, 255, 255, 0.2);
-    color: rgba(255, 255, 255, 0.8);
+  .btn-primary {
+    background-color: var(--color-brand-700);
+    color: #ffffff;
   }
 
-  .update-btn-secondary:hover {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: #fff;
+  .btn-primary:hover:not(:disabled) {
+    background-color: var(--color-brand-800);
   }
 
-  .update-spinner {
-    width: 16px;
-    height: 16px;
-    border: 2px solid rgba(255, 255, 255, 0.2);
-    border-top-color: #3b82f6;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
+  .btn-secondary {
+    background-color: #ffffff;
+    border-color: var(--color-stone-300);
+    color: var(--color-stone-800);
   }
 
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
+  .btn-secondary:hover:not(:disabled) {
+    background-color: var(--color-stone-50);
+    border-color: var(--color-stone-400);
+  }
+
+  .link {
+    color: var(--color-brand-700);
+    font-weight: 500;
+  }
+
+  .link:hover {
+    text-decoration: underline;
+  }
+
+  .alert-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-red-200);
+    border-radius: var(--radius-md);
+    background-color: var(--color-red-50);
+    color: var(--color-red-800);
+    font-size: 13px;
   }
 }

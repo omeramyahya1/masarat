@@ -5,6 +5,8 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initDb, closeDb, getDb, vehicles, type NewVehicle } from './db'
+import { getSession, logIn, logOut, signUp } from './services/auth'
+import type { AuthResult, LogInInput, SignUpInput, UserRole } from '../shared/auth'
 
 // Configure updater logging
 autoUpdater.logger = log
@@ -82,8 +84,10 @@ function configureAutoUpdater(): void {
 function createWindow(): void {
   // Create the browser window.
   const window = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: 1100,
+    height: 760,
+    minWidth: 900,
+    minHeight: 640,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -145,6 +149,23 @@ function registerDbHandlers(): void {
   })
 }
 
+// Auth Handlers
+async function runAuth(action: () => Promise<AuthResult>): Promise<AuthResult> {
+  try {
+    return await action()
+  } catch (err) {
+    log.error('Auth request failed:', err)
+    return { ok: false, error: 'unknown' }
+  }
+}
+
+function registerAuthHandlers(): void {
+  ipcMain.handle('auth:sign-up', (_event, input: SignUpInput) => runAuth(() => signUp(input)))
+  ipcMain.handle('auth:log-in', (_event, input: LogInInput) => runAuth(() => logIn(input)))
+  ipcMain.handle('auth:log-out', (_event, role: UserRole) => logOut(role))
+  ipcMain.handle('auth:get-session', (_event, role: UserRole) => getSession(role))
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -163,6 +184,7 @@ app.whenReady().then(() => {
   ipcMain.on('ping', () => console.log('pong'))
 
   registerDbHandlers()
+  registerAuthHandlers()
   configureAutoUpdater()
   createWindow()
 

@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { DownloadCloud, LoaderCircle } from 'lucide-react'
 import type { UpdateProgress, UpdateStatus } from '../../../preload'
 
 function UpdateNotification(): React.JSX.Element | null {
+  const { t } = useTranslation()
   const [status, setStatus] = useState<UpdateStatus['status'] | 'idle'>('idle')
   const [version, setVersion] = useState<string | undefined>()
   const [progress, setProgress] = useState<number>(0)
@@ -31,44 +34,40 @@ function UpdateNotification(): React.JSX.Element | null {
 
   if (dismissed) return null
 
+  const banner = 'card fixed end-6 bottom-6 z-50 flex items-center gap-4 px-4 py-3 shadow-lg'
+
   // Show only when downloading or ready to install
   if (status === 'downloading') {
     return (
-      <div className="update-banner">
-        <div className="update-content">
-          <span className="update-spinner" />
-          <span>Downloading update... {progress}%</span>
-        </div>
+      <div className={banner}>
+        <LoaderCircle size={18} className="animate-spin text-brand-700" />
+        <span className="text-sm">{t('updater.downloading', { percent: progress })}</span>
       </div>
     )
   }
 
   if (status === 'downloaded') {
     return (
-      <div className="update-banner">
-        <div className="update-content">
-          <span className="update-icon">⚡</span>
-          <div>
-            <div className="update-title">Update Ready</div>
-            <div className="update-desc">
-              {version ? `Version ${version}` : 'A new version'} is ready to install.
-            </div>
-          </div>
+      <div className={banner}>
+        <DownloadCloud size={20} className="text-brand-700" />
+        <div>
+          <div className="text-sm font-semibold">{t('updater.readyTitle')}</div>
+          <div className="text-xs text-stone-500">{t('updater.readyBody', { version })}</div>
         </div>
-        <div className="update-actions">
+        <div className="flex gap-2">
           <button
             type="button"
-            className="update-btn update-btn-primary"
+            className="btn btn-primary btn-sm"
             onClick={() => window.api.updater.quitAndInstall()}
           >
-            Restart Now
+            {t('updater.restartNow')}
           </button>
           <button
             type="button"
-            className="update-btn update-btn-secondary"
+            className="btn btn-secondary btn-sm"
             onClick={() => setDismissed(true)}
           >
-            Later
+            {t('updater.later')}
           </button>
         </div>
       </div>

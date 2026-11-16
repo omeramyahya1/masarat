@@ -1,1 +1,69 @@
-{}
+{
+  "app": {
+    "windowTitle": "Masarat — Transport & Tax Portal",
+    "name": "Masarat",
+    "badge": "MVP",
+    "tagline": "Electronic manifest and transport tax system",
+    "panelSwitcher": "Switch panel"
+  },
+  "panels": {
+    "owner": {
+      "tab": "Fleet Owner",
+      "title": "Fleet Owner Portal",
+      "subtitle": "Register trips, pay transport tax and receive trip certificates."
+    },
+    "govt": {
+      "tab": "Government",
+      "title": "Government Portal",
+      "subtitle": "Monitor transport manifests and tax collection."
+    }
+  },
+  "auth": {
+    "login": {
+      "title": "Log in to your account",
+      "submit": "Log in",
+      "noAccount": "Don't have an account?",
+      "switch": "Create one"
+    },
+    "signup": {
+      "title": "Create an account",
+      "submit": "Create account",
+      "haveAccount": "Already have an account?",
+      "switch": "Log in"
+    },
+    "fields": {
+      "fullName": "Full name",
+      "username": "Username",
+      "usernameHint": "3 to 32 characters: lowercase letters, numbers, dots or underscores.",
+      "phone": "Phone number",
+      "companyName": "Company name",
+      "password": "Password",
+      "passwordHint": "At least {{min}} characters.",
+      "confirmPassword": "Confirm password",
+      "optional": "(optional)"
+    },
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "errors": {
+      "missing_fields": "Please fill in all required fields.",
+      "invalid_username": "Usernames must be 3 to 32 characters using lowercase letters, numbers, dots or underscores.",
+      "weak_password": "Password is too short.",
+      "password_mismatch": "Passwords do not match.",
+      "username_taken": "This username is already taken.",
+      "invalid_credentials": "Incorrect username or password.",
+      "wrong_panel": "This account belongs to the other panel. Switch panels to log in.",
+      "unknown": "Something went wrong. Please try again."
+    }
+  },
+  "home": {
+    "welcome": "Welcome to the Home page",
+    "logOut": "Log out"
+  },
+  "updater": {
+    "downloading": "Downloading update… {{percent}}%",
+    "readyTitle": "Update ready",
+    "readyBody": "Version {{version}} is ready to install.",
+    "restartNow": "Restart now",
+    "later": "Later"
+  }
+}

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { AuthResult, AuthUser, LogInInput, SignUpInput, UserRole } from '../shared/auth'
 
 export interface UpdateStatus {
   status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
@@ -15,6 +16,13 @@ export interface UpdateProgress {
 
 // Custom APIs for renderer
 const api = {
+  auth: {
+    signUp: (input: SignUpInput): Promise<AuthResult> => ipcRenderer.invoke('auth:sign-up', input),
+    logIn: (input: LogInInput): Promise<AuthResult> => ipcRenderer.invoke('auth:log-in', input),
+    logOut: (role: UserRole): Promise<void> => ipcRenderer.invoke('auth:log-out', role),
+    getSession: (role: UserRole): Promise<AuthUser | null> =>
+      ipcRenderer.invoke('auth:get-session', role)
+  },
   db: {
     getVehicles: (): Promise<unknown[]> => ipcRenderer.invoke('db:get-vehicles'),
     addVehicle: (data: unknown): Promise<unknown> => ipcRenderer.invoke('db:add-vehicle', data)

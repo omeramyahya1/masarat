@@ -8,13 +8,14 @@ export type Language = (typeof LANGUAGES)[number]
 
 const RTL_LANGUAGES: readonly Language[] = ['ar']
 
-// Keep <html lang/dir> in sync so Arabic renders right-to-left
-function applyDocumentDirection(lng: string): void {
+// Keep <html lang/dir> and the window title in sync so Arabic renders right-to-left
+function syncDocument(lng: string): void {
   document.documentElement.lang = lng
   document.documentElement.dir = RTL_LANGUAGES.includes(lng as Language) ? 'rtl' : 'ltr'
+  document.title = i18n.t('app.windowTitle')
 }
 
-i18n.on('languageChanged', applyDocumentDirection)
+i18n.on('languageChanged', syncDocument)
 
 i18n.use(initReactI18next).init({
   resources: {

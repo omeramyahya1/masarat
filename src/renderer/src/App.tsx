@@ -1,92 +1,96 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Route } from 'lucide-react'
+import type { AuthUser, UserRole } from '../../shared/auth'
+import { PANELS, PANEL_ICONS } from './panels'
+import AuthPanel from './components/auth/AuthPanel'
+import HomeView from './components/HomeView'
 import UpdateNotification from './components/UpdateNotification'
 
-type PanelType = 'government' | 'fleet'
+// Each panel has its own signed-in user
+type Sessions = Record<UserRole, AuthUser | null>
 
 function App(): React.JSX.Element {
-  const [activePanel, setActivePanel] = useState<PanelType>('government')
+  const { t } = useTranslation()
+  const [activeRole, setActiveRole] = useState<UserRole>('govt')
+  const [sessions, setSessions] = useState<Sessions>({ owner: null, govt: null })
+
+  // Restore sessions kept by the main process (e.g. after a renderer reload)
+  useEffect(() => {
+    Promise.all([window.api.auth.getSession('owner'), window.api.auth.getSession('govt')]).then(
+      ([owner, govt]) => setSessions({ owner, govt })
+    )
+  }, [])
+
+  const setSession = (role: UserRole, user: AuthUser | null): void =>
+    setSessions((current) => ({ ...current, [role]: user }))
+
+  const handleLogOut = async (role: UserRole): Promise<void> => {
+    await window.api.auth.logOut(role)
+    setSession(role, null)
+  }
+
+  const user = sessions[activeRole]
 
   return (
     <>
-      {/* Top Menu Bar Navigation */}
-      <header className="app-header">
-        <div className="brand-section">
-          <div className="brand-icon">M</div>
-          <div className="brand-info">
-            <div className="brand-title">
-              Masarat MVP
-              <span className="brand-badge">Sudan Transport</span>
+      <header className="z-10 flex h-16 shrink-0 items-center justify-between border-b border-stone-200 bg-white px-6">
+        <div className="flex items-center gap-3">
+          <div className="flex size-9 items-center justify-center rounded-lg bg-brand-700 text-white">
+            <Route size={20} strokeWidth={2} />
+          </div>
+          <div className="leading-tight">
+            <div className="flex items-center gap-2 text-base font-semibold text-stone-900">
+              {t('app.name')}
+              <span className="rounded border border-brand-200 bg-brand-50 px-1.5 text-[10px] font-semibold tracking-wide text-brand-700 uppercase">
+                {t('app.badge')}
+              </span>
             </div>
-            <div className="brand-tagline">Electronic Manifest & Tax Collection System</div>
+            <div className="text-xs text-stone-500">{t('app.tagline')}</div>
           </div>
         </div>
 
-        {/* Workspace Switcher */}
-        <div className="view-switcher" role="tablist" aria-label="Workspace Switcher">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activePanel === 'fleet'}
-            className={`toggle-btn ${activePanel === 'fleet' ? 'active' : ''}`}
-            onClick={() => setActivePanel('fleet')}
-          >
-            <span className="toggle-icon">🚚</span>
-            <span>Fleet Owner Panel</span>
-          </button>
-
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activePanel === 'government'}
-            className={`toggle-btn ${activePanel === 'government' ? 'active' : ''}`}
-            onClick={() => setActivePanel('government')}
-          >
-            <span className="toggle-icon">🏛️</span>
-            <span>Government Panel</span>
-          </button>
+        <div
+          className="flex gap-1 rounded-lg border border-stone-200 bg-stone-100 p-1"
+          role="tablist"
+          aria-label={t('app.panelSwitcher')}
+        >
+          {PANELS.map((role) => {
+            const Icon = PANEL_ICONS[role]
+            const active = role === activeRole
+            return (
+              <button
+                key={role}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className={`flex items-center gap-2 rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                  active
+                    ? 'bg-white text-brand-800 shadow-sm ring-1 ring-stone-200'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+                onClick={() => setActiveRole(role)}
+              >
+                <Icon size={16} />
+                {t(`panels.${role}.tab`)}
+              </button>
+            )
+          })}
         </div>
       </header>
 
-      {/* Main Workspace Area */}
-      <main className="workspace-container">
-        {activePanel === 'government' ? (
-          <section className="panel-view" key="government">
-            <div className="portal-card">
-              <div className="portal-avatar govt">🏛️</div>
-              <span className="portal-tag govt">Ministry & Regulatory Authorities</span>
-              <h1 className="portal-title">Welcome to Government Portal</h1>
-              <p className="portal-desc">
-                Centralized monitoring for freight transport, real-time tax manifest audits,
-                and national transport ledger oversight across Sudan states.
-              </p>
-              <div className="portal-pills">
-                <span className="pill-item">📊 Master Tax Ledger</span>
-                <span className="pill-item">🔍 Audit & Manifest Verification</span>
-                <span className="pill-item">📈 Real-time Analytics</span>
-              </div>
-            </div>
-          </section>
+      <main className="flex flex-1 flex-col overflow-auto">
+        {user ? (
+          <HomeView key={activeRole} user={user} onLogOut={() => handleLogOut(activeRole)} />
         ) : (
-          <section className="panel-view" key="fleet">
-            <div className="portal-card">
-              <div className="portal-avatar fleet">🚚</div>
-              <span className="portal-tag fleet">Commercial Carrier Portal</span>
-              <h1 className="portal-title">Welcome to Fleet Owner Portal</h1>
-              <p className="portal-desc">
-                Manage commercial trucks and tankers, issue digital waybill manifests,
-                and settle automated transport taxes via the Esali payment gateway.
-              </p>
-              <div className="portal-pills">
-                <span className="pill-item">🚛 Vehicle Management</span>
-                <span className="pill-item">📋 Trip Creation & Tax Engine</span>
-                <span className="pill-item">💳 Esali Bill Clearance</span>
-              </div>
-            </div>
-          </section>
+          <AuthPanel
+            key={activeRole}
+            role={activeRole}
+            onAuthenticated={(authUser) => setSession(activeRole, authUser)}
+          />
         )}
       </main>
 
-      {/* Updater notification banner */}
       <UpdateNotification />
     </>
   )

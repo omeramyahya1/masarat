@@ -19,7 +19,13 @@ export interface UpdaterAPI {
   onProgress: (callback: (progress: UpdateProgress) => void) => () => void
 }
 
+export interface DatabaseAPI {
+  getVehicles: () => Promise<unknown[]>
+  addVehicle: (data: unknown) => Promise<unknown>
+}
+
 export interface CustomAPI {
+  db: DatabaseAPI
   updater: UpdaterAPI
 }
 

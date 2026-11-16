@@ -4,6 +4,7 @@ import log from 'electron-log'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { initDb, closeDb, getDb, vehicles } from './db'
 
 // Configure updater logging
 autoUpdater.logger = log
@@ -129,6 +130,27 @@ function createWindow(): void {
   })
 }
 
+// Database Handlers
+function registerDbHandlers(): void {
+  initDb()
+
+  ipcMain.handle('db:get-vehicles', async () => {
+    const db = getDb()
+    return db.select().from(vehicles).all()
+  })
+
+  ipcMain.handle(
+    'db:add-vehicle',
+    async (
+      _event,
+      data: { plateNumber: string; vehicleType?: string; capacity?: number; status?: string }
+    ) => {
+      const db = getDb()
+      return db.insert(vehicles).values(data).returning().get()
+    }
+  )
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -146,6 +168,7 @@ app.whenReady().then(() => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
+  registerDbHandlers()
   configureAutoUpdater()
   createWindow()
 
@@ -163,6 +186,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('before-quit', () => {
+  closeDb()
 })
 
 // In this file you can include the rest of your app's specific main process

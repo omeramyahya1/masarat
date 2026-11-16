@@ -22,6 +22,59 @@
   --color-canvas: #f5f6f2;
 }
 
+/*
+ * Arabic font: IBM Plex Sans Arabic, bundled locally (the app runs offline and the CSP only allows
+ * 'self'). unicode-range limits it to Arabic characters, so Latin text keeps the system font.
+ */
+
+@font-face {
+  font-family: 'Masarat Arabic';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-400-normal.woff2')
+    format('woff2');
+  unicode-range:
+    U+0600-06FF, U+0750-077F, U+0870-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+    U+FE70-FEFC;
+}
+
+@font-face {
+  font-family: 'Masarat Arabic';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-500-normal.woff2')
+    format('woff2');
+  unicode-range:
+    U+0600-06FF, U+0750-077F, U+0870-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+    U+FE70-FEFC;
+}
+
+@font-face {
+  font-family: 'Masarat Arabic';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-600-normal.woff2')
+    format('woff2');
+  unicode-range:
+    U+0600-06FF, U+0750-077F, U+0870-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+    U+FE70-FEFC;
+}
+
+@font-face {
+  font-family: 'Masarat Arabic';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-700-normal.woff2')
+    format('woff2');
+  unicode-range:
+    U+0600-06FF, U+0750-077F, U+0870-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+    U+FE70-FEFC;
+}
+
 @layer base {
   *,
   *::before,
@@ -41,9 +94,17 @@
   body {
     background-color: var(--color-canvas);
     color: var(--color-stone-900);
+    /* Arabic face first: its unicode-range means only Arabic characters use it */
     font-family:
-      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans',
-      'Noto Sans Arabic', sans-serif;
+      'Masarat Arabic',
+      -apple-system,
+      BlinkMacSystemFont,
+      'Segoe UI',
+      Roboto,
+      Ubuntu,
+      Cantarell,
+      'Noto Sans',
+      sans-serif;
     font-size: 14px;
     line-height: 1.5;
     user-select: none;

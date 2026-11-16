@@ -116,6 +116,15 @@ export function updateVehicle(
   const checked = validate(input)
   if (!checked.ok) return checked
   if (plateTaken(checked.data.plateNumber, existing.id)) return { ok: false, error: 'plate_taken' }
+  // Trips recorded their cargo in this vehicle's unit; changing it would contradict them
+  const conflictingTrip = getDb()
+    .select({ id: manifests.id })
+    .from(manifests)
+    .where(
+      and(eq(manifests.vehicleId, existing.id), ne(manifests.cargoUnit, checked.data.capacityUnit))
+    )
+    .get()
+  if (conflictingTrip) return { ok: false, error: 'unit_in_use' }
 
   const updated = getDb()
     .update(vehicles)

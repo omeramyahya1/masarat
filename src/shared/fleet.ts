@@ -94,6 +94,7 @@ export type FleetErrorCode =
   | 'plate_taken'
   | 'vehicle_not_found'
   | 'vehicle_in_use'
+  | 'unit_in_use'
   | 'city_not_found'
   | 'same_route'
   | 'invalid_quantity'

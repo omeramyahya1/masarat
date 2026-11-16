@@ -10,6 +10,7 @@ import type {
 } from '../../../../shared/fleet'
 import { ROAD_FACTOR, calculateTax, estimateRoadKm } from '../../../../shared/tax'
 import { todayIso, useFormat } from '../../lib/format'
+import { useMountedRef } from '../../lib/useMountedRef'
 import { FieldLabel, FormAlert, NumberField, SelectField, SubmitButton } from '../form/fields'
 import PlateBadge from '../fleet/PlateBadge'
 
@@ -38,6 +39,7 @@ function TripForm({
   const [tripDate, setTripDate] = useState(todayIso)
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [pending, setPending] = useState(false)
+  const mounted = useMountedRef()
 
   useEffect(() => {
     window.api.fleet
@@ -102,12 +104,14 @@ function TripForm({
         cargoQuantity: quantityValue,
         tripDate
       })
+      // The user may have left this form (and opened a new one) while the request was in flight
+      if (!mounted.current) return
       if (result.ok) onCreated(result.data)
       else setError(result.error)
     } catch {
-      setError('unknown')
+      if (mounted.current) setError('unknown')
     } finally {
-      setPending(false)
+      if (mounted.current) setPending(false)
     }
   }
 

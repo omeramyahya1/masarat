@@ -14,6 +14,7 @@ import { parsePlate } from '../../../../shared/plate'
 import { FormAlert, NumberField, SelectField, SubmitButton } from '../form/fields'
 import Modal from '../ui/Modal'
 import { plateValueToString, type PlateValue } from '../../lib/plateValue'
+import { useMountedRef } from '../../lib/useMountedRef'
 import PlateInput from './PlateInput'
 
 interface VehicleDialogProps {
@@ -37,11 +38,14 @@ function VehicleDialog({ vehicle, onClose, onSaved }: VehicleDialogProps): React
   const [unit, setUnit] = useState<QuantityUnit>(vehicle?.capacityUnit ?? 'ton')
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [pending, setPending] = useState(false)
+  const mounted = useMountedRef()
+  // Trips record cargo in the vehicle's unit, so it can't change once the vehicle has trips
+  const unitLocked = Boolean(vehicle && vehicle.tripCount > 0)
 
   // Picking a type suggests its usual unit; the owner can still change it afterwards
   const handleTypeChange = (type: VehicleType): void => {
     setVehicleType(type)
-    setUnit(defaultUnitFor(type))
+    if (!unitLocked) setUnit(defaultUnitFor(type))
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
@@ -64,12 +68,14 @@ function VehicleDialog({ vehicle, onClose, onSaved }: VehicleDialogProps): React
       const result = vehicle
         ? await window.api.fleet.updateVehicle(vehicle.id, input)
         : await window.api.fleet.addVehicle(input)
+      // The dialog may have been closed (and another opened) while the request was in flight
+      if (!mounted.current) return
       if (result.ok) onSaved(result.data)
       else setError(result.error)
     } catch {
-      setError('unknown')
+      if (mounted.current) setError('unknown')
     } finally {
-      setPending(false)
+      if (mounted.current) setPending(false)
     }
   }
 
@@ -112,6 +118,8 @@ function VehicleDialog({ vehicle, onClose, onSaved }: VehicleDialogProps): React
           <SelectField
             label={t('fleet.fields.capacityUnit')}
             value={unit}
+            disabled={unitLocked}
+            title={unitLocked ? t('fleet.errors.unit_in_use') : undefined}
             options={QUANTITY_UNITS.map((u) => ({ value: u, label: t(`units.name.${u}`) }))}
             onChange={(e) => setUnit(e.target.value as QuantityUnit)}
           />

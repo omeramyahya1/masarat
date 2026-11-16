@@ -200,6 +200,7 @@
       "plate_taken": "A vehicle with this plate number is already registered.",
       "vehicle_not_found": "This vehicle could not be found.",
       "vehicle_in_use": "Vehicles with registered trips can't be deleted.",
+      "unit_in_use": "The unit can't be changed because this vehicle already has trips recorded in its current unit.",
       "city_not_found": "Choose a valid origin and destination.",
       "same_route": "Origin and destination must be different cities.",
       "invalid_quantity": "Cargo quantity must be greater than zero.",

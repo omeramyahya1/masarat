@@ -4,7 +4,7 @@ import log from 'electron-log'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { initDb, closeDb, getDb, vehicles } from './db'
+import { initDb, closeDb, getDb, vehicles, type NewVehicle } from './db'
 
 // Configure updater logging
 autoUpdater.logger = log
@@ -139,16 +139,10 @@ function registerDbHandlers(): void {
     return db.select().from(vehicles).all()
   })
 
-  ipcMain.handle(
-    'db:add-vehicle',
-    async (
-      _event,
-      data: { plateNumber: string; vehicleType?: string; capacity?: number; status?: string }
-    ) => {
-      const db = getDb()
-      return db.insert(vehicles).values(data).returning().get()
-    }
-  )
+  ipcMain.handle('db:add-vehicle', async (_event, data: NewVehicle) => {
+    const db = getDb()
+    return db.insert(vehicles).values(data).returning().get()
+  })
 }
 
 // This method will be called when Electron has finished

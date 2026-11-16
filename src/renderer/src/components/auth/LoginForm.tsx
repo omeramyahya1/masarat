@@ -30,6 +30,7 @@ function LoginForm({ role, onAuthenticated }: LoginFormProps): React.JSX.Element
       <TextField
         label={t('auth.fields.username')}
         autoComplete="username"
+        ltr
         autoFocus
         value={username}
         onChange={(e) => setUsername(e.target.value)}

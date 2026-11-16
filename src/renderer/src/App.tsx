@@ -6,6 +6,7 @@ import { PANELS, PANEL_ICONS } from './panels'
 import AuthPanel from './components/auth/AuthPanel'
 import HomeView from './components/HomeView'
 import UpdateControl from './components/UpdateControl'
+import LanguageToggle from './components/LanguageToggle'
 
 // Each panel has its own signed-in user
 type Sessions = Record<UserRole, AuthUser | null>
@@ -42,7 +43,7 @@ function App(): React.JSX.Element {
           <div className="leading-tight">
             <div className="flex items-center gap-2 text-base font-semibold text-stone-900">
               {t('app.name')}
-              <span className="rounded border border-brand-200 bg-brand-50 px-1.5 text-[10px] font-semibold tracking-wide text-brand-700 uppercase">
+              <span className="rounded border border-brand-200 bg-brand-50 px-1.5 text-[10px] font-semibold tracking-wide text-brand-700 uppercase rtl:tracking-normal">
                 {t('app.badge')}
               </span>
             </div>
@@ -78,6 +79,7 @@ function App(): React.JSX.Element {
               )
             })}
           </div>
+          <LanguageToggle />
           <UpdateControl />
         </div>
       </header>

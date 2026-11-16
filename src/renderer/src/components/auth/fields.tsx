@@ -10,6 +10,9 @@ interface FieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'id'> {
   label: string
   hint?: string
   optional?: boolean
+  // Latin-only values (usernames, phone numbers): typed left-to-right, but still aligned with
+  // the rest of the form in Arabic
+  ltr?: boolean
 }
 
 function FieldLabel({
@@ -32,12 +35,23 @@ function FieldLabel({
   )
 }
 
-export function TextField({ label, hint, optional, ...inputProps }: FieldProps): React.JSX.Element {
+export function TextField({
+  label,
+  hint,
+  optional,
+  ltr,
+  ...inputProps
+}: FieldProps): React.JSX.Element {
   const id = useId()
   return (
     <div className="flex flex-col gap-1.5">
       <FieldLabel htmlFor={id} label={label} optional={optional} />
-      <input id={id} className="input" {...inputProps} />
+      <input
+        id={id}
+        className={ltr ? 'input rtl:text-right' : 'input'}
+        dir={ltr ? 'ltr' : undefined}
+        {...inputProps}
+      />
       {hint && <p className="field-hint">{hint}</p>}
     </div>
   )

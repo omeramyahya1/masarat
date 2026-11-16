@@ -6,6 +6,10 @@
     "tagline": "Electronic manifest and transport tax system",
     "panelSwitcher": "Switch panel"
   },
+  "language": {
+    "label": "Change language",
+    "switchTo": "العربية"
+  },
   "panels": {
     "owner": {
       "tab": "Fleet Owner",

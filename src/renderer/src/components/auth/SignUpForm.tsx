@@ -59,6 +59,7 @@ function SignUpForm({ role, onAuthenticated }: SignUpFormProps): React.JSX.Eleme
         label={t('auth.fields.username')}
         hint={t('auth.fields.usernameHint')}
         autoComplete="username"
+        ltr
         {...bind('username')}
       />
       <div className="grid grid-cols-2 gap-4">
@@ -66,6 +67,7 @@ function SignUpForm({ role, onAuthenticated }: SignUpFormProps): React.JSX.Eleme
           label={t('auth.fields.phone')}
           type="tel"
           autoComplete="tel"
+          ltr
           optional
           {...bind('phone')}
         />

@@ -15,6 +15,10 @@ export interface UpdateProgress {
 
 // Custom APIs for renderer
 const api = {
+  db: {
+    getVehicles: (): Promise<unknown[]> => ipcRenderer.invoke('db:get-vehicles'),
+    addVehicle: (data: unknown): Promise<unknown> => ipcRenderer.invoke('db:add-vehicle', data)
+  },
   updater: {
     checkForUpdates: (): Promise<unknown> => ipcRenderer.invoke('updater:check'),
     quitAndInstall: (): Promise<void> => ipcRenderer.invoke('updater:quit-and-install'),

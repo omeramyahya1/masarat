@@ -3,7 +3,14 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type { AuthResult, AuthUser, LogInInput, SignUpInput, UserRole } from '../shared/auth'
 
 export interface UpdateStatus {
-  status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  status:
+    | 'checking'
+    | 'available'
+    | 'not-available'
+    | 'downloading'
+    | 'downloaded'
+    | 'error'
+    | 'unsupported'
   version?: string
   error?: string
 }

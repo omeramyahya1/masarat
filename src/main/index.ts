@@ -20,6 +20,11 @@ function sendUpdateMessage(channel: string, payload: unknown): void {
   }
 }
 
+// electron-updater only works in packaged builds, and on Linux only when running as an AppImage
+function canAutoUpdate(): boolean {
+  return app.isPackaged && (process.platform !== 'linux' || Boolean(process.env.APPIMAGE))
+}
+
 function configureAutoUpdater(): void {
   if (updaterConfigured) return
   updaterConfigured = true
@@ -67,6 +72,10 @@ function configureAutoUpdater(): void {
 
   // IPC Handlers for renderer
   ipcMain.handle('updater:check', async () => {
+    if (!canAutoUpdate()) {
+      sendUpdateMessage('updater:status', { status: 'unsupported' })
+      return null
+    }
     try {
       return await autoUpdater.checkForUpdates()
     } catch (err: unknown) {
@@ -123,10 +132,9 @@ function createWindow(): void {
     window.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // Check for updates once we are ready. electron-updater does not support
-  // the supplied Linux build, so do not invoke it there.
+  // Check for updates once we are ready (see canAutoUpdate for supported builds)
   window.once('ready-to-show', () => {
-    if (process.platform !== 'linux' && app.isPackaged) {
+    if (canAutoUpdate()) {
       autoUpdater.checkForUpdates().catch((err) => {
         log.error('Auto-check for updates failed:', err)
       })

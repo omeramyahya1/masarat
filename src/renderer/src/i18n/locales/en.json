@@ -60,10 +60,22 @@
     "logOut": "Log out"
   },
   "updater": {
-    "downloading": "Downloading update… {{percent}}%",
-    "readyTitle": "Update ready",
-    "readyBody": "Version {{version}} is ready to install.",
-    "restartNow": "Restart now",
-    "later": "Later"
+    "button": {
+      "idle": "Check for updates",
+      "checking": "Checking…",
+      "available": "Update found…",
+      "downloading": "Downloading {{percent}}%",
+      "downloaded": "Restart to update",
+      "not-available": "You're up to date",
+      "unsupported": "Updates work in the installed app only",
+      "error": "Update check failed"
+    },
+    "dialog": {
+      "title": "Update ready",
+      "body": "Version {{version}} has been downloaded. Restart Masarat to finish installing it.",
+      "bodyNoVersion": "A new version has been downloaded. Restart Masarat to finish installing it.",
+      "restart": "Restart now",
+      "later": "Later"
+    }
   }
 }

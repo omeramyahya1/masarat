@@ -5,7 +5,7 @@ import type { AuthUser, UserRole } from '../../shared/auth'
 import { PANELS, PANEL_ICONS } from './panels'
 import AuthPanel from './components/auth/AuthPanel'
 import HomeView from './components/HomeView'
-import UpdateNotification from './components/UpdateNotification'
+import UpdateControl from './components/UpdateControl'
 
 // Each panel has its own signed-in user
 type Sessions = Record<UserRole, AuthUser | null>
@@ -50,32 +50,35 @@ function App(): React.JSX.Element {
           </div>
         </div>
 
-        <div
-          className="flex gap-1 rounded-lg border border-stone-200 bg-stone-100 p-1"
-          role="tablist"
-          aria-label={t('app.panelSwitcher')}
-        >
-          {PANELS.map((role) => {
-            const Icon = PANEL_ICONS[role]
-            const active = role === activeRole
-            return (
-              <button
-                key={role}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                className={`flex items-center gap-2 rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-                  active
-                    ? 'bg-white text-brand-800 shadow-sm ring-1 ring-stone-200'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-                onClick={() => setActiveRole(role)}
-              >
-                <Icon size={16} />
-                {t(`panels.${role}.tab`)}
-              </button>
-            )
-          })}
+        <div className="flex items-center gap-4">
+          <div
+            className="flex gap-1 rounded-lg border border-stone-200 bg-stone-100 p-1"
+            role="tablist"
+            aria-label={t('app.panelSwitcher')}
+          >
+            {PANELS.map((role) => {
+              const Icon = PANEL_ICONS[role]
+              const active = role === activeRole
+              return (
+                <button
+                  key={role}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className={`flex items-center gap-2 rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                    active
+                      ? 'bg-white text-brand-800 shadow-sm ring-1 ring-stone-200'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                  onClick={() => setActiveRole(role)}
+                >
+                  <Icon size={16} />
+                  {t(`panels.${role}.tab`)}
+                </button>
+              )
+            })}
+          </div>
+          <UpdateControl />
         </div>
       </header>
 
@@ -90,8 +93,6 @@ function App(): React.JSX.Element {
           />
         )}
       </main>
-
-      <UpdateNotification />
     </>
   )
 }

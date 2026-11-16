@@ -26,7 +26,9 @@ interface VehicleDialogProps {
 
 function initialPlate(vehicle?: VehicleRecord): PlateValue {
   const parts = vehicle && parsePlate(vehicle.plateNumber)
-  return parts ? { code: parts.code, number: String(parts.number) } : { code: '', number: '' }
+  return parts
+    ? { code: parts.code, series: String(parts.series), number: String(parts.number) }
+    : { code: '', series: '', number: '' }
 }
 
 function VehicleDialog({ vehicle, onClose, onSaved }: VehicleDialogProps): React.JSX.Element {

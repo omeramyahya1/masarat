@@ -25,7 +25,7 @@ It's an Electron desktop app with **two views the user can toggle between**:
 
 ## Fleet & trips rules
 
-- **Plate numbers** (`src/shared/plate.ts`): a state code of 1-2 letters (KH, RS, NK, …) plus a number from 0 to 99999. They are stored in English as `"KH 123"` and shown in Arabic as `"خ ١٢٣"`, with Eastern Arabic digits. Validation happens in the UI and services, not as a DB constraint.
+- **Plate numbers** (`src/shared/plate.ts`): a state code of 1-2 letters (KH, RS, NK, …), a series from 1 to 99, then a number from 1 to 99999. They are stored in English as `"KH 12/34567"` and shown in Arabic as `"خ ١٢ / ٣٤٥٦٧"` (letters → series → number, read right to left), with Eastern Arabic digits. Validation happens in the UI and services, not as a DB constraint.
 - **Tax** (`src/shared/tax.ts`): `rate_per_km × distance_km × quantity / per_quantity`. Distance is the haversine distance between the cities × a 1.3 road factor (an estimate until real routing exists). The main process recomputes the tax on save; the renderer's preview is never trusted.
 - Cargo is measured in its tax rate's unit, which must match the vehicle's capacity unit (e.g. fuel → liters → tanker). New trips are saved as `draft` manifests.
 

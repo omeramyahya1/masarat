@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { CityRecord, QuantityUnit } from '../../../shared/fleet'
-import { PLATE_LETTERS_AR, parsePlate } from '../../../shared/plate'
+import { PLATE_LETTERS_AR, formatPlate, parsePlate } from '../../../shared/plate'
 
 const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩'
 const PERSIAN_DIGITS = '۰۱۲۳۴۵۶۷۸۹'
@@ -30,7 +30,7 @@ export interface Formatters {
   currency: (amount: number) => string
   quantity: (value: number, unit: QuantityUnit) => string
   date: (ms: number) => string
-  // Stored English plate ("KH 123") in the current language ("خ ١٢٣" in Arabic)
+  // Stored English plate ("KH 12/34567") in the current language ("خ ١٢ / ٣٤٥٦٧" in Arabic)
   plate: (plate: string) => string
   city: (city: Pick<CityRecord, 'name' | 'nameAr'> | undefined) => string
 }
@@ -54,9 +54,11 @@ export function useFormat(): Formatters {
       plate: (plate) => {
         const parts = parsePlate(plate)
         if (!parts) return plate
-        return isArabic
-          ? `${PLATE_LETTERS_AR[parts.code]} ${toArabicDigits(String(parts.number))}`
-          : `${parts.code} ${parts.number}`
+        if (!isArabic) return formatPlate(parts)
+        // Spaces around the slash keep "letters, series, number" in right-to-left order;
+        // without them the bidi algorithm reads "١٢/٣٤٥٦٧" as one left-to-right number
+        const { code, series, number } = parts
+        return `${PLATE_LETTERS_AR[code]} ${toArabicDigits(String(series))} / ${toArabicDigits(String(number))}`
       },
       city: (city) => (city ? (isArabic && city.nameAr) || city.name : '—')
     }

@@ -4,6 +4,7 @@ import {
   PLATE_CODES,
   PLATE_LETTERS_AR,
   PLATE_NUMBER_MAX_DIGITS,
+  PLATE_SERIES_MAX_DIGITS,
   type PlateCode
 } from '../../../../shared/plate'
 import { plateValueToString, type PlateValue } from '../../lib/plateValue'
@@ -15,7 +16,7 @@ interface PlateInputProps {
   onChange: (value: PlateValue) => void
 }
 
-// State letters + number. The letters show in Arabic (with the state name) while the UI is Arabic;
+// State letters + series / number. The letters show in Arabic (with the state name) while the UI is Arabic;
 // the value is always the English code.
 function PlateInput({ value, onChange }: PlateInputProps): React.JSX.Element {
   const { t, i18n } = useTranslation()
@@ -26,7 +27,7 @@ function PlateInput({ value, onChange }: PlateInputProps): React.JSX.Element {
   return (
     <div className="flex flex-col gap-1.5">
       <FieldLabel htmlFor={codeId} label={t('fleet.fields.plate')} />
-      <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-2">
+      <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,0.6fr)_auto_minmax(0,1fr)] items-center gap-2">
         <select
           id={codeId}
           className="input"
@@ -43,6 +44,16 @@ function PlateInput({ value, onChange }: PlateInputProps): React.JSX.Element {
             </option>
           ))}
         </select>
+        <NumberField
+          ariaLabel={t('fleet.fields.plateSeries')}
+          value={value.series}
+          maxDigits={PLATE_SERIES_MAX_DIGITS}
+          placeholder={t('fleet.fields.plateSeriesPlaceholder')}
+          onValueChange={(series) => onChange({ ...value, series })}
+        />
+        <span className="text-lg text-stone-400" aria-hidden>
+          /
+        </span>
         <NumberField
           ariaLabel={t('fleet.fields.plateNumber')}
           value={value.number}

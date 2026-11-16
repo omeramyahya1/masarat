@@ -105,7 +105,7 @@
     "lorry": "لوري",
     "light_duty_truck": "شاحنة خفيفة",
     "jumbo_truck": "شاحنة جامبو",
-    "tanker": "صهريج",
+    "tanker": "تانكر",
     "container_truck": "شاحنة حاويات"
   },
   "cargoTypes": {
@@ -179,10 +179,12 @@
       "plate": "رقم اللوحة",
       "plateState": "حروف الولاية",
       "plateStatePlaceholder": "الولاية",
+      "plateSeries": "سلسلة اللوحة",
+      "plateSeriesPlaceholder": "١ – ٩٩",
       "plateNumber": "أرقام اللوحة",
-      "plateNumberPlaceholder": "٠ – ٩٩٩٩٩",
+      "plateNumberPlaceholder": "١ – ٩٩٩٩٩",
       "platePreview": "المعاينة:",
-      "plateHint": "اختر حروف الولاية ثم أدخل حتى ٥ أرقام.",
+      "plateHint": "اختر حروف الولاية، ثم أدخل السلسلة (١–٩٩) والرقم (١–٩٩٩٩٩).",
       "vehicleType": "نوع المركبة",
       "vehicleTypePlaceholder": "اختر النوع",
       "capacity": "السعة الاستيعابية",
@@ -195,7 +197,7 @@
     "errors": {
       "not_signed_in": "انتهت جلستك. يُرجى تسجيل الدخول مرة أخرى.",
       "missing_fields": "يُرجى ملء جميع الحقول المطلوبة.",
-      "invalid_plate": "أدخل لوحة صحيحة: حروف الولاية ورقمًا من ٠ إلى ٩٩٩٩٩.",
+      "invalid_plate": "أدخل لوحة صحيحة: حروف الولاية، وسلسلة من ١ إلى ٩٩، ورقمًا من ١ إلى ٩٩٩٩٩.",
       "invalid_capacity": "يجب أن تكون السعة أكبر من صفر.",
       "plate_taken": "توجد مركبة مسجّلة بهذا الرقم بالفعل.",
       "vehicle_not_found": "تعذّر العثور على هذه المركبة.",

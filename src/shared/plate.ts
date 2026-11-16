@@ -1,5 +1,6 @@
-// Sudanese plate numbers: a state code (1-2 letters) followed by a number from 0 to 99999.
-// Stored in English as "<CODE> <NUMBER>" (e.g. "KH 12345"); the UI shows the Arabic form in Arabic.
+// Sudanese plate numbers: a state code (1-2 letters), a series from 1 to 99, then a number from
+// 1 to 99999. Stored in English as "<CODE> <SERIES>/<NUMBER>" (e.g. "KH 12/34567"); the UI shows
+// the Arabic form in Arabic.
 
 export const PLATE_CODES = [
   'KH',
@@ -44,27 +45,34 @@ export const PLATE_LETTERS_AR: Record<PlateCode, string> = {
   WK: 'غ ك'
 }
 
+export const PLATE_SERIES_MAX = 99
+export const PLATE_SERIES_MAX_DIGITS = 2
 export const PLATE_NUMBER_MAX = 99999
 export const PLATE_NUMBER_MAX_DIGITS = 5
 
 export interface PlateParts {
   code: PlateCode
+  series: number
   number: number
 }
 
 const isPlateCode = (value: string): value is PlateCode =>
   (PLATE_CODES as readonly string[]).includes(value)
 
-export function formatPlate({ code, number }: PlateParts): string {
-  return `${code} ${number}`
+const inRange = (value: number, max: number): boolean => value >= 1 && value <= max
+
+export function formatPlate({ code, series, number }: PlateParts): string {
+  return `${code} ${series}/${number}`
 }
 
 // Accepts the stored form; returns null for anything that isn't a valid plate
 export function parsePlate(value: string): PlateParts | null {
-  const match = /^([A-Z]{1,2}) (\d{1,5})$/.exec(value.trim().toUpperCase())
+  const match = /^([A-Z]{1,2}) (\d{1,2})\/(\d{1,5})$/.exec(value.trim().toUpperCase())
   if (!match || !isPlateCode(match[1])) return null
-  const number = Number(match[2])
-  return number <= PLATE_NUMBER_MAX ? { code: match[1], number } : null
+  const series = Number(match[2])
+  const number = Number(match[3])
+  if (!inRange(series, PLATE_SERIES_MAX) || !inRange(number, PLATE_NUMBER_MAX)) return null
+  return { code: match[1], series, number }
 }
 
 // Canonical stored form (no leading zeros, single space), or null if invalid

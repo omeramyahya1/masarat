@@ -39,6 +39,12 @@ It's an Electron desktop app with **two views the user can toggle between**:
 - `npm run lint` / `npm run format`
 - `npm run build:linux` / `npm run build:win`: package the app
 
+## Releasing
+
+- Packaging config lives only in `electron-builder.yml`. Don't add a `build` key to `package.json`: electron-builder would read that instead and silently ignore the yml (including `extraResources: drizzle`, without which installed builds can't migrate).
+- `npm version patch`, then `GH_TOKEN=<token> npm run release:linux`. `scripts/tag-release.mjs` pushes the `v<version>` tag for the current commit, then the AppImage is built and published as a GitHub release.
+- Publishing the release triggers `.github/workflows/release-windows.yml`, which builds the NSIS installer and portable `.exe` from the same tag and uploads them to that release. electron-updater reads `latest-linux.yml` / `latest.yml` from the latest release.
+
 ## Guidelines
 
 - Mock or simulate external systems (E-Sali, Bankak/banks) behind clear interfaces so they can be swapped for real integrations later.

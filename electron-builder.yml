@@ -1,26 +1,41 @@
+# The only electron-builder config: keep package.json free of a "build" key,
+# otherwise electron-builder reads that instead and ignores this file.
 appId: com.masarat.alpha
 productName: Masarat MVP
 directories:
   buildResources: build
 files:
   - '!**/.vscode/*'
+  - '!**/.github/*'
   - '!src/*'
+  - '!drizzle/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!drizzle.config.ts'
+  - '!scripts/*'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{CLAUDE.md,CLAUDE.local.md,prompt.txt}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # Local development database
+  - '!masarat.db*'
 asarUnpack:
   - resources/**
+# Migrations are applied on startup from <resources>/drizzle
 extraResources:
   - from: drizzle
     to: drizzle
 win:
   executableName: masarat
+  target:
+    - nsis
+    - portable
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+portable:
+  artifactName: ${name}-${version}-portable.${ext}
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
@@ -34,7 +49,7 @@ dmg:
 linux:
   target:
     - AppImage
-  maintainer: electronjs.org
+  maintainer: omeramyahya1
   category: Utility
 appImage:
   artifactName: ${name}-${version}.${ext}
@@ -43,6 +58,5 @@ publish:
   provider: github
   owner: omeramyahya1
   repo: masarat
+  # Publish straight away instead of leaving a draft (a draft has no git tag)
   releaseType: release
-electronDownload:
-  mirror: https://npmmirror.com/mirrors/electron/

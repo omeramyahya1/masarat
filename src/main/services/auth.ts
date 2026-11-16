@@ -54,6 +54,22 @@ const asText = (value: unknown): string => (typeof value === 'string' ? value.tr
 // One signed-in user per panel, kept here so later IPC handlers can authorize by role
 const sessions = new Map<UserRole, AuthUser>()
 
+// Bumped when an auth request starts and on logout. A request only stores its session if no
+// newer request or logout happened while it was awaiting password hashing.
+const generations = new Map<UserRole, number>()
+
+function nextGeneration(role: UserRole): number {
+  const generation = (generations.get(role) ?? 0) + 1
+  generations.set(role, generation)
+  return generation
+}
+
+function commitSession(generation: number, user: AuthUser): AuthResult {
+  if (generations.get(user.role) !== generation) return { ok: false, error: 'cancelled' }
+  sessions.set(user.role, user)
+  return { ok: true, user }
+}
+
 export async function signUp(input: SignUpInput): Promise<AuthResult> {
   const fullName = asText(input?.fullName)
   const username = asText(input?.username).toLowerCase()
@@ -65,6 +81,7 @@ export async function signUp(input: SignUpInput): Promise<AuthResult> {
   if (!USERNAME_PATTERN.test(username)) return { ok: false, error: 'invalid_username' }
   if (password.length < PASSWORD_MIN_LENGTH) return { ok: false, error: 'weak_password' }
 
+  const generation = nextGeneration(input.role)
   const db = getDb()
   const existing = db.select({ id: users.id }).from(users).where(eq(users.username, username)).get()
   if (existing) return { ok: false, error: 'username_taken' }
@@ -82,9 +99,7 @@ export async function signUp(input: SignUpInput): Promise<AuthResult> {
     .returning()
     .get()
 
-  const user = toAuthUser(created)
-  sessions.set(user.role, user)
-  return { ok: true, user }
+  return commitSession(generation, toAuthUser(created))
 }
 
 export async function logIn(input: LogInInput): Promise<AuthResult> {
@@ -95,6 +110,7 @@ export async function logIn(input: LogInInput): Promise<AuthResult> {
     return { ok: false, error: 'missing_fields' }
   }
 
+  const generation = nextGeneration(input.role)
   const found = getDb().select().from(users).where(eq(users.username, username)).get()
   if (!found || !(await verifyPassword(password, found.passwordHash))) {
     return { ok: false, error: 'invalid_credentials' }
@@ -102,12 +118,11 @@ export async function logIn(input: LogInInput): Promise<AuthResult> {
   // Only reported after the password checks out, so it doesn't reveal which usernames exist
   if (found.role !== input.role) return { ok: false, error: 'wrong_panel' }
 
-  const user = toAuthUser(found)
-  sessions.set(user.role, user)
-  return { ok: true, user }
+  return commitSession(generation, toAuthUser(found))
 }
 
 export function logOut(role: UserRole): void {
+  nextGeneration(role)
   sessions.delete(role)
 }
 

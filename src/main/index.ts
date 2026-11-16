@@ -4,6 +4,7 @@ import log from 'electron-log'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { eq } from 'drizzle-orm'
 import { initDb, closeDb, getDb, vehicles, type NewVehicle } from './db'
 import { getSession, logIn, logOut, signUp } from './services/auth'
 import type { AuthResult, LogInInput, SignUpInput, UserRole } from '../shared/auth'
@@ -143,17 +144,31 @@ function createWindow(): void {
 }
 
 // Database Handlers
+type VehicleInput = Pick<NewVehicle, 'plateNumber' | 'vehicleType' | 'capacity' | 'capacityUnit'>
+
 function registerDbHandlers(): void {
   initDb()
 
+  // Vehicle access is scoped to the signed-in fleet owner; the renderer never picks the owner
+  const requireOwnerId = (): number => {
+    const owner = getSession('owner')
+    if (!owner) throw new Error('Not signed in as a fleet owner')
+    return owner.id
+  }
+
   ipcMain.handle('db:get-vehicles', async () => {
-    const db = getDb()
-    return db.select().from(vehicles).all()
+    const ownerId = requireOwnerId()
+    return getDb().select().from(vehicles).where(eq(vehicles.ownerId, ownerId)).all()
   })
 
-  ipcMain.handle('db:add-vehicle', async (_event, data: NewVehicle) => {
-    const db = getDb()
-    return db.insert(vehicles).values(data).returning().get()
+  ipcMain.handle('db:add-vehicle', async (_event, data: VehicleInput) => {
+    const ownerId = requireOwnerId()
+    const { plateNumber, vehicleType, capacity, capacityUnit } = data
+    return getDb()
+      .insert(vehicles)
+      .values({ ownerId, plateNumber, vehicleType, capacity, capacityUnit })
+      .returning()
+      .get()
   })
 }
 

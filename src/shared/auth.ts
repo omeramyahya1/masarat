@@ -33,6 +33,7 @@ export type AuthErrorCode =
   | 'username_taken'
   | 'invalid_credentials'
   | 'wrong_panel'
+  | 'cancelled'
   | 'unknown'
 
 export type AuthResult = { ok: true; user: AuthUser } | { ok: false; error: AuthErrorCode }

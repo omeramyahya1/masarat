@@ -52,6 +52,7 @@
       "username_taken": "This username is already taken.",
       "invalid_credentials": "Incorrect username or password.",
       "wrong_panel": "This account belongs to the other panel. Switch panels to log in.",
+      "cancelled": "Sign-in was cancelled. Please try again.",
       "unknown": "Something went wrong. Please try again."
     }
   },

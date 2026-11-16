@@ -1,0 +1,64 @@
+import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { CityRecord, QuantityUnit } from '../../../shared/fleet'
+import { PLATE_LETTERS_AR, parsePlate } from '../../../shared/plate'
+
+const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩'
+const PERSIAN_DIGITS = '۰۱۲۳۴۵۶۷۸۹'
+
+// Eastern Arabic digits for display in Arabic; the decimal point becomes the Arabic separator
+export const toArabicDigits = (value: string): string =>
+  value.replace(/[0-9]/g, (d) => ARABIC_DIGITS[Number(d)]).replace(/\./g, '٫')
+
+// Inverse of toArabicDigits, so users can type with either keyboard (stored values stay Western)
+export const toWesternDigits = (value: string): string =>
+  value
+    .replace(/[٠-٩]/g, (d) => String(ARABIC_DIGITS.indexOf(d)))
+    .replace(/[۰-۹]/g, (d) => String(PERSIAN_DIGITS.indexOf(d)))
+    .replace(/٫/g, '.')
+
+// Today's local date as YYYY-MM-DD (the trip date format)
+export function todayIso(): string {
+  const now = new Date()
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+}
+
+export interface Formatters {
+  isArabic: boolean
+  number: (value: number) => string
+  currency: (amount: number) => string
+  quantity: (value: number, unit: QuantityUnit) => string
+  date: (ms: number) => string
+  // Stored English plate ("KH 123") in the current language ("خ ١٢٣" in Arabic)
+  plate: (plate: string) => string
+  city: (city: Pick<CityRecord, 'name' | 'nameAr'> | undefined) => string
+}
+
+export function useFormat(): Formatters {
+  const { t, i18n } = useTranslation()
+  const isArabic = i18n.language === 'ar'
+
+  return useMemo(() => {
+    const locale = isArabic ? 'ar-SD-u-nu-arab' : 'en-US'
+    const numberFormat = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 })
+    const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' })
+    const number = (value: number): string => numberFormat.format(value)
+
+    return {
+      isArabic,
+      number,
+      currency: (amount) => t('common.currency', { amount: number(amount) }),
+      quantity: (value, unit) => t(`units.short.${unit}`, { value: number(value) }),
+      date: (ms) => dateFormat.format(ms),
+      plate: (plate) => {
+        const parts = parsePlate(plate)
+        if (!parts) return plate
+        return isArabic
+          ? `${PLATE_LETTERS_AR[parts.code]} ${toArabicDigits(String(parts.number))}`
+          : `${parts.code} ${parts.number}`
+      },
+      city: (city) => (city ? (isArabic && city.nameAr) || city.name : '—')
+    }
+  }, [isArabic, t])
+}

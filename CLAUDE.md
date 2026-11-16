@@ -23,6 +23,12 @@ It's an Electron desktop app with **two views the user can toggle between**:
 6. **Payment confirmation**: once the system confirms payment, it moves on to the next step.
 7. **Certificate issuance**: the app issues a trip/tax **certificate with a QR code** that traffic/checkpoint **officers can scan to verify it quickly**.
 
+## Fleet & trips rules
+
+- **Plate numbers** (`src/shared/plate.ts`): a state code of 1-2 letters (KH, RS, NK, …) plus a number from 0 to 99999. They are stored in English as `"KH 123"` and shown in Arabic as `"خ ١٢٣"`, with Eastern Arabic digits. Validation happens in the UI and services, not as a DB constraint.
+- **Tax** (`src/shared/tax.ts`): `rate_per_km × distance_km × quantity / per_quantity`. Distance is the haversine distance between the cities × a 1.3 road factor (an estimate until real routing exists). The main process recomputes the tax on save; the renderer's preview is never trusted.
+- Cargo is measured in its tax rate's unit, which must match the vehicle's capacity unit (e.g. fuel → liters → tanker). New trips are saved as `draft` manifests.
+
 ## Tech stack
 
 - Electron + electron-vite, React 19, TypeScript

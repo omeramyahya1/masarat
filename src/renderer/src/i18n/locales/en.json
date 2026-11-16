@@ -82,5 +82,195 @@
       "restart": "Restart now",
       "later": "Later"
     }
+  },
+  "common": {
+    "currency": "{{amount}} SDG",
+    "cancel": "Cancel",
+    "back": "Back",
+    "actions": "Actions"
+  },
+  "units": {
+    "short": {
+      "ton": "{{value}} t",
+      "liter": "{{value}} L"
+    },
+    "name": {
+      "ton": "Tons",
+      "liter": "Liters"
+    },
+    "km": "{{value}} km"
+  },
+  "vehicleTypes": {
+    "heavy_duty_truck": "Heavy-duty truck",
+    "lorry": "Lorry",
+    "light_duty_truck": "Light-duty truck",
+    "jumbo_truck": "Jumbo truck",
+    "tanker": "Tanker",
+    "container_truck": "Container truck"
+  },
+  "cargoTypes": {
+    "fuel": "Fuel",
+    "containers": "Containers",
+    "general_cargo": "General cargo"
+  },
+  "statuses": {
+    "draft": "Draft",
+    "billed": "Billed",
+    "paid": "Paid",
+    "certified": "Certified",
+    "cancelled": "Cancelled"
+  },
+  "plates": {
+    "states": {
+      "KH": "Khartoum",
+      "RS": "Red Sea",
+      "NK": "North Kordofan",
+      "K": "Kassala",
+      "WN": "White Nile",
+      "SD": "South Darfur",
+      "G": "Gezira",
+      "GD": "Gedaref",
+      "S": "Sennar",
+      "BN": "Blue Nile",
+      "WD": "West Darfur",
+      "ND": "North Darfur",
+      "RN": "River Nile",
+      "SK": "South Kordofan",
+      "N": "Northern",
+      "CD": "Central Darfur",
+      "WK": "West Kordofan"
+    }
+  },
+  "owner": {
+    "sections": "Fleet owner sections",
+    "vehicles": "Vehicles",
+    "trips": "Trips"
+  },
+  "fleet": {
+    "title": "Vehicles",
+    "subtitle": "Register the vehicles in your fleet, with their type and carrying capacity.",
+    "add": "Add vehicle",
+    "edit": "Edit",
+    "editPlate": "Edit vehicle {{plate}}",
+    "delete": "Delete",
+    "deletePlate": "Delete vehicle {{plate}}",
+    "empty": {
+      "title": "No vehicles yet",
+      "body": "Add your first vehicle to start registering trips and paying transport tax."
+    },
+    "columns": {
+      "plate": "Plate number",
+      "type": "Type",
+      "capacity": "Capacity",
+      "trips": "Trips"
+    },
+    "dialog": {
+      "addTitle": "Add a vehicle",
+      "editTitle": "Edit vehicle",
+      "subtitle": "Plate, type and carrying capacity.",
+      "add": "Add vehicle",
+      "save": "Save changes"
+    },
+    "deleteDialog": {
+      "title": "Delete this vehicle?",
+      "body": "The vehicle will be removed from your fleet. This cannot be undone."
+    },
+    "fields": {
+      "plate": "Plate number",
+      "plateState": "State letters",
+      "plateStatePlaceholder": "State",
+      "plateNumber": "Plate digits",
+      "plateNumberPlaceholder": "0 – 99999",
+      "platePreview": "Preview:",
+      "plateHint": "Choose the state letters, then enter up to 5 digits.",
+      "vehicleType": "Vehicle type",
+      "vehicleTypePlaceholder": "Select a type",
+      "capacity": "Carrying capacity",
+      "capacityPlaceholder": {
+        "ton": "e.g. 30",
+        "liter": "e.g. 36000"
+      },
+      "capacityUnit": "Unit"
+    },
+    "errors": {
+      "not_signed_in": "Your session has ended. Please log in again.",
+      "missing_fields": "Please fill in all required fields.",
+      "invalid_plate": "Enter a valid plate: state letters and a number from 0 to 99999.",
+      "invalid_capacity": "Capacity must be greater than zero.",
+      "plate_taken": "A vehicle with this plate number is already registered.",
+      "vehicle_not_found": "This vehicle could not be found.",
+      "vehicle_in_use": "Vehicles with registered trips can't be deleted.",
+      "city_not_found": "Choose a valid origin and destination.",
+      "same_route": "Origin and destination must be different cities.",
+      "invalid_quantity": "Cargo quantity must be greater than zero.",
+      "unit_mismatch": "This vehicle can't carry the selected cargo type.",
+      "over_capacity": "Cargo quantity exceeds the vehicle's capacity.",
+      "invalid_date": "Choose a valid trip date.",
+      "unknown": "Something went wrong. Please try again."
+    }
+  },
+  "trips": {
+    "title": "Trips",
+    "subtitle": "Register trips and see the transport tax due on each one.",
+    "new": "New trip",
+    "backToList": "Back to trips",
+    "created": "Trip for {{plate}} saved as a draft. Tax due: {{amount}}.",
+    "empty": {
+      "title": "No trips yet",
+      "body": "Create a trip to calculate its transport tax."
+    },
+    "noVehicles": {
+      "title": "Add a vehicle first",
+      "body": "Every trip is made by one of your registered vehicles.",
+      "action": "Go to vehicles"
+    },
+    "columns": {
+      "date": "Date",
+      "vehicle": "Vehicle",
+      "route": "Route",
+      "cargo": "Cargo",
+      "distance": "Distance",
+      "tax": "Tax",
+      "status": "Status"
+    },
+    "form": {
+      "title": "New trip",
+      "subtitle": "Enter the trip details. The tax is calculated as you go.",
+      "vehicleSection": "Vehicle",
+      "routeSection": "Route",
+      "cargoSection": "Cargo",
+      "vehicleCapacity": "Capacity: {{capacity}}",
+      "submit": "Save trip"
+    },
+    "fields": {
+      "vehicle": "Vehicle",
+      "vehiclePlaceholder": "Select a vehicle",
+      "origin": "Origin",
+      "destination": "Destination",
+      "cityPlaceholder": "Select a city",
+      "tripDate": "Trip date",
+      "cargoType": "Cargo type",
+      "cargoTypePlaceholder": "Select cargo",
+      "quantity": "Quantity"
+    },
+    "tax": {
+      "title": "Tax calculation",
+      "route": "Route",
+      "distance": "Estimated distance",
+      "rate": "Rate",
+      "rateValue": {
+        "ton": "{{rate}} per km for each {{per}} t",
+        "liter": "{{rate}} per km for each {{per}} L"
+      },
+      "rateValuePerOne": {
+        "ton": "{{rate}} per km per ton",
+        "liter": "{{rate}} per km per liter"
+      },
+      "quantity": "Quantity",
+      "total": "Tax due",
+      "formula": "{{rate}} × {{distance}} km × {{quantity}}",
+      "formulaPer": "{{rate}} × {{distance}} km × {{quantity}} ÷ {{per}}",
+      "distanceNote": "Distance is estimated from city coordinates (straight line × {{factor}} road factor). Tax = rate × distance × quantity."
+    }
   }
 }

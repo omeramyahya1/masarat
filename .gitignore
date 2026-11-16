@@ -8,3 +8,11 @@ out
 .vscode
 
 .env*
+
+prompt.txt
+
+CLAUDE.local.md
+
+masarat.db*
+
+*.csv

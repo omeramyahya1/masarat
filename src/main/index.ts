@@ -4,6 +4,10 @@ import log from 'electron-log'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { eq } from 'drizzle-orm'
+import { initDb, closeDb, getDb, vehicles, type NewVehicle } from './db'
+import { getSession, logIn, logOut, signUp } from './services/auth'
+import type { AuthResult, LogInInput, SignUpInput, UserRole } from '../shared/auth'
 
 // Configure updater logging
 autoUpdater.logger = log
@@ -15,6 +19,11 @@ function sendUpdateMessage(channel: string, payload: unknown): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, payload)
   }
+}
+
+// electron-updater only works in packaged builds, and on Linux only when running as an AppImage
+function canAutoUpdate(): boolean {
+  return app.isPackaged && (process.platform !== 'linux' || Boolean(process.env.APPIMAGE))
 }
 
 function configureAutoUpdater(): void {
@@ -64,6 +73,10 @@ function configureAutoUpdater(): void {
 
   // IPC Handlers for renderer
   ipcMain.handle('updater:check', async () => {
+    if (!canAutoUpdate()) {
+      sendUpdateMessage('updater:status', { status: 'unsupported' })
+      return null
+    }
     try {
       return await autoUpdater.checkForUpdates()
     } catch (err: unknown) {
@@ -81,8 +94,10 @@ function configureAutoUpdater(): void {
 function createWindow(): void {
   // Create the browser window.
   const window = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: 1100,
+    height: 760,
+    minWidth: 900,
+    minHeight: 640,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -118,15 +133,60 @@ function createWindow(): void {
     window.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // Check for updates once we are ready. electron-updater does not support
-  // the supplied Linux build, so do not invoke it there.
+  // Check for updates once we are ready (see canAutoUpdate for supported builds)
   window.once('ready-to-show', () => {
-    if (process.platform !== 'linux' && app.isPackaged) {
+    if (canAutoUpdate()) {
       autoUpdater.checkForUpdates().catch((err) => {
         log.error('Auto-check for updates failed:', err)
       })
     }
   })
+}
+
+// Database Handlers
+type VehicleInput = Pick<NewVehicle, 'plateNumber' | 'vehicleType' | 'capacity' | 'capacityUnit'>
+
+function registerDbHandlers(): void {
+  initDb()
+
+  // Vehicle access is scoped to the signed-in fleet owner; the renderer never picks the owner
+  const requireOwnerId = (): number => {
+    const owner = getSession('owner')
+    if (!owner) throw new Error('Not signed in as a fleet owner')
+    return owner.id
+  }
+
+  ipcMain.handle('db:get-vehicles', async () => {
+    const ownerId = requireOwnerId()
+    return getDb().select().from(vehicles).where(eq(vehicles.ownerId, ownerId)).all()
+  })
+
+  ipcMain.handle('db:add-vehicle', async (_event, data: VehicleInput) => {
+    const ownerId = requireOwnerId()
+    const { plateNumber, vehicleType, capacity, capacityUnit } = data
+    return getDb()
+      .insert(vehicles)
+      .values({ ownerId, plateNumber, vehicleType, capacity, capacityUnit })
+      .returning()
+      .get()
+  })
+}
+
+// Auth Handlers
+async function runAuth(action: () => Promise<AuthResult>): Promise<AuthResult> {
+  try {
+    return await action()
+  } catch (err) {
+    log.error('Auth request failed:', err)
+    return { ok: false, error: 'unknown' }
+  }
+}
+
+function registerAuthHandlers(): void {
+  ipcMain.handle('auth:sign-up', (_event, input: SignUpInput) => runAuth(() => signUp(input)))
+  ipcMain.handle('auth:log-in', (_event, input: LogInInput) => runAuth(() => logIn(input)))
+  ipcMain.handle('auth:log-out', (_event, role: UserRole) => logOut(role))
+  ipcMain.handle('auth:get-session', (_event, role: UserRole) => getSession(role))
 }
 
 // This method will be called when Electron has finished
@@ -146,6 +206,8 @@ app.whenReady().then(() => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
+  registerDbHandlers()
+  registerAuthHandlers()
   configureAutoUpdater()
   createWindow()
 
@@ -163,6 +225,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('before-quit', () => {
+  closeDb()
 })
 
 // In this file you can include the rest of your app's specific main process

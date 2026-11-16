@@ -1,273 +1,263 @@
-@import './base.css';
+/*
+ * Tailwind v4 without Preflight: the small reset in the base layer below replaces it.
+ * Everything lives in cascade layers so Tailwind utilities can override the classes below
+ * (unlayered CSS would otherwise always win over utilities).
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
 
-body {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  background-image: url('./wavy-lines.svg');
-  background-size: cover;
-  user-select: none;
+/* Masarat palette: a muted, official green on a warm light canvas */
+@theme {
+  --color-brand-50: #eef6f0;
+  --color-brand-100: #d6ebdc;
+  --color-brand-200: #acd5b8;
+  --color-brand-300: #78b98c;
+  --color-brand-400: #4c9b66;
+  --color-brand-500: #2f8550;
+  --color-brand-600: #1f7041;
+  --color-brand-700: #185b36;
+  --color-brand-800: #13492c;
+  --color-brand-900: #0e3821;
+  --color-canvas: #f5f6f2;
 }
 
-code {
+/*
+ * Arabic font: IBM Plex Sans Arabic, bundled locally (the app runs offline and the CSP only allows
+ * 'self'). unicode-range limits it to Arabic characters, so Latin text keeps the system font.
+ */
+
+@font-face {
+  font-family: 'Masarat Arabic';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-400-normal.woff2')
+    format('woff2');
+  unicode-range:
+    U+0600-06FF, U+0750-077F, U+0870-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+    U+FE70-FEFC;
+}
+
+@font-face {
+  font-family: 'Masarat Arabic';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-500-normal.woff2')
+    format('woff2');
+  unicode-range:
+    U+0600-06FF, U+0750-077F, U+0870-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+    U+FE70-FEFC;
+}
+
+@font-face {
+  font-family: 'Masarat Arabic';
+  font-style: normal;
   font-weight: 600;
-  padding: 3px 5px;
-  border-radius: 2px;
-  background-color: var(--color-background-mute);
-  font-family:
-    ui-monospace,
-    SFMono-Regular,
-    SF Mono,
-    Menlo,
-    Consolas,
-    Liberation Mono,
-    monospace;
-  font-size: 85%;
+  font-display: swap;
+  src: url('@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-600-normal.woff2')
+    format('woff2');
+  unicode-range:
+    U+0600-06FF, U+0750-077F, U+0870-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+    U+FE70-FEFC;
 }
 
-#root {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  margin-bottom: 80px;
-}
-
-.logo {
-  margin-bottom: 20px;
-  -webkit-user-drag: none;
-  height: 128px;
-  width: 128px;
-  will-change: filter;
-  transition: filter 300ms;
-}
-
-.logo:hover {
-  filter: drop-shadow(0 0 1.2em #6988e6aa);
-}
-
-.creator {
-  font-size: 14px;
-  line-height: 16px;
-  color: var(--ev-c-text-2);
-  font-weight: 600;
-  margin-bottom: 10px;
-}
-
-.text {
-  font-size: 28px;
-  color: var(--ev-c-text-1);
+@font-face {
+  font-family: 'Masarat Arabic';
+  font-style: normal;
   font-weight: 700;
-  line-height: 32px;
-  text-align: center;
-  margin: 0 10px;
-  padding: 16px 0;
+  font-display: swap;
+  src: url('@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-700-normal.woff2')
+    format('woff2');
+  unicode-range:
+    U+0600-06FF, U+0750-077F, U+0870-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+    U+FE70-FEFC;
 }
 
-.tip {
-  font-size: 16px;
-  line-height: 24px;
-  color: var(--ev-c-text-2);
-  font-weight: 600;
-}
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 
-.react {
-  background: -webkit-linear-gradient(315deg, #087ea4 55%, #7c93ee);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  font-weight: 700;
-}
+  html,
+  body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
 
-.ts {
-  background: -webkit-linear-gradient(315deg, #3178c6 45%, #f0dc4e);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  font-weight: 700;
-}
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-stone-900);
+    /* Arabic face first: its unicode-range means only Arabic characters use it */
+    font-family:
+      'Masarat Arabic',
+      -apple-system,
+      BlinkMacSystemFont,
+      'Segoe UI',
+      Roboto,
+      Ubuntu,
+      Cantarell,
+      'Noto Sans',
+      sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    user-select: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
 
-.actions {
-  display: flex;
-  padding-top: 32px;
-  margin: -6px;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-}
+  #root {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
 
-.action {
-  flex-shrink: 0;
-  padding: 6px;
-}
+  ul {
+    list-style: none;
+  }
 
-.action a {
-  cursor: pointer;
-  text-decoration: none;
-  display: inline-block;
-  border: 1px solid transparent;
-  text-align: center;
-  font-weight: 600;
-  white-space: nowrap;
-  border-radius: 20px;
-  padding: 0 20px;
-  line-height: 38px;
-  font-size: 14px;
-  border-color: var(--ev-button-alt-border);
-  color: var(--ev-button-alt-text);
-  background-color: var(--ev-button-alt-bg);
-}
+  button,
+  input {
+    font: inherit;
+    color: inherit;
+  }
 
-.action a:hover {
-  border-color: var(--ev-button-alt-hover-border);
-  color: var(--ev-button-alt-hover-text);
-  background-color: var(--ev-button-alt-hover-bg);
-}
-
-.versions {
-  position: absolute;
-  bottom: 30px;
-  margin: 0 auto;
-  padding: 15px 0;
-  font-family: 'Menlo', 'Lucida Console', monospace;
-  display: inline-flex;
-  overflow: hidden;
-  align-items: center;
-  border-radius: 22px;
-  background-color: #202127;
-  backdrop-filter: blur(24px);
-}
-
-.versions li {
-  display: block;
-  float: left;
-  border-right: 1px solid var(--ev-c-gray-1);
-  padding: 0 20px;
-  font-size: 14px;
-  line-height: 14px;
-  opacity: 0.8;
-  &:last-child {
+  button {
+    cursor: pointer;
+    background: none;
     border: none;
   }
-}
 
-@media (max-width: 720px) {
-  .text {
-    font-size: 20px;
+  input {
+    user-select: text;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
   }
 }
 
-@media (max-width: 620px) {
-  .versions {
-    display: none;
+@layer components {
+  .card {
+    background-color: #ffffff;
+    border: 1px solid var(--color-stone-200);
+    border-radius: var(--radius-xl);
+    box-shadow: 0 1px 2px rgb(28 25 23 / 0.04);
+  }
+
+  .label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-stone-700);
+  }
+
+  .field-hint {
+    font-size: 12px;
+    color: var(--color-stone-500);
+  }
+
+  .input {
+    width: 100%;
+    height: 40px;
+    padding-inline: 12px;
+    border: 1px solid var(--color-stone-300);
+    border-radius: var(--radius-md);
+    background-color: #ffffff;
+    color: var(--color-stone-900);
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
+  }
+
+  .input::placeholder {
+    color: var(--color-stone-400);
+  }
+
+  .input:hover {
+    border-color: var(--color-stone-400);
+  }
+
+  .input:focus {
+    outline: none;
+    border-color: var(--color-brand-600);
+    box-shadow: 0 0 0 3px var(--color-brand-100);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 40px;
+    padding-inline: 16px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition:
+      background-color 0.15s,
+      border-color 0.15s,
+      color 0.15s;
+  }
+
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .btn-sm {
+    height: 34px;
+    padding-inline: 12px;
+    font-size: 13px;
+  }
+
+  .btn-primary {
+    background-color: var(--color-brand-700);
+    color: #ffffff;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background-color: var(--color-brand-800);
+  }
+
+  .btn-secondary {
+    background-color: #ffffff;
+    border-color: var(--color-stone-300);
+    color: var(--color-stone-800);
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    background-color: var(--color-stone-50);
+    border-color: var(--color-stone-400);
+  }
+
+  .link {
+    color: var(--color-brand-700);
+    font-weight: 500;
+  }
+
+  .link:hover {
+    text-decoration: underline;
+  }
+
+  .alert-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-red-200);
+    border-radius: var(--radius-md);
+    background-color: var(--color-red-50);
+    color: var(--color-red-800);
+    font-size: 13px;
   }
 }
-
-@media (max-width: 350px) {
-  .tip,
-  .actions {
-    display: none;
-  }
-}
-
-/* Update notification banner */
-.update-banner {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  background-color: rgba(32, 33, 39, 0.95);
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 14px;
-  padding: 12px 18px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
-  z-index: 1000;
-  animation: slideUp 0.3s ease-out;
-}
-
-@keyframes slideUp {
-  from {
-    transform: translateY(20px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-  }
-}
-
-.update-content {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.update-icon {
-  font-size: 20px;
-}
-
-.update-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--ev-c-text-1, #fff);
-}
-
-.update-desc {
-  font-size: 12px;
-  color: var(--ev-c-text-2, rgba(255, 255, 255, 0.7));
-}
-
-.update-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.update-btn {
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 6px 14px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.update-btn-primary {
-  background-color: #3b82f6;
-  color: #fff;
-}
-
-.update-btn-primary:hover {
-  background-color: #2563eb;
-}
-
-.update-btn-secondary {
-  background-color: transparent;
-  border-color: rgba(255, 255, 255, 0.2);
-  color: var(--ev-c-text-2, rgba(255, 255, 255, 0.8));
-}
-
-.update-btn-secondary:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-  color: var(--ev-c-text-1, #fff);
-}
-
-.update-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  border-top-color: #3b82f6;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-

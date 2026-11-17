@@ -4,6 +4,7 @@ import {
   MAX_CARGO_ITEMS,
   MAX_ITEM_NAME_LENGTH,
   itemUnitsFor,
+  type CargoType,
   type ItemUnit,
   type QuantityUnit
 } from '../../../../shared/fleet'
@@ -15,16 +16,19 @@ interface CargoItemsEditorProps {
   items: ItemDraft[]
   // The vehicle's capacity unit; item units are limited to the ones that convert to it
   unit: QuantityUnit
+  // Cargo types the vehicle can carry (their rate's unit matches the vehicle's)
+  cargoTypes: readonly CargoType[]
   // Total of the items in the vehicle's unit
   total: number
   capacity: number
   onChange: (items: ItemDraft[]) => void
 }
 
-// The list of goods loaded on the vehicle: name, quantity and unit per row
+// The list of goods loaded on the vehicle: cargo type, name, quantity and unit per row
 function CargoItemsEditor({
   items,
   unit,
+  cargoTypes,
   total,
   capacity,
   onChange
@@ -38,7 +42,8 @@ function CargoItemsEditor({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="hidden grid-cols-[minmax(0,1fr)_8rem_6.5rem_2.25rem] gap-2 text-xs font-medium text-stone-500 sm:grid">
+      <div className="hidden grid-cols-[9.5rem_minmax(0,1fr)_7rem_6.5rem_2.25rem] gap-2 text-xs font-medium text-stone-500 sm:grid">
+        <span>{t('trips.items.type')}</span>
         <span>{t('trips.items.name')}</span>
         <span>{t('trips.items.quantity')}</span>
         <span>{t('trips.items.unit')}</span>
@@ -49,8 +54,23 @@ function CargoItemsEditor({
           return (
             <li
               key={item.key}
-              className="grid grid-cols-[minmax(0,1fr)_8rem_6.5rem_2.25rem] items-start gap-2"
+              className="grid grid-cols-[9.5rem_minmax(0,1fr)_7rem_6.5rem_2.25rem] items-start gap-2"
             >
+              <select
+                className="input"
+                aria-label={t('trips.items.typeOf', { n })}
+                value={item.cargoType}
+                onChange={(e) => update(item.key, { cargoType: e.target.value as CargoType })}
+              >
+                <option value="" disabled>
+                  {t('trips.fields.cargoTypePlaceholder')}
+                </option>
+                {cargoTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {t(`cargoTypes.${type}`)}
+                  </option>
+                ))}
+              </select>
               <input
                 className="input"
                 aria-label={t('trips.items.nameOf', { n })}
@@ -97,7 +117,10 @@ function CargoItemsEditor({
           type="button"
           className="btn btn-secondary btn-sm"
           disabled={items.length >= MAX_CARGO_ITEMS}
-          onClick={() => onChange([...items, newItemDraft(unit)])}
+          // A new row starts with the previous row's cargo type
+          onClick={() =>
+            onChange([...items, newItemDraft(unit, items[items.length - 1]?.cargoType ?? '')])
+          }
         >
           <Plus size={16} />
           {t('trips.items.add')}

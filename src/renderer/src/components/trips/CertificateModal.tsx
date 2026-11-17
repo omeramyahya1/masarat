@@ -2,7 +2,11 @@ import { useId, useMemo, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Download, LoaderCircle } from 'lucide-react'
-import type { FleetErrorCode, TripReferenceData } from '../../../../shared/fleet'
+import {
+  tripCargoTypes,
+  type FleetErrorCode,
+  type TripReferenceData
+} from '../../../../shared/fleet'
 import type { TripDetails } from '../../../../shared/billing'
 import { createFormatters } from '../../lib/format'
 import { useMountedRef } from '../../lib/useMountedRef'
@@ -74,7 +78,8 @@ function CertificateModal({
           {
             name: ar(`cargoTypes.${trip.cargoType}`),
             quantity: trip.cargoQuantity,
-            unit: trip.cargoUnit
+            unit: trip.cargoUnit,
+            cargoType: trip.cargoType
           }
         ]
   const latin = (value: string): React.JSX.Element => (
@@ -187,7 +192,7 @@ function CertificateModal({
               {city(trip.destinationCityId)}
             </Field>
             <Field label={ar('certificate.fields.cargoType')}>
-              {ar(`cargoTypes.${trip.cargoType}`)}
+              {fa.list(tripCargoTypes(trip).map((c) => ar(`cargoTypes.${c}`)))}
             </Field>
             <Field label={ar('certificate.fields.quantity')}>
               {fa.quantity(trip.cargoQuantity, trip.cargoUnit)}
@@ -296,6 +301,9 @@ function CertificateModal({
                 <th className="border border-stone-300 px-2 py-1.5 text-start">
                   {ar('certificate.cargo.item')}
                 </th>
+                <th className="w-32 border border-stone-300 px-2 py-1.5 text-start">
+                  {ar('certificate.cargo.type')}
+                </th>
                 <th className="w-32 border border-stone-300 px-2 py-1.5 text-center">
                   {ar('certificate.cargo.quantity')}
                 </th>
@@ -313,6 +321,9 @@ function CertificateModal({
                   <td className="border border-stone-300 px-2 py-1.5">
                     <bdi>{item.name}</bdi>
                   </td>
+                  <td className="border border-stone-300 px-2 py-1.5">
+                    {ar(`cargoTypes.${item.cargoType}`)}
+                  </td>
                   <td className="border border-stone-300 px-2 py-1.5 text-center tabular-nums">
                     {fa.number(item.quantity)}
                   </td>
@@ -323,8 +334,8 @@ function CertificateModal({
               ))}
               {/* A body row, not <tfoot>: a footer would repeat on every printed page */}
               <tr className="break-inside-avoid font-bold">
-                <td colSpan={2} className="border border-stone-300 px-2 py-1.5">
-                  {ar('certificate.cargo.total', { type: ar(`cargoTypes.${trip.cargoType}`) })}
+                <td colSpan={3} className="border border-stone-300 px-2 py-1.5">
+                  {ar('certificate.cargo.total')}
                 </td>
                 <td className="border border-stone-300 px-2 py-1.5 text-center tabular-nums">
                   {fa.number(trip.cargoQuantity)}

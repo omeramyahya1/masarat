@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, ArrowRight, LoaderCircle, Plus, Route } from 'lucide-react'
-import type { FleetErrorCode, TripRecord, TripReferenceData } from '../../../../shared/fleet'
+import {
+  tripCargoTypes,
+  type FleetErrorCode,
+  type TripRecord,
+  type TripReferenceData
+} from '../../../../shared/fleet'
 import { useFormat } from '../../lib/format'
 import { FormAlert } from '../form/fields'
 import PlateBadge from '../fleet/PlateBadge'
@@ -207,7 +212,17 @@ function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.J
                     </span>
                   </td>
                   <td>
-                    <div>{t(`cargoTypes.${trip.cargoType}`)}</div>
+                    <div>
+                      {tripCargoTypes(trip).length > 1 ? (
+                        <span
+                          title={format.list(tripCargoTypes(trip).map((c) => t(`cargoTypes.${c}`)))}
+                        >
+                          {t('trips.mixed')}
+                        </span>
+                      ) : (
+                        t(`cargoTypes.${trip.cargoType}`)
+                      )}
+                    </div>
                     <div className="text-xs text-stone-500 tabular-nums">
                       {format.quantity(trip.cargoQuantity, trip.cargoUnit)}
                     </div>

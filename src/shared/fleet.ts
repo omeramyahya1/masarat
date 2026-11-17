@@ -160,3 +160,14 @@ export type FleetErrorCode =
   | 'unknown'
 
 export type FleetResult<T> = { ok: true; data: T } | { ok: false; error: FleetErrorCode }
+
+// The cargo types a trip carries, main type first; trips from before cargo items existed have
+// only their own
+export function tripCargoTypes(trip: Pick<TripRecord, 'cargoType' | 'items'>): CargoType[] {
+  if (trip.items.length === 0) return [trip.cargoType]
+  const types = [...new Set(trip.items.map((item) => item.cargoType))]
+  return [
+    ...types.filter((type) => type === trip.cargoType),
+    ...types.filter((type) => type !== trip.cargoType)
+  ]
+}

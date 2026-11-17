@@ -13,7 +13,12 @@ import {
   RefreshCw,
   Trash2
 } from 'lucide-react'
-import type { FleetErrorCode, TripRecord, TripReferenceData } from '../../../../shared/fleet'
+import {
+  tripCargoTypes,
+  type FleetErrorCode,
+  type TripRecord,
+  type TripReferenceData
+} from '../../../../shared/fleet'
 import type { TripDetails as TripDetailsData } from '../../../../shared/billing'
 import { useFormat } from '../../lib/format'
 import { useMountedRef } from '../../lib/useMountedRef'
@@ -233,7 +238,7 @@ function TripDetails({
               </span>
             </Row>
             <Row label={t('trips.details.cargo')}>
-              {t(`cargoTypes.${trip.cargoType}`)} ·{' '}
+              {format.list(tripCargoTypes(trip).map((c) => t(`cargoTypes.${c}`)))} ·{' '}
               <span className="tabular-nums">
                 {format.quantity(trip.cargoQuantity, trip.cargoUnit)}
               </span>
@@ -255,6 +260,7 @@ function TripDetails({
                 <tr className="border-b border-stone-200 text-xs text-stone-500">
                   <th className="w-8 py-2 text-start font-medium">#</th>
                   <th className="py-2 text-start font-medium">{t('trips.items.name')}</th>
+                  <th className="py-2 text-start font-medium">{t('trips.items.type')}</th>
                   <th className="py-2 text-end font-medium">{t('trips.items.quantity')}</th>
                 </tr>
               </thead>
@@ -265,6 +271,7 @@ function TripDetails({
                     <td className="py-2 text-stone-900">
                       <bdi>{item.name}</bdi>
                     </td>
+                    <td className="py-2 text-stone-600">{t(`cargoTypes.${item.cargoType}`)}</td>
                     <td className="py-2 text-end whitespace-nowrap tabular-nums">
                       {format.quantity(item.quantity, item.unit)}
                     </td>

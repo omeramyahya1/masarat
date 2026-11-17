@@ -269,14 +269,12 @@
       "destination": "Destination",
       "cityPlaceholder": "Select a city",
       "tripDate": "Trip date",
-      "cargoType": "Cargo type",
       "cargoTypePlaceholder": "Select cargo"
     },
     "tax": {
       "title": "Trip cost and taxes",
       "route": "Route",
       "distance": "Estimated distance",
-      "rate": "Rate",
       "rateValue": {
         "ton": "{{rate}} per km for each {{per}} t",
         "liter": "{{rate}} per km for each {{per}} L"
@@ -287,8 +285,6 @@
       },
       "quantity": "Quantity",
       "total": "Total taxes due",
-      "formula": "{{rate}} × {{distance}} km × {{quantity}}",
-      "formulaPer": "{{rate}} × {{distance}} km × {{quantity}} ÷ {{per}}",
       "distanceNote": "Distance is estimated from city coordinates (straight line × {{factor}} road factor). Trip cost = rate × distance × quantity; the taxes are percentages of it.",
       "tripCost": "Trip cost",
       "line": "{{name}} ({{rate}})"
@@ -311,10 +307,12 @@
     "backToTrip": "Back to trip",
     "items": {
       "title": "Cargo items",
+      "type": "Cargo type",
       "name": "Item",
       "quantity": "Quantity",
       "unit": "Unit",
       "nameOf": "Item {{n}} name",
+      "typeOf": "Item {{n}} cargo type",
       "quantityOf": "Item {{n}} quantity",
       "unitOf": "Item {{n}} unit",
       "removeOf": "Remove item {{n}}",
@@ -333,7 +331,8 @@
       "body": "This draft and its cargo items will be deleted. This can't be undone.",
       "confirm": "Delete trip"
     },
-    "deleted": "Trip #{{id}} was deleted."
+    "deleted": "Trip #{{id}} was deleted.",
+    "mixed": "Mixed cargo"
   },
   "billing": {
     "title": "Tax payment",
@@ -411,8 +410,9 @@
       "item": "Item",
       "quantity": "Quantity",
       "unit": "Unit",
-      "total": "Total load ({{type}})",
-      "footer": "This page is part of the certificate above and is only valid with it."
+      "total": "Total load",
+      "footer": "This page is part of the certificate above and is only valid with it.",
+      "type": "Cargo type"
     }
   },
   "govt": {

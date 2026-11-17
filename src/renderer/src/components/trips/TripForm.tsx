@@ -11,8 +11,8 @@ import {
 } from '../../../../shared/fleet'
 import {
   ROAD_FACTOR,
+  calculateItemsCost,
   calculateTaxes,
-  calculateTripCost,
   estimateRoadKm
 } from '../../../../shared/tax'
 import { todayIso, useFormat } from '../../lib/format'
@@ -53,12 +53,19 @@ function TripForm({
   const [vehicleId, setVehicleId] = useState(trip ? String(trip.vehicleId) : '')
   const [originId, setOriginId] = useState(trip ? String(trip.originCityId) : '')
   const [destinationId, setDestinationId] = useState(trip ? String(trip.destinationCityId) : '')
-  const [cargoType, setCargoType] = useState<CargoType | ''>(trip?.cargoType ?? '')
-  const [items, setItems] = useState<ItemDraft[]>(() =>
-    trip && trip.items.length > 0
-      ? trip.items.map((item) => newItemDraft(item.unit, item))
-      : [newItemDraft(trip?.cargoUnit ?? 'ton')]
-  )
+  const [items, setItems] = useState<ItemDraft[]>(() => {
+    if (!trip) return [newItemDraft('ton', '')]
+    if (trip.items.length > 0) return trip.items.map((item) => newItemDraft(item.unit, '', item))
+    // A trip from before cargo items existed: start from its cargo type and quantity
+    return [
+      newItemDraft(trip.cargoUnit, trip.cargoType, {
+        name: '',
+        quantity: trip.cargoQuantity,
+        unit: trip.cargoUnit,
+        cargoType: trip.cargoType
+      })
+    ]
+  })
   const [tripDate, setTripDate] = useState(() => (trip ? isoDate(trip.tripDate) : todayIso()))
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [pending, setPending] = useState(false)
@@ -75,16 +82,21 @@ function TripForm({
   }, [])
 
   const vehicle = vehicles?.find((v) => String(v.id) === vehicleId)
-  // Cargo is measured in its tax rate's unit, so only offer cargo the vehicle can carry
-  const allowedRates = reference.taxRates.filter((r) => !vehicle || r.unit === vehicle.capacityUnit)
-  const rate = reference.taxRates.find((r) => r.cargoType === cargoType)
+  // Each item is measured in its cargo type's rate unit, so only offer cargo the vehicle can carry
+  const cargoTypesFor = (v: VehicleRecord): CargoType[] =>
+    reference.taxRates.filter((r) => r.unit === v.capacityUnit).map((r) => r.cargoType)
   const origin = reference.cities.find((c) => String(c.id) === originId)
   const destination = reference.cities.find((c) => String(c.id) === destinationId)
   const parsedItems = items.map((item) => ({
     name: item.name.trim(),
     quantity: Number(item.quantity),
-    unit: item.unit
+    unit: item.unit,
+    cargoType: item.cargoType
   }))
+  const countedItems = parsedItems.filter(
+    (item): item is typeof item & { cargoType: CargoType } =>
+      item.quantity > 0 && Number.isFinite(item.quantity) && item.cargoType !== ''
+  )
   const quantityValue = totalInVehicleUnit(
     parsedItems.filter((item) => item.quantity > 0 && Number.isFinite(item.quantity))
   )
@@ -102,10 +114,19 @@ function TripForm({
     origin && destination && origin.id !== destination.id
       ? estimateRoadKm(origin, destination)
       : null
-  const tripCost =
-    distanceKm !== null && rate && quantityValue > 0
-      ? calculateTripCost(rate, distanceKm, quantityValue)
+  const priced =
+    distanceKm !== null && countedItems.length > 0
+      ? calculateItemsCost(countedItems, reference.taxRates, distanceKm)
       : null
+  const tripCost = priced?.total ?? null
+  // Cost and quantity per cargo type, for the summary
+  const costByType = new Map<CargoType, { cost: number; quantity: number }>()
+  countedItems.forEach((item, index) => {
+    const entry = costByType.get(item.cargoType) ?? { cost: 0, quantity: 0 }
+    entry.cost += priced?.costs[index] ?? 0
+    entry.quantity += totalInVehicleUnit([item])
+    costByType.set(item.cargoType, entry)
+  })
   // Previewed with today's percentages; the bill uses the ones current when it's issued
   const taxes = calculateTaxes(tripCost ?? 0, reference.taxSettings)
 
@@ -113,18 +134,17 @@ function TripForm({
     setVehicleId(id)
     const next = vehicles?.find((v) => String(v.id) === id)
     if (!next) return
-    if (rate && rate.unit !== next.capacityUnit) setCargoType('')
-    setItems((current) => fitItemsTo(current, next.capacityUnit))
+    setItems((current) => fitItemsTo(current, next.capacityUnit, cargoTypesFor(next)))
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
-    if (!vehicle || !origin || !destination || !cargoType || !tripDate) {
+    if (!vehicle || !origin || !destination || !tripDate) {
       setError('missing_fields')
       return
     }
     if (origin.id === destination.id) return setError('same_route')
-    if (parsedItems.some((item) => !item.name || !(item.quantity > 0))) {
+    if (countedItems.length !== parsedItems.length || parsedItems.some((item) => !item.name)) {
       return setError('invalid_items')
     }
     if (overCapacity) return setError('over_capacity')
@@ -136,8 +156,7 @@ function TripForm({
         vehicleId: vehicle.id,
         originCityId: origin.id,
         destinationCityId: destination.id,
-        cargoType,
-        items: parsedItems,
+        items: countedItems,
         tripDate
       }
       const result = trip
@@ -260,24 +279,13 @@ function TripForm({
           <legend className="mb-3 text-sm font-semibold text-stone-800">
             {t('trips.form.cargoSection')}
           </legend>
-          <div className="sm:w-1/2 sm:pe-2">
-            <SelectField
-              label={t('trips.fields.cargoType')}
-              placeholder={t('trips.fields.cargoTypePlaceholder')}
-              value={cargoType}
-              options={allowedRates.map((r) => ({
-                value: r.cargoType,
-                label: t(`cargoTypes.${r.cargoType}`)
-              }))}
-              onChange={(e) => setCargoType(e.target.value as CargoType)}
-            />
-          </div>
           <div className="flex flex-col gap-2">
             <span className="label">{t('trips.items.title')}</span>
             {vehicle ? (
               <CargoItemsEditor
                 items={items}
                 unit={vehicle.capacityUnit}
+                cargoTypes={cargoTypesFor(vehicle)}
                 total={quantityValue}
                 capacity={vehicle.capacity}
                 onChange={setItems}
@@ -321,31 +329,41 @@ function TripForm({
           <SummaryRow label={t('trips.tax.distance')}>
             {distanceKm !== null ? t('units.km', { value: format.number(distanceKm) }) : '—'}
           </SummaryRow>
-          <SummaryRow label={t('trips.tax.rate')}>
-            {rate
-              ? t(
-                  `trips.tax.${rate.perQuantity === 1 ? 'rateValuePerOne' : 'rateValue'}.${rate.unit}`,
-                  {
-                    rate: format.currency(rate.ratePerKm),
-                    per: format.number(rate.perQuantity)
-                  }
-                )
-              : '—'}
-          </SummaryRow>
           <SummaryRow label={t('trips.tax.quantity')}>
-            {rate && quantityValue > 0 ? format.quantity(quantityValue, rate.unit) : '—'}
+            {vehicle && quantityValue > 0
+              ? format.quantity(quantityValue, vehicle.capacityUnit)
+              : '—'}
           </SummaryRow>
         </dl>
 
-        {tripCost !== null && rate && distanceKm !== null && (
-          <p className="-mt-1 text-xs text-stone-500 tabular-nums">
-            {t(rate.perQuantity === 1 ? 'trips.tax.formula' : 'trips.tax.formulaPer', {
-              rate: format.number(rate.ratePerKm),
-              distance: format.number(distanceKm),
-              quantity: format.number(quantityValue),
-              per: format.number(rate.perQuantity)
+        {costByType.size > 0 && distanceKm !== null && (
+          <ul className="flex flex-col gap-2 border-t border-stone-200 pt-3 text-sm">
+            {[...costByType].map(([type, entry]) => {
+              const rate = reference.taxRates.find((r) => r.cargoType === type)
+              return (
+                <li key={type} className="flex items-start justify-between gap-4">
+                  <div className="flex flex-col">
+                    <span className="text-stone-700">{t(`cargoTypes.${type}`)}</span>
+                    {rate && (
+                      <span className="text-xs text-stone-500 tabular-nums">
+                        {format.quantity(entry.quantity, rate.unit)} ·{' '}
+                        {t(
+                          `trips.tax.${rate.perQuantity === 1 ? 'rateValuePerOne' : 'rateValue'}.${rate.unit}`,
+                          {
+                            rate: format.currency(rate.ratePerKm),
+                            per: format.number(rate.perQuantity)
+                          }
+                        )}
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-medium whitespace-nowrap text-stone-900 tabular-nums">
+                    {format.currency(entry.cost)}
+                  </span>
+                </li>
+              )
             })}
-          </p>
+          </ul>
         )}
 
         <div className="rounded-lg border border-brand-200 bg-brand-50 p-4">

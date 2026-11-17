@@ -10,6 +10,7 @@ import type {
 } from '../shared/fleet'
 import type { TripDetails } from '../shared/billing'
 import type { DashboardData, DashboardPeriod } from '../shared/dashboard'
+import type { TaxRatesInput, TaxSettingsView } from '../shared/tax'
 
 export interface UpdateStatus {
   status:
@@ -48,6 +49,10 @@ export interface TripsAPI {
   getReferenceData: () => Promise<FleetResult<TripReferenceData>>
   list: () => Promise<FleetResult<TripRecord[]>>
   create: (input: TripInput) => Promise<FleetResult<TripRecord>>
+  // Drafts only
+  update: (id: number, input: TripInput) => Promise<FleetResult<TripRecord>>
+  // Drafts only; removes the trip for good
+  delete: (id: number) => Promise<FleetResult<null>>
 }
 
 export interface BillingAPI {
@@ -66,6 +71,9 @@ export interface CertificatesAPI {
 export interface GovtAPI {
   getReferenceData: () => Promise<FleetResult<TripReferenceData>>
   dashboard: (period: DashboardPeriod) => Promise<FleetResult<DashboardData>>
+  getTaxSettings: () => Promise<FleetResult<TaxSettingsView>>
+  // Basis points per tax; each change is logged under the signed-in government user
+  updateTaxRates: (input: TaxRatesInput) => Promise<FleetResult<TaxSettingsView>>
   // Demo only: rebuilds the seeded demo owners' data
   regenerateDemoData: () => Promise<FleetResult<null>>
 }

@@ -95,11 +95,15 @@
   "units": {
     "short": {
       "ton": "{{value}} t",
-      "liter": "{{value}} L"
+      "liter": "{{value}} L",
+      "kg": "{{value}} kg",
+      "m3": "{{value}} m³"
     },
     "name": {
       "ton": "Tons",
-      "liter": "Liters"
+      "liter": "Liters",
+      "kg": "Kilograms",
+      "m3": "Cubic meters"
     },
     "km": "{{value}} km"
   },
@@ -114,7 +118,8 @@
   "cargoTypes": {
     "fuel": "Fuel",
     "containers": "Containers",
-    "general_cargo": "General cargo"
+    "general_cargo": "General cargo",
+    "liquids": "Liquids (non-fuel)"
   },
   "statuses": {
     "draft": "Draft",
@@ -215,7 +220,10 @@
       "manifest_not_found": "This trip could not be found.",
       "already_billed": "A bill has already been issued for this trip.",
       "not_billed": "Generate a bill ID for this trip first.",
-      "unknown": "Something went wrong. Please try again."
+      "unknown": "Something went wrong. Please try again.",
+      "invalid_items": "Every cargo item needs a name and a quantity greater than zero.",
+      "not_draft": "This trip's bill ID has been generated, so it can no longer be edited.",
+      "invalid_tax_rate": "Enter a percentage from 0 to 100, with up to two decimals."
     }
   },
   "trips": {
@@ -244,12 +252,15 @@
     },
     "form": {
       "title": "New trip",
-      "subtitle": "Enter the trip details. The tax is calculated as you go.",
+      "subtitle": "Enter the trip details. The trip cost and taxes are calculated as you go.",
       "vehicleSection": "Vehicle",
       "routeSection": "Route",
       "cargoSection": "Cargo",
       "vehicleCapacity": "Capacity: {{capacity}}",
-      "submit": "Save trip"
+      "submit": "Save trip",
+      "editTitle": "Edit trip #{{id}}",
+      "editSubtitle": "Drafts can be changed until their bill ID is generated.",
+      "save": "Save changes"
     },
     "fields": {
       "vehicle": "Vehicle",
@@ -258,15 +269,12 @@
       "destination": "Destination",
       "cityPlaceholder": "Select a city",
       "tripDate": "Trip date",
-      "cargoType": "Cargo type",
-      "cargoTypePlaceholder": "Select cargo",
-      "quantity": "Quantity"
+      "cargoTypePlaceholder": "Select cargo"
     },
     "tax": {
-      "title": "Tax calculation",
+      "title": "Trip cost and taxes",
       "route": "Route",
       "distance": "Estimated distance",
-      "rate": "Rate",
       "rateValue": {
         "ton": "{{rate}} per km for each {{per}} t",
         "liter": "{{rate}} per km for each {{per}} L"
@@ -276,10 +284,10 @@
         "liter": "{{rate}} per km per liter"
       },
       "quantity": "Quantity",
-      "total": "Tax due",
-      "formula": "{{rate}} × {{distance}} km × {{quantity}}",
-      "formulaPer": "{{rate}} × {{distance}} km × {{quantity}} ÷ {{per}}",
-      "distanceNote": "Distance is estimated from city coordinates (straight line × {{factor}} road factor). Tax = rate × distance × quantity."
+      "total": "Total taxes due",
+      "distanceNote": "Distance is estimated from city coordinates (straight line × {{factor}} road factor). Trip cost = rate × distance × quantity; the taxes are percentages of it.",
+      "tripCost": "Trip cost",
+      "line": "{{name}} ({{rate}})"
     },
     "open": "Open trip details",
     "details": {
@@ -292,15 +300,45 @@
       "cargo": "Cargo",
       "tripDate": "Trip date",
       "distance": "Estimated distance",
-      "tax": "Tax due",
-      "moreActions": "More actions"
-    }
+      "moreActions": "More actions",
+      "edit": "Edit trip",
+      "delete": "Delete"
+    },
+    "backToTrip": "Back to trip",
+    "items": {
+      "title": "Cargo items",
+      "type": "Cargo type",
+      "name": "Item",
+      "quantity": "Quantity",
+      "unit": "Unit",
+      "nameOf": "Item {{n}} name",
+      "typeOf": "Item {{n}} cargo type",
+      "quantityOf": "Item {{n}} quantity",
+      "unitOf": "Item {{n}} unit",
+      "removeOf": "Remove item {{n}}",
+      "remove": "Remove item",
+      "add": "Add item",
+      "total": "Total {{total}} of {{capacity}} capacity",
+      "chooseVehicle": "Select a vehicle first. Its capacity limits what it can carry.",
+      "none": "No cargo items were recorded for this trip.",
+      "namePlaceholder": {
+        "ton": "e.g. Cement",
+        "liter": "e.g. Drinking water"
+      }
+    },
+    "deleteDialog": {
+      "title": "Delete trip #{{id}}?",
+      "body": "This draft and its cargo items will be deleted. This can't be undone.",
+      "confirm": "Delete trip"
+    },
+    "deleted": "Trip #{{id}} was deleted.",
+    "mixed": "Mixed cargo"
   },
   "billing": {
     "title": "Tax payment",
     "amountDue": "Amount due",
     "draft": {
-      "body": "Generate an E-Sali bill ID to pay the transport tax for this trip.",
+      "body": "Generate an E-Sali bill ID to pay this trip's taxes. They're calculated at the current tax rates when the bill is issued.",
       "generate": "Generate bill ID"
     },
     "pending": {
@@ -354,18 +392,28 @@
       "cargoType": "Cargo type",
       "quantity": "Quantity",
       "tripDate": "Trip date",
-      "taxAmount": "Tax amount",
+      "taxAmount": "Total taxes paid",
       "billId": "E-Sali bill ID",
       "paymentStatus": "Payment status",
       "paidAt": "Paid on",
       "paymentRef": "Payment reference",
       "certificateNo": "Certificate no.",
       "issuedAt": "Issued on",
-      "validUntil": "Valid until"
+      "validUntil": "Valid until",
+      "tripCost": "Trip cost"
     },
     "paid": "Paid",
     "scanToVerify": "Scan the code to verify",
-    "footer": "This certificate was issued electronically by the Masarat system and needs no signature or stamp."
+    "footer": "This certificate was issued electronically by the Masarat system and needs no signature or stamp.",
+    "cargo": {
+      "title": "Cargo manifest",
+      "item": "Item",
+      "quantity": "Quantity",
+      "unit": "Unit",
+      "total": "Total load",
+      "footer": "This page is part of the certificate above and is only valid with it.",
+      "type": "Cargo type"
+    }
   },
   "govt": {
     "dashboard": {
@@ -419,6 +467,9 @@
       "cargo": {
         "title": "Revenue by cargo type"
       },
+      "tax": {
+        "title": "Revenue by tax"
+      },
       "breakdown": {
         "label": "Breakdown",
         "routes": "Top routes by revenue",
@@ -443,6 +494,28 @@
         "body": "This deletes the demo fleet companies and all their vehicles, trips, bills and certificates, then creates them again with fresh dates. Anything added by hand to a demo company is deleted too; other companies' data is kept. Anyone signed in as a demo company is signed out.",
         "confirm": "Regenerate"
       }
+    },
+    "sections": "Government sections",
+    "overview": "Overview",
+    "taxes": {
+      "tab": "Tax rates",
+      "title": "Tax rates",
+      "subtitle": "The taxes charged on each trip, as a percentage of its trip cost.",
+      "saved": "Tax rates saved.",
+      "was": "Currently {{rate}}",
+      "totalRate": "Total tax rate",
+      "example": "On a trip cost of {{cost}}, the fleet owner pays {{amount}} in taxes.",
+      "appliesTo": "New rates apply to bills issued from now on. Bills already issued keep the rates they were issued with.",
+      "reset": "Discard changes",
+      "save": "Save rates",
+      "history": {
+        "title": "Change history",
+        "empty": "No changes yet.",
+        "date": "Date",
+        "user": "Changed by",
+        "tax": "Tax",
+        "change": "Change"
+      }
     }
   },
   "states": {
@@ -464,5 +537,10 @@
     "South Kordofan": "South Kordofan",
     "Northern": "Northern",
     "Central Darfur": "Central Darfur"
+  },
+  "taxes": {
+    "vat": "Value added tax",
+    "business_profit": "Business profit tax",
+    "locality": "Locality tax"
   }
 }

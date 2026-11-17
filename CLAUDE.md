@@ -27,8 +27,20 @@ It's an Electron desktop app with **two views the user can toggle between**:
 
 - **Plate numbers** (`src/shared/plate.ts`): a state code of 1-2 letters (KH, RS, NK, …), a series from 1 to 99, then a number from 1 to 99999. They are stored in English as `"KH 12/34567"` and shown in Arabic as `"خ ١٢ / ٣٤٥٦٧"` (letters → series → number, read right to left), with Eastern Arabic digits. Validation happens in the UI and services, not as a DB constraint.
 - **Digits**: plates are the only thing shown with Eastern Arabic digits (badge, plate text, plate inputs). Every other number, amount and date uses English digits, even in the Arabic UI. Stored and backend values are always English.
-- **Tax** (`src/shared/tax.ts`): `rate_per_km × distance_km × quantity / per_quantity`. Distance is the haversine distance between the cities × a 1.3 road factor (an estimate until real routing exists). The main process recomputes the tax on save; the renderer's preview is never trusted.
-- Cargo is measured in its tax rate's unit, which must match the vehicle's capacity unit (e.g. fuel → liters → tanker). New trips are saved as `draft` manifests.
+- **Trip cost** (`calculateItemsCost` in `src/shared/tax.ts`): the sum of the cargo items' costs. Each item costs `rate_per_km × distance_km × quantity / per_quantity` at its own cargo type's rate (`tax_rates`), with its quantity in the rate's unit. Items keep a snapshot of the rate and their cost. Distance is the haversine distance between the cities × a 1.3 road factor (an estimate until real routing exists).
+- **Taxes** (`calculateTaxes`): percentages of the trip cost. These are VAT (default 17%), business profit tax (3%) and locality tax (2%). They are stored in `tax_settings` as basis points (1700 = 17%).
+  - Each line is rounded to whole SDG, and the total is their sum.
+  - The **bill is the tax total only** (`manifests.tax_amount`). The trip cost is shown for reference.
+  - A trip's lines are kept in `manifest_taxes`. Drafts are priced when saved, and *Generate bill ID* reprices them at the current rates; from then on they're frozen.
+  - The main process recomputes cost and taxes on save; the renderer's preview is never trusted.
+- **Tax rates screen** (Government panel → *Tax rates*, `services/taxes.ts`): any government account can change the percentages, from 0 to 100% with up to 2 decimals. Each change is logged in `tax_setting_changes`, with who made it and the old and new value. Roles and approval come later.
+- **Cargo items** (`manifest_cargo_items`): each trip lists what it carries, with a name, quantity and unit.
+  - Units are measurable only: trucks use `kg` / `ton` and tankers use `liter` / `m3` (`itemUnitsFor`).
+  - Items are converted to the vehicle's unit (`toVehicleUnit`), and their total is `manifests.cargo_quantity`, which drives the trip cost and must fit the vehicle's capacity.
+- **Cargo types** are chosen **per item**, so a trip can mix them. The type picks the item's per-km rate, and its unit must match the vehicle's (fuel and liquids (non-fuel) → liters → tanker; containers and general cargo → tons).
+  - `manifests.cargo_type` / `rate_per_km` hold the trip's **main type**, the one that costs the most.
+  - `tripCargoTypes` lists all of a trip's types. The trips list shows "Mixed cargo" when there's more than one.
+- New trips are saved as `draft` manifests. Until their bill ID is generated, drafts can be edited in the same form (*Edit trip*, `updateTrip`) or **deleted** for good, with their items and tax lines (`deleteTrip`). Otherwise both return `not_draft`.
 
 ## Billing & certificates rules
 
@@ -36,16 +48,21 @@ It's an Electron desktop app with **two views the user can toggle between**:
 - **E-Sali bill ID** (`src/shared/billing.ts`): `yyyy` `mm` `0dd` (day as 3 digits) + 13 random digits = 22 digits, e.g. `2026110170000123456789`. One bill per manifest; generating again returns the existing bill.
 - **E-Sali is simulated** behind the `EsaliGateway` interface in `src/main/services/esali.ts`. The mock keeps E-Sali's side in the `esali_sim_bills` table (simulation only; drop it with the real API). The hidden "⋯ → Pay <billId>" menu on a pending trip marks the bill paid at E-Sali.
 - **Certificate**: number `MSR-<yyyy>-<manifestId 6 digits>`, valid until the end of trip date + 30 days. Always rendered in Arabic (`i18n.getFixedT('ar')` + `createFormatters`), with the Sudan emblem (`assets/sudan-emblem.svg`, Wikimedia Commons). *Download PDF* uses `webContents.printToPDF`; the `@media print` rules in `main.css` print only `.print-certificate`.
+  - **Page 1** is the certificate, with the trip cost and each tax line.
+  - **Page 2** and on (`.print-page-break`) is the cargo manifest table. Its header row repeats on each printed page, and the total is a normal last row, because a `<tfoot>` would repeat on every page.
+  - Trips from before cargo items existed show their cargo type as a single row.
 - **QR payload** (`buildQrPayload`): JSON `{"esaliBillId","status":"paid","plate"}`. Later it should become a URL to a page showing the manifest's status (looked up by `certificates.qr_token`).
 
 ## Government dashboard & demo data
 
 - **Dashboard** (`src/main/services/dashboard.ts`, UI in `components/govt/`): the Government panel opens on an overview across all fleet owners, for the last 30 days, 90 days or 12 months. Handlers go through `runGovt` (government session required).
-  - *Revenue collected*: paid payments by `paid_at` in the period, with the % change vs the previous period of the same length (hidden when the records don't reach back that far).
+  - *Revenue collected*: paid payments (the taxes) by `paid_at` in the period, with the % change vs the previous period of the same length (hidden when the records don't reach back that far).
   - *Active trips*: certified trips whose certificate is still valid (`valid_until ≥ now`). *Pending bills*: all unpaid bills. Neither is period-filtered.
   - *Collection rate*: paid ÷ billed amount for bills issued in the period.
-  - Revenue chart buckets: day / week (starting Sunday) / month. The current bucket is drawn dashed because it is incomplete. Breakdowns (cargo, routes, origin state) count revenue by when it was paid.
-- **Demo data** (`src/main/services/demoData.ts`): on startup, if there are no demo owners, 4 demo fleet companies are seeded with about a year of trips, bills (with matching `esali_sim_bills` rows), payments and certificates, using the real tax calculation. It is deterministic (fixed PRNG seed, dates relative to today). Demo users have `users.is_demo = 1`. The Government panel's hidden *⋯ → Regenerate demo data* deletes the demo owners and everything under them (including anything added by hand to a demo company), then reseeds; other owners' data and the demo government account are kept, and a signed-in demo owner is signed out.
+  - Revenue chart buckets: day / week (starting Sunday) / month. The current bucket is drawn dashed because it is incomplete. Breakdowns (cargo, tax, routes, origin state) count revenue by when it was paid.
+  - *Revenue by cargo type* splits each trip's taxes across its items in proportion to their cost.
+  - *Revenue by tax* sums the paid trips' `manifest_taxes` lines.
+- **Demo data** (`src/main/services/demoData.ts`): on startup, if there are no demo owners, 4 demo fleet companies are seeded with about a year of trips, bills (with matching `esali_sim_bills` rows), payments and certificates, using the real trip cost and tax calculation (at the default percentages). Each trip gets 1–4 cargo items with Arabic names, and about a quarter of tanker trips carry liquids. Some loads are mixed: about 15% of big-truck trips carry a container, and about 10% of fuel tanker trips carry liquids. It is deterministic (fixed PRNG seed, dates relative to today). Demo users have `users.is_demo = 1`. The Government panel's hidden *⋯ → Regenerate demo data* deletes the demo owners and everything under them (including anything added by hand to a demo company), then reseeds; other owners' data and the demo government account are kept, and a signed-in demo owner is signed out.
 - **Demo accounts** (`src/shared/demo.ts`, listed under *Demo accounts* on both login pages; clicking one fills the form):
   - Government: `ministry.demo` / `govt2026`
   - Fleet owners: `nile.transport` / `nile2026`, `redsea.logistics` / `redsea2026`, `kordofan.haulage` / `kordofan2026`, `gezira.freight` / `gezira2026`
@@ -56,6 +73,8 @@ It's an Electron desktop app with **two views the user can toggle between**:
 - Electron + electron-vite, React 19, TypeScript, Recharts
 - `src/main`: Electron main process (`src/main/index.ts`)
 - `src/main/db`: local database layer using **SQLite (better-sqlite3) + Drizzle ORM** (`schema.ts`, `client.ts`). The Drizzle config is in `drizzle.config.ts` and migrations go to `./drizzle`.
+  - Migrations run with foreign keys off, then `foreign_key_check` runs, because drizzle rebuilds a table to change a CHECK.
+  - Always read a generated migration: when a rebuild copies a column that doesn't exist yet, the SELECT has to be fixed by hand.
 - `src/preload`: preload bridge (`index.ts`, types in `index.d.ts`). The renderer reaches the DB and main process only through this bridge.
 - `src/renderer`: React UI
 - Auto-updates via `electron-updater`, published to GitHub releases (`omeramyahya1/masarat`)
@@ -70,8 +89,15 @@ It's an Electron desktop app with **two views the user can toggle between**:
 ## Releasing
 
 - Packaging config lives only in `electron-builder.yml`. Don't add a `build` key to `package.json`: electron-builder would read that instead and silently ignore the yml (including `extraResources: drizzle`, without which installed builds can't migrate).
-- `npm version patch`, then `GH_TOKEN=<token> npm run release:linux`. `scripts/tag-release.mjs` pushes the `v<version>` tag for the current commit, then the AppImage is built and published as a GitHub release.
-- Publishing the release triggers `.github/workflows/release-windows.yml`, which builds the NSIS installer and portable `.exe` from the same tag and uploads them to that release. electron-updater reads `latest-linux.yml` / `latest.yml` from the latest release.
+- **To release**: commit everything, run `npm version patch` and `git push`, then `npm run release`. `scripts/tag-release.mjs` pushes the `v<version>` tag for the current commit. Nothing is built locally.
+- **The tag starts `.github/workflows/release.yml`**:
+  1. *prepare* creates the release as a **draft**.
+  2. *build* runs the Linux AppImage (ubuntu) and the Windows installer and portable `.exe` (windows) in parallel. electron-builder uploads them into the draft (`releaseType: draft` in `electron-builder.yml`).
+  3. *publish* checks that all 5 files are attached (`AppImage`, `latest-linux.yml`, `-setup.exe`, `-portable.exe`, `latest.yml`), then publishes.
+
+  Publishing is what triggers the release notification (Slack), so it only goes out once every download exists. Don't publish the draft by hand.
+- **If a run fails**: fix the problem, then Actions → *Release* → *Run workflow* with the tag. It reuses the draft. If the fix needs new code, bump the version instead.
+- electron-updater reads `latest-linux.yml` / `latest.yml` from the latest published release.
 
 ## Guidelines
 

@@ -1,10 +1,21 @@
 // Government dashboard: totals and breakdowns across all fleet owners
 import { and, count, desc, eq, gte, lt, sql, sum } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
-import { certificates, cities, getDb, manifests, payments, users, vehicles } from '../db'
-import { MANIFEST_STATUSES, type ManifestStatus } from '../../shared/fleet'
+import {
+  certificates,
+  cities,
+  getDb,
+  manifestCargoItems,
+  manifestTaxes,
+  manifests,
+  payments,
+  users,
+  vehicles
+} from '../db'
+import { MANIFEST_STATUSES, type CargoType, type ManifestStatus } from '../../shared/fleet'
 import type {
   BucketSize,
+  CargoSlice,
   DashboardData,
   DashboardPeriod,
   RevenuePoint
@@ -63,6 +74,63 @@ function revenueSeries(start: Date, now: Date, bucket: BucketSize): RevenuePoint
 
 const total = (value: string | number | null): number => Number(value ?? 0)
 
+// Each paid trip's taxes split across its cargo items in proportion to their cost (a trip can
+// mix cargo types). Trips from before cargo items existed count under their own cargo type.
+function revenueByCargo(start: Date): CargoSlice[] {
+  const db = getDb()
+  const paidInPeriod = and(eq(payments.status, 'paid'), gte(payments.paidAt, start))
+  const paid = db
+    .select({
+      manifestId: payments.manifestId,
+      amount: payments.amount,
+      cargoType: manifests.cargoType
+    })
+    .from(payments)
+    .innerJoin(manifests, eq(payments.manifestId, manifests.id))
+    .where(paidInPeriod)
+    .all()
+  const items = new Map<number, { cargoType: CargoType; cost: number }[]>()
+  for (const item of db
+    .select({
+      manifestId: manifestCargoItems.manifestId,
+      cargoType: manifestCargoItems.cargoType,
+      cost: manifestCargoItems.cost
+    })
+    .from(manifestCargoItems)
+    .innerJoin(payments, eq(payments.manifestId, manifestCargoItems.manifestId))
+    .where(paidInPeriod)
+    .all()) {
+    const list = items.get(item.manifestId) ?? []
+    list.push(item)
+    items.set(item.manifestId, list)
+  }
+
+  const slices = new Map<CargoType, { revenue: number; trips: Set<number> }>()
+  const add = (cargoType: CargoType, revenue: number, manifestId: number): void => {
+    const slice = slices.get(cargoType) ?? { revenue: 0, trips: new Set<number>() }
+    slice.revenue += revenue
+    slice.trips.add(manifestId)
+    slices.set(cargoType, slice)
+  }
+  for (const trip of paid) {
+    const tripItems = items.get(trip.manifestId) ?? []
+    const cost = tripItems.reduce((sum, item) => sum + item.cost, 0)
+    if (cost <= 0) {
+      add(trip.cargoType, trip.amount, trip.manifestId)
+      continue
+    }
+    for (const item of tripItems)
+      add(item.cargoType, (trip.amount * item.cost) / cost, trip.manifestId)
+  }
+  return [...slices]
+    .map(([cargoType, slice]) => ({
+      cargoType,
+      revenue: Math.round(slice.revenue),
+      trips: slice.trips.size
+    }))
+    .sort((a, b) => b.revenue - a.revenue)
+}
+
 export function getDashboard(period: DashboardPeriod): DashboardData {
   const db = getDb()
   const now = new Date()
@@ -109,13 +177,17 @@ export function getDashboard(period: DashboardPeriod): DashboardData {
   const paidInPeriod = and(eq(payments.status, 'paid'), gte(payments.paidAt, start))
   const revenue = sql<number>`sum(${payments.amount})`.mapWith(Number)
 
-  const byCargo = db
-    .select({ cargoType: manifests.cargoType, revenue, trips: count() })
+  const byCargo = revenueByCargo(start)
+
+  // The paid trips' tax lines; together they add up to the revenue
+  const taxRevenue = sql<number>`sum(${manifestTaxes.amount})`.mapWith(Number)
+  const byTax = db
+    .select({ code: manifestTaxes.code, revenue: taxRevenue })
     .from(payments)
-    .innerJoin(manifests, eq(payments.manifestId, manifests.id))
+    .innerJoin(manifestTaxes, eq(manifestTaxes.manifestId, payments.manifestId))
     .where(paidInPeriod)
-    .groupBy(manifests.cargoType)
-    .orderBy(desc(revenue))
+    .groupBy(manifestTaxes.code)
+    .orderBy(desc(taxRevenue))
     .all()
 
   const topRoutes = db
@@ -212,6 +284,7 @@ export function getDashboard(period: DashboardPeriod): DashboardData {
     },
     revenueSeries: revenueSeries(start, now, bucket),
     byCargo,
+    byTax,
     topRoutes,
     byState,
     statusCounts,

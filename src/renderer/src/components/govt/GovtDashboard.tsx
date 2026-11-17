@@ -162,6 +162,7 @@ function GovtDashboard(): React.JSX.Element {
   }
 
   const cargoTotal = data.byCargo.reduce((sum, c) => sum + c.revenue, 0)
+  const taxTotal = data.byTax.reduce((sum, c) => sum + c.revenue, 0)
 
   return (
     <section className={`flex flex-col gap-6 transition-opacity ${loading ? 'opacity-60' : ''}`}>
@@ -179,21 +180,39 @@ function GovtDashboard(): React.JSX.Element {
 
         <TripProgress statusCounts={data.statusCounts} />
 
-        <Card title={t('govt.dashboard.cargo.title')}>
-          {data.byCargo.length === 0 ? (
-            <Empty />
-          ) : (
-            <BarList
-              items={data.byCargo.map((c) => ({
-                key: c.cargoType,
-                label: t(`cargoTypes.${c.cargoType}`),
-                value: c.revenue,
-                valueLabel: `${format.compactCurrency(c.revenue)} · ${format.percent(c.revenue / cargoTotal)}`,
-                detail: t('govt.dashboard.revenue.trips', { value: format.number(c.trips) })
-              }))}
-            />
-          )}
-        </Card>
+        {/* Two short cards stacked beside the taller breakdown */}
+        <div className="flex flex-col gap-6">
+          <Card title={t('govt.dashboard.cargo.title')}>
+            {data.byCargo.length === 0 ? (
+              <Empty />
+            ) : (
+              <BarList
+                items={data.byCargo.map((c) => ({
+                  key: c.cargoType,
+                  label: t(`cargoTypes.${c.cargoType}`),
+                  value: c.revenue,
+                  valueLabel: `${format.compactCurrency(c.revenue)} · ${format.percent(c.revenue / cargoTotal)}`,
+                  detail: t('govt.dashboard.revenue.trips', { value: format.number(c.trips) })
+                }))}
+              />
+            )}
+          </Card>
+
+          <Card title={t('govt.dashboard.tax.title')}>
+            {data.byTax.length === 0 ? (
+              <Empty />
+            ) : (
+              <BarList
+                items={data.byTax.map((tax) => ({
+                  key: tax.code,
+                  label: t(`taxes.${tax.code}`),
+                  value: tax.revenue,
+                  valueLabel: `${format.compactCurrency(tax.revenue)} · ${format.percent(tax.revenue / taxTotal)}`
+                }))}
+              />
+            )}
+          </Card>
+        </div>
 
         <BreakdownCard
           topRoutes={data.topRoutes}

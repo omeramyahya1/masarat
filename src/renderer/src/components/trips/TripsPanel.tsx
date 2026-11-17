@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, ArrowRight, LoaderCircle, Plus, Route } from 'lucide-react'
-import type { FleetErrorCode, TripRecord, TripReferenceData } from '../../../../shared/fleet'
+import {
+  tripCargoTypes,
+  type FleetErrorCode,
+  type TripRecord,
+  type TripReferenceData
+} from '../../../../shared/fleet'
 import { useFormat } from '../../lib/format'
 import { FormAlert } from '../form/fields'
 import PlateBadge from '../fleet/PlateBadge'
@@ -12,12 +17,18 @@ import { STATUS_STYLES } from './statusStyles'
 function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
-  const [mode, setMode] = useState<'list' | 'new' | { tripId: number }>('list')
+  const [mode, setMode] = useState<'list' | 'new' | { tripId: number } | { editing: TripRecord }>(
+    'list'
+  )
   const [reference, setReference] = useState<TripReferenceData | null>(null)
   const [trips, setTrips] = useState<TripRecord[] | null>(null)
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [created, setCreated] = useState<TripRecord | null>(null)
-  const openTrip = (tripId: number): void => setMode({ tripId })
+  const [deleted, setDeleted] = useState<number | null>(null)
+  const openTrip = (tripId: number): void => {
+    setDeleted(null)
+    setMode({ tripId })
+  }
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -42,40 +53,58 @@ function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.J
   const cityById = (id: number): TripReferenceData['cities'][number] | undefined =>
     reference?.cities.find((c) => c.id === id)
 
-  if (typeof mode === 'object' && reference) {
+  if (typeof mode === 'object' && 'tripId' in mode && reference) {
     return (
       <TripDetails
         key={mode.tripId}
         tripId={mode.tripId}
         reference={reference}
         onBack={() => setMode('list')}
+        onEdit={(trip) => setMode({ editing: trip })}
+        onDeleted={() => {
+          setCreated(null)
+          setDeleted(mode.tripId)
+          setMode('list')
+          load()
+        }}
         onChanged={load}
       />
     )
   }
 
-  if (mode === 'new' && reference) {
+  if ((mode === 'new' || (typeof mode === 'object' && 'editing' in mode)) && reference) {
+    const editing = mode === 'new' ? undefined : mode.editing
+    // Editing returns to the trip it came from; a new trip returns to the list
+    const leave = (): void => (editing ? openTrip(editing.id) : setMode('list'))
     return (
       <section className="flex flex-col gap-4">
         <div>
           <button
             type="button"
             className="link inline-flex items-center gap-1 text-sm"
-            onClick={() => setMode('list')}
+            onClick={leave}
           >
             <ArrowLeft size={14} className="rtl:-scale-x-100" />
-            {t('trips.backToList')}
+            {editing ? t('trips.backToTrip') : t('trips.backToList')}
           </button>
-          <h2 className="mt-2 text-lg font-semibold text-stone-900">{t('trips.form.title')}</h2>
-          <p className="text-sm text-stone-500">{t('trips.form.subtitle')}</p>
+          <h2 className="mt-2 text-lg font-semibold text-stone-900">
+            {editing
+              ? t('trips.form.editTitle', { id: format.number(editing.id) })
+              : t('trips.form.title')}
+          </h2>
+          <p className="text-sm text-stone-500">
+            {editing ? t('trips.form.editSubtitle') : t('trips.form.subtitle')}
+          </p>
         </div>
         <TripForm
+          key={editing?.id ?? 'new'}
           reference={reference}
-          onCancel={() => setMode('list')}
+          trip={editing}
+          onCancel={leave}
           onGoToVehicles={onGoToVehicles}
-          onCreated={(trip) => {
-            // The next step is paying the trip's tax, so go straight to its details
-            setCreated(trip)
+          onSaved={(trip) => {
+            // The next step is paying the trip's taxes, so go straight to its details
+            if (!editing) setCreated(trip)
             openTrip(trip.id)
             load()
           }}
@@ -86,6 +115,7 @@ function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.J
 
   const startNew = (): void => {
     setCreated(null)
+    setDeleted(null)
     setMode('new')
   }
 
@@ -105,6 +135,9 @@ function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.J
       </div>
 
       {error && <FormAlert message={t(`fleet.errors.${error}`)} />}
+      {deleted !== null && (
+        <FormAlert tone="success" message={t('trips.deleted', { id: format.number(deleted) })} />
+      )}
       {created && (
         <FormAlert
           tone="success"
@@ -179,7 +212,17 @@ function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.J
                     </span>
                   </td>
                   <td>
-                    <div>{t(`cargoTypes.${trip.cargoType}`)}</div>
+                    <div>
+                      {tripCargoTypes(trip).length > 1 ? (
+                        <span
+                          title={format.list(tripCargoTypes(trip).map((c) => t(`cargoTypes.${c}`)))}
+                        >
+                          {t('trips.mixed')}
+                        </span>
+                      ) : (
+                        t(`cargoTypes.${trip.cargoType}`)
+                      )}
+                    </div>
                     <div className="text-xs text-stone-500 tabular-nums">
                       {format.quantity(trip.cargoQuantity, trip.cargoUnit)}
                     </div>

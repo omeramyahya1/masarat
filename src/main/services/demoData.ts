@@ -8,16 +8,30 @@ import {
   cities,
   esaliSimBills,
   getDb,
+  manifestCargoItems,
   manifests,
+  manifestTaxes,
   payments,
   taxRates,
   users,
   vehicles
 } from '../db'
-import type { CargoType, QuantityUnit, VehicleType } from '../../shared/fleet'
+import {
+  totalInVehicleUnit,
+  type CargoItem,
+  type CargoType,
+  type QuantityUnit,
+  type VehicleType
+} from '../../shared/fleet'
 import { DEMO_GOVT_ACCOUNT, DEMO_OWNER_ACCOUNTS, type DemoAccount } from '../../shared/demo'
 import { PLATE_CODES, formatPlate } from '../../shared/plate'
-import { calculateTax, estimateRoadKm } from '../../shared/tax'
+import {
+  DEFAULT_TAX_BPS,
+  TAX_CODES,
+  calculateItemsCost,
+  calculateTaxes,
+  estimateRoadKm
+} from '../../shared/tax'
 import { dropSessionsOf, hashPassword } from './auth'
 import { certificateNoFor, validUntilFor } from './billing'
 import { newBillId } from './esali'
@@ -84,6 +98,82 @@ const CARGO_FOR: Record<VehicleType, CargoType> = {
   jumbo_truck: 'general_cargo',
   lorry: 'general_cargo',
   light_duty_truck: 'general_cargo'
+}
+
+// Share of tanker trips carrying non-fuel liquids
+const LIQUIDS_SHARE = 0.25
+// Mixed loads: big trucks that also carry a container, fuel tankers with a liquids compartment
+const MIXED_TRUCK_SHARE = 0.15
+const MIXED_TANKER_SHARE = 0.1
+
+// Turns the last item of a multi-item load into another cargo type, keeping its quantity
+function mixLoad(rand: Random, items: CargoItem[], cargoType: CargoType): void {
+  if (items.length < 2) return
+  const last = items[items.length - 1]
+  items[items.length - 1] = { ...last, cargoType, name: pick(rand, ITEM_NAMES[cargoType]) }
+}
+
+// Cargo item names (Arabic: they appear on the certificate, which is always Arabic)
+const ITEM_NAMES: Record<CargoType, readonly string[]> = {
+  fuel: ['جازولين', 'بنزين', 'كيروسين'],
+  liquids: ['مياه شرب', 'زيت طعام', 'دبس (مولاس)', 'زيت محركات'],
+  containers: [
+    'حاوية ٤٠ قدم - أجهزة كهربائية',
+    'حاوية ٢٠ قدم - قطع غيار سيارات',
+    'حاوية ٤٠ قدم - ملابس وأقمشة',
+    'حاوية ٢٠ قدم - أدوية ومستلزمات طبية',
+    'حاوية ٤٠ قدم - أثاثات'
+  ],
+  general_cargo: [
+    'أسمنت',
+    'دقيق قمح',
+    'سكر',
+    'ذرة رفيعة',
+    'سمسم',
+    'حديد تسليح',
+    'صمغ عربي',
+    'فول سوداني',
+    'أسمدة زراعية'
+  ]
+}
+
+// Taxes as they were billed: demo history uses the default percentages
+const DEFAULT_TAX_SETTINGS = TAX_CODES.map((code) => ({ code, rateBps: DEFAULT_TAX_BPS[code] }))
+
+// Splits a load (in the vehicle's unit) into 1-4 named items, rounded down so the total never
+// grows past the load
+function cargoItems(
+  rand: Random,
+  cargoType: CargoType,
+  load: number,
+  unit: QuantityUnit
+): CargoItem[] {
+  const names = [...ITEM_NAMES[cargoType]].sort(() => rand() - 0.5)
+  const count = Math.min(
+    names.length,
+    cargoType === 'fuel' ? between(rand, 1, 2) : between(rand, 1, 4)
+  )
+  const weights = Array.from({ length: count }, () => 0.5 + rand())
+  const weightSum = weights.reduce((a, b) => a + b, 0)
+  const items: CargoItem[] = []
+  weights.forEach((weight, i) => {
+    const part = (load * weight) / weightSum
+    if (unit === 'liter') {
+      const liters = Math.floor(part / 500) * 500
+      if (liters <= 0) return
+      items.push(
+        liters % 1000 === 0 && rand() < 0.35
+          ? { name: names[i], quantity: liters / 1000, unit: 'm3', cargoType }
+          : { name: names[i], quantity: liters, unit: 'liter', cargoType }
+      )
+    } else if (part >= 1 && rand() < 0.65) {
+      items.push({ name: names[i], quantity: Math.floor(part), unit: 'ton', cargoType })
+    } else {
+      const kg = Math.floor((part * 1000) / 50) * 50
+      if (kg > 0) items.push({ name: names[i], quantity: kg, unit: 'kg', cargoType })
+    }
+  })
+  return items
 }
 
 // Busy corridors (either direction); the remaining weight goes to random city pairs
@@ -190,6 +280,7 @@ function seedTrips(ownerIds: number[]): void {
       .all()
       .map((r) => [r.cargoType, r])
   )
+  const rateList = [...rates.values()]
 
   const routes: { value: [CityPoint, CityPoint] | null; weight: number }[] = CORRIDORS.flatMap(
     ([a, b, weight]) => {
@@ -294,7 +385,10 @@ function seedTrips(ownerIds: number[]): void {
 
       for (let i = 0; i < trips; i++) {
         const vehicle = pick(rand, fleet)
-        const cargoType = CARGO_FOR[vehicle.vehicleType]
+        const cargoType =
+          vehicle.vehicleType === 'tanker' && rand() < LIQUIDS_SHARE
+            ? 'liquids'
+            : CARGO_FOR[vehicle.vehicleType]
         const rate = rates.get(cargoType)
         if (!rate) continue
 
@@ -305,12 +399,24 @@ function seedTrips(ownerIds: number[]): void {
         if (origin.id === destination.id) continue
         if (rand() < 0.5) [origin, destination] = [destination, origin]
 
-        const quantity =
+        const load =
           rate.unit === 'liter'
             ? Math.round((vehicle.capacity * (0.6 + rand() * 0.4)) / 1000) * 1000
             : Math.max(1, Math.round(vehicle.capacity * (0.5 + rand() * 0.5)))
+        const items = cargoItems(rand, cargoType, load, rate.unit)
+        const bigTruck =
+          vehicle.vehicleType === 'heavy_duty_truck' || vehicle.vehicleType === 'jumbo_truck'
+        if (bigTruck && rand() < MIXED_TRUCK_SHARE) mixLoad(rand, items, 'containers')
+        if (cargoType === 'fuel' && rand() < MIXED_TANKER_SHARE) mixLoad(rand, items, 'liquids')
+        const quantity = totalInVehicleUnit(items)
+        if (items.length === 0 || quantity <= 0) continue
         const distanceKm = estimateRoadKm(origin, destination)
-        const taxAmount = calculateTax(rate, distanceKm, quantity)
+        const priced = calculateItemsCost(items, rateList, distanceKm)
+        const mainRate = priced?.mainType ? rates.get(priced.mainType) : undefined
+        if (!priced || !mainRate) continue
+        const tripCost = priced.total
+        const taxes = calculateTaxes(tripCost, DEFAULT_TAX_SETTINGS)
+        const taxAmount = taxes.total
         if (taxAmount <= 0) continue
 
         // Registered up to two days ahead of the trip, during working hours
@@ -332,12 +438,13 @@ function seedTrips(ownerIds: number[]): void {
             vehicleId: vehicle.id,
             originCityId: origin.id,
             destinationCityId: destination.id,
-            cargoType,
+            cargoType: mainRate.cargoType,
             cargoQuantity: quantity,
             cargoUnit: rate.unit,
             tripDate,
             distanceKm,
-            ratePerKm: rate.ratePerKm,
+            ratePerKm: mainRate.ratePerKm,
+            tripCost,
             taxAmount,
             status,
             createdAt,
@@ -345,6 +452,25 @@ function seedTrips(ownerIds: number[]): void {
           })
           .returning({ id: manifests.id })
           .get()
+        tx.insert(manifestCargoItems)
+          .values(
+            items.map((item, position) => ({
+              manifestId,
+              position,
+              ...item,
+              ratePerKm: rates.get(item.cargoType)?.ratePerKm ?? 0,
+              perQuantity: rates.get(item.cargoType)?.perQuantity ?? 1,
+              cost: priced.costs[position],
+              createdAt,
+              updatedAt: createdAt
+            }))
+          )
+          .run()
+        tx.insert(manifestTaxes)
+          .values(
+            taxes.lines.map((line) => ({ manifestId, ...line, createdAt, updatedAt: createdAt }))
+          )
+          .run()
         if (status === 'draft') continue
 
         const paid = status === 'certified'
@@ -422,6 +548,8 @@ function deleteDemoOwners(): void {
 
     tx.delete(esaliSimBills).where(inArray(esaliSimBills.billId, demoBills)).run()
     tx.delete(certificates).where(inArray(certificates.manifestId, demoManifests)).run()
+    tx.delete(manifestCargoItems).where(inArray(manifestCargoItems.manifestId, demoManifests)).run()
+    tx.delete(manifestTaxes).where(inArray(manifestTaxes.manifestId, demoManifests)).run()
     tx.delete(payments).where(inArray(payments.manifestId, demoManifests)).run()
     tx.delete(manifests).where(inArray(manifests.vehicleId, demoVehicles)).run()
     tx.delete(vehicles).where(inArray(vehicles.ownerId, ownerIds)).run()

@@ -1,16 +1,34 @@
 import { sql } from 'drizzle-orm'
-import { sqliteTable, text, integer, real, index, check } from 'drizzle-orm/sqlite-core'
+import {
+  sqliteTable,
+  text,
+  integer,
+  real,
+  index,
+  check,
+  uniqueIndex
+} from 'drizzle-orm/sqlite-core'
 import {
   VEHICLE_TYPES,
   QUANTITY_UNITS,
   CARGO_TYPES,
+  ITEM_UNITS,
   MANIFEST_STATUSES,
   PAYMENT_STATUSES
 } from '../../shared/fleet'
+import { TAX_CODES } from '../../shared/tax'
 
 // Enum values live in src/shared so the renderer can use them too
 export const USER_ROLES = ['owner', 'govt'] as const
-export { VEHICLE_TYPES, QUANTITY_UNITS, CARGO_TYPES, MANIFEST_STATUSES, PAYMENT_STATUSES }
+export {
+  VEHICLE_TYPES,
+  QUANTITY_UNITS,
+  CARGO_TYPES,
+  ITEM_UNITS,
+  MANIFEST_STATUSES,
+  PAYMENT_STATUSES,
+  TAX_CODES
+}
 
 // SQLite does not enforce text enums, so each one is backed by a CHECK constraint
 const inList = (values: readonly string[]): ReturnType<typeof sql.raw> =>
@@ -78,8 +96,8 @@ export const vehicles = sqliteTable(
   ]
 )
 
-// tax = ratePerKm * distanceKm * (quantity / perQuantity)
-// e.g. 2000 SDG per km per 1 ton, or per 1000 liters
+// Trip cost rates: cost = ratePerKm * distanceKm * (quantity / perQuantity)
+// e.g. 2000 SDG per km per 1 ton, or per 1000 liters. The taxes are percentages of that cost.
 export const taxRates = sqliteTable(
   'tax_rates',
   {
@@ -110,13 +128,17 @@ export const manifests = sqliteTable(
     destinationCityId: integer('destination_city_id')
       .notNull()
       .references(() => cities.id, { onDelete: 'restrict' }),
+    // The main cargo type (the item type with the largest cost) and its rate; each item keeps its own
     cargoType: text('cargo_type', { enum: CARGO_TYPES }).notNull(),
+    // Total of the cargo items, in the vehicle's unit
     cargoQuantity: real('cargo_quantity').notNull(),
     cargoUnit: text('cargo_unit', { enum: QUANTITY_UNITS }).notNull(),
     tripDate: integer('trip_date', { mode: 'timestamp' }).notNull(),
     // Snapshot of the calculation, so later rate changes don't rewrite history
     distanceKm: real('distance_km').notNull(),
     ratePerKm: integer('rate_per_km').notNull(),
+    tripCost: integer('trip_cost').notNull(),
+    // Sum of the trip's manifest_taxes lines: the amount billed
     taxAmount: integer('tax_amount').notNull(),
     status: text('status', { enum: MANIFEST_STATUSES }).notNull().default('draft'),
     ...timestamps
@@ -129,6 +151,82 @@ export const manifests = sqliteTable(
     check('manifests_unit_check', sql`${t.cargoUnit} IN (${inList(QUANTITY_UNITS)})`),
     check('manifests_status_check', sql`${t.status} IN (${inList(MANIFEST_STATUSES)})`),
     check('manifests_quantity_check', sql`${t.cargoQuantity} > 0`)
+  ]
+)
+
+// What a manifest carries; quantities in the item's own unit (converted for the capacity check).
+// Each item has its own cargo type, priced at its rate; the trip cost is the sum of the costs.
+export const manifestCargoItems = sqliteTable(
+  'manifest_cargo_items',
+  {
+    id,
+    manifestId: integer('manifest_id')
+      .notNull()
+      .references(() => manifests.id, { onDelete: 'restrict' }),
+    position: integer('position').notNull(),
+    name: text('name').notNull(),
+    quantity: real('quantity').notNull(),
+    unit: text('unit', { enum: ITEM_UNITS }).notNull(),
+    cargoType: text('cargo_type', { enum: CARGO_TYPES }).notNull(),
+    // Snapshot of the rate and the resulting cost, like the manifest's
+    ratePerKm: integer('rate_per_km').notNull(),
+    perQuantity: integer('per_quantity').notNull(),
+    cost: integer('cost').notNull(),
+    ...timestamps
+  },
+  (t) => [
+    index('manifest_cargo_items_manifest_id_idx').on(t.manifestId),
+    check('manifest_cargo_items_cargo_type_check', sql`${t.cargoType} IN (${inList(CARGO_TYPES)})`),
+    check('manifest_cargo_items_unit_check', sql`${t.unit} IN (${inList(ITEM_UNITS)})`),
+    check('manifest_cargo_items_quantity_check', sql`${t.quantity} > 0`)
+  ]
+)
+
+// Current tax percentages, in basis points (1700 = 17%). Editable by government users.
+export const taxSettings = sqliteTable(
+  'tax_settings',
+  {
+    id,
+    code: text('code', { enum: TAX_CODES }).notNull().unique(),
+    rateBps: integer('rate_bps').notNull(),
+    ...timestamps
+  },
+  (t) => [
+    check('tax_settings_code_check', sql`${t.code} IN (${inList(TAX_CODES)})`),
+    check('tax_settings_rate_check', sql`${t.rateBps} BETWEEN 0 AND 10000`)
+  ]
+)
+
+// Audit log of tax percentage changes
+export const taxSettingChanges = sqliteTable('tax_setting_changes', {
+  id,
+  code: text('code', { enum: TAX_CODES }).notNull(),
+  oldBps: integer('old_bps').notNull(),
+  newBps: integer('new_bps').notNull(),
+  changedBy: integer('changed_by')
+    .notNull()
+    .references(() => users.id, { onDelete: 'restrict' }),
+  changedAt: integer('changed_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`)
+})
+
+// The taxes applied to a manifest, frozen when its bill is issued
+export const manifestTaxes = sqliteTable(
+  'manifest_taxes',
+  {
+    id,
+    manifestId: integer('manifest_id')
+      .notNull()
+      .references(() => manifests.id, { onDelete: 'restrict' }),
+    code: text('code', { enum: TAX_CODES }).notNull(),
+    rateBps: integer('rate_bps').notNull(),
+    amount: integer('amount').notNull(),
+    ...timestamps
+  },
+  (t) => [
+    uniqueIndex('manifest_taxes_manifest_code_idx').on(t.manifestId, t.code),
+    check('manifest_taxes_code_check', sql`${t.code} IN (${inList(TAX_CODES)})`)
   ]
 )
 
@@ -196,6 +294,8 @@ export type Vehicle = typeof vehicles.$inferSelect
 export type NewVehicle = typeof vehicles.$inferInsert
 export type TaxRate = typeof taxRates.$inferSelect
 export type Manifest = typeof manifests.$inferSelect
+export type ManifestCargoItem = typeof manifestCargoItems.$inferSelect
+export type ManifestTax = typeof manifestTaxes.$inferSelect
 export type NewManifest = typeof manifests.$inferInsert
 export type Payment = typeof payments.$inferSelect
 export type NewPayment = typeof payments.$inferInsert

@@ -58,5 +58,6 @@ publish:
   provider: github
   owner: omeramyahya1
   repo: masarat
-  # Publish straight away instead of leaving a draft (a draft has no git tag)
-  releaseType: release
+  # Upload into the draft the release workflow creates; the workflow publishes it once both
+  # the Linux and Windows files are attached (see .github/workflows/release.yml)
+  releaseType: draft

@@ -404,4 +404,9 @@
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
+
+  /* Each certificate page starts on a new sheet; a long cargo list flows onto more sheets */
+  .print-page-break {
+    break-before: page;
+  }
 }

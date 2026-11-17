@@ -1,42 +1,72 @@
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowRight, Calculator, Info, LoaderCircle, Truck } from 'lucide-react'
-import type {
-  CargoType,
-  FleetErrorCode,
-  TripRecord,
-  TripReferenceData,
-  VehicleRecord
+import {
+  totalInVehicleUnit,
+  type CargoType,
+  type FleetErrorCode,
+  type TripRecord,
+  type TripReferenceData,
+  type VehicleRecord
 } from '../../../../shared/fleet'
-import { ROAD_FACTOR, calculateTax, estimateRoadKm } from '../../../../shared/tax'
+import {
+  ROAD_FACTOR,
+  calculateItemsCost,
+  calculateTaxes,
+  estimateRoadKm
+} from '../../../../shared/tax'
 import { todayIso, useFormat } from '../../lib/format'
 import { useMountedRef } from '../../lib/useMountedRef'
-import { FieldLabel, FormAlert, NumberField, SelectField, SubmitButton } from '../form/fields'
+import { FieldLabel, FormAlert, SelectField, SubmitButton } from '../form/fields'
 import PlateBadge from '../fleet/PlateBadge'
+import CargoItemsEditor from './CargoItemsEditor'
+import { fitItemsTo, newItemDraft, type ItemDraft } from './itemDrafts'
+import TaxBreakdown from './TaxBreakdown'
+
+// A stored trip date (local midnight) as YYYY-MM-DD for the date input
+function isoDate(ms: number): string {
+  const date = new Date(ms)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
 
 interface TripFormProps {
   reference: TripReferenceData
+  // A draft to edit; without it the form creates a new trip
+  trip?: TripRecord
   onCancel: () => void
-  onCreated: (trip: TripRecord) => void
+  onSaved: (trip: TripRecord) => void
   onGoToVehicles: () => void
 }
 
 function TripForm({
   reference,
+  trip,
   onCancel,
-  onCreated,
+  onSaved,
   onGoToVehicles
 }: TripFormProps): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
   const dateId = useId()
   const [vehicles, setVehicles] = useState<VehicleRecord[] | null>(null)
-  const [vehicleId, setVehicleId] = useState('')
-  const [originId, setOriginId] = useState('')
-  const [destinationId, setDestinationId] = useState('')
-  const [cargoType, setCargoType] = useState<CargoType | ''>('')
-  const [quantity, setQuantity] = useState('')
-  const [tripDate, setTripDate] = useState(todayIso)
+  const [vehicleId, setVehicleId] = useState(trip ? String(trip.vehicleId) : '')
+  const [originId, setOriginId] = useState(trip ? String(trip.originCityId) : '')
+  const [destinationId, setDestinationId] = useState(trip ? String(trip.destinationCityId) : '')
+  const [items, setItems] = useState<ItemDraft[]>(() => {
+    if (!trip) return [newItemDraft('ton', '')]
+    if (trip.items.length > 0) return trip.items.map((item) => newItemDraft(item.unit, '', item))
+    // A trip from before cargo items existed: start from its cargo type and quantity
+    return [
+      newItemDraft(trip.cargoUnit, trip.cargoType, {
+        name: '',
+        quantity: trip.cargoQuantity,
+        unit: trip.cargoUnit,
+        cargoType: trip.cargoType
+      })
+    ]
+  })
+  const [tripDate, setTripDate] = useState(() => (trip ? isoDate(trip.tripDate) : todayIso()))
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [pending, setPending] = useState(false)
   const mounted = useMountedRef()
@@ -52,13 +82,25 @@ function TripForm({
   }, [])
 
   const vehicle = vehicles?.find((v) => String(v.id) === vehicleId)
-  // Cargo is measured in its tax rate's unit, so only offer cargo the vehicle can carry
-  const allowedRates = reference.taxRates.filter((r) => !vehicle || r.unit === vehicle.capacityUnit)
-  const rate = reference.taxRates.find((r) => r.cargoType === cargoType)
+  // Each item is measured in its cargo type's rate unit, so only offer cargo the vehicle can carry
+  const cargoTypesFor = (v: VehicleRecord): CargoType[] =>
+    reference.taxRates.filter((r) => r.unit === v.capacityUnit).map((r) => r.cargoType)
   const origin = reference.cities.find((c) => String(c.id) === originId)
   const destination = reference.cities.find((c) => String(c.id) === destinationId)
-  const quantityValue = Number(quantity)
-  const overCapacity = Boolean(vehicle && quantity !== '' && quantityValue > vehicle.capacity)
+  const parsedItems = items.map((item) => ({
+    name: item.name.trim(),
+    quantity: Number(item.quantity),
+    unit: item.unit,
+    cargoType: item.cargoType
+  }))
+  const countedItems = parsedItems.filter(
+    (item): item is typeof item & { cargoType: CargoType } =>
+      item.quantity > 0 && Number.isFinite(item.quantity) && item.cargoType !== ''
+  )
+  const quantityValue = totalInVehicleUnit(
+    parsedItems.filter((item) => item.quantity > 0 && Number.isFinite(item.quantity))
+  )
+  const overCapacity = Boolean(vehicle && quantityValue > vehicle.capacity)
 
   const cityOptions = useMemo(
     () =>
@@ -72,41 +114,57 @@ function TripForm({
     origin && destination && origin.id !== destination.id
       ? estimateRoadKm(origin, destination)
       : null
-  const tax =
-    distanceKm !== null && rate && quantityValue > 0
-      ? calculateTax(rate, distanceKm, quantityValue)
+  const priced =
+    distanceKm !== null && countedItems.length > 0
+      ? calculateItemsCost(countedItems, reference.taxRates, distanceKm)
       : null
+  const tripCost = priced?.total ?? null
+  // Cost and quantity per cargo type, for the summary
+  const costByType = new Map<CargoType, { cost: number; quantity: number }>()
+  countedItems.forEach((item, index) => {
+    const entry = costByType.get(item.cargoType) ?? { cost: 0, quantity: 0 }
+    entry.cost += priced?.costs[index] ?? 0
+    entry.quantity += totalInVehicleUnit([item])
+    costByType.set(item.cargoType, entry)
+  })
+  // Previewed with today's percentages; the bill uses the ones current when it's issued
+  const taxes = calculateTaxes(tripCost ?? 0, reference.taxSettings)
 
   const handleVehicleChange = (id: string): void => {
     setVehicleId(id)
     const next = vehicles?.find((v) => String(v.id) === id)
-    if (next && rate && rate.unit !== next.capacityUnit) setCargoType('')
+    if (!next) return
+    setItems((current) => fitItemsTo(current, next.capacityUnit, cargoTypesFor(next)))
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
-    if (!vehicle || !origin || !destination || !cargoType || quantity === '' || !tripDate) {
+    if (!vehicle || !origin || !destination || !tripDate) {
       setError('missing_fields')
       return
     }
     if (origin.id === destination.id) return setError('same_route')
-    if (!(quantityValue > 0)) return setError('invalid_quantity')
+    if (countedItems.length !== parsedItems.length || parsedItems.some((item) => !item.name)) {
+      return setError('invalid_items')
+    }
     if (overCapacity) return setError('over_capacity')
 
     setError(null)
     setPending(true)
     try {
-      const result = await window.api.trips.create({
+      const input = {
         vehicleId: vehicle.id,
         originCityId: origin.id,
         destinationCityId: destination.id,
-        cargoType,
-        cargoQuantity: quantityValue,
+        items: countedItems,
         tripDate
-      })
+      }
+      const result = trip
+        ? await window.api.trips.update(trip.id, input)
+        : await window.api.trips.create(input)
       // The user may have left this form (and opened a new one) while the request was in flight
       if (!mounted.current) return
-      if (result.ok) onCreated(result.data)
+      if (result.ok) onSaved(result.data)
       else setError(result.error)
     } catch {
       if (mounted.current) setError('unknown')
@@ -146,8 +204,6 @@ function TripForm({
       </div>
     )
   }
-
-  const unit = vehicle?.capacityUnit ?? rate?.unit
 
   return (
     <form
@@ -223,27 +279,20 @@ function TripForm({
           <legend className="mb-3 text-sm font-semibold text-stone-800">
             {t('trips.form.cargoSection')}
           </legend>
-          <div className="grid grid-cols-2 gap-4">
-            <SelectField
-              label={t('trips.fields.cargoType')}
-              placeholder={t('trips.fields.cargoTypePlaceholder')}
-              value={cargoType}
-              options={allowedRates.map((r) => ({
-                value: r.cargoType,
-                label: t(`cargoTypes.${r.cargoType}`)
-              }))}
-              onChange={(e) => setCargoType(e.target.value as CargoType)}
-            />
-            <NumberField
-              label={t('trips.fields.quantity')}
-              value={quantity}
-              allowDecimal
-              maxDigits={7}
-              invalid={overCapacity}
-              suffix={unit ? t(`units.name.${unit}`) : undefined}
-              hint={overCapacity ? t('fleet.errors.over_capacity') : undefined}
-              onValueChange={setQuantity}
-            />
+          <div className="flex flex-col gap-2">
+            <span className="label">{t('trips.items.title')}</span>
+            {vehicle ? (
+              <CargoItemsEditor
+                items={items}
+                unit={vehicle.capacityUnit}
+                cargoTypes={cargoTypesFor(vehicle)}
+                total={quantityValue}
+                capacity={vehicle.capacity}
+                onChange={setItems}
+              />
+            ) : (
+              <p className="text-sm text-stone-500">{t('trips.items.chooseVehicle')}</p>
+            )}
           </div>
         </fieldset>
 
@@ -251,7 +300,11 @@ function TripForm({
           <button type="button" className="btn btn-secondary" onClick={onCancel}>
             {t('common.cancel')}
           </button>
-          <SubmitButton pending={pending} className="" label={t('trips.form.submit')} />
+          <SubmitButton
+            pending={pending}
+            className=""
+            label={t(trip ? 'trips.form.save' : 'trips.form.submit')}
+          />
         </div>
       </div>
 
@@ -276,37 +329,49 @@ function TripForm({
           <SummaryRow label={t('trips.tax.distance')}>
             {distanceKm !== null ? t('units.km', { value: format.number(distanceKm) }) : '—'}
           </SummaryRow>
-          <SummaryRow label={t('trips.tax.rate')}>
-            {rate
-              ? t(
-                  `trips.tax.${rate.perQuantity === 1 ? 'rateValuePerOne' : 'rateValue'}.${rate.unit}`,
-                  {
-                    rate: format.currency(rate.ratePerKm),
-                    per: format.number(rate.perQuantity)
-                  }
-                )
-              : '—'}
-          </SummaryRow>
           <SummaryRow label={t('trips.tax.quantity')}>
-            {rate && quantityValue > 0 ? format.quantity(quantityValue, rate.unit) : '—'}
+            {vehicle && quantityValue > 0
+              ? format.quantity(quantityValue, vehicle.capacityUnit)
+              : '—'}
           </SummaryRow>
         </dl>
 
+        {costByType.size > 0 && distanceKm !== null && (
+          <ul className="flex flex-col gap-2 border-t border-stone-200 pt-3 text-sm">
+            {[...costByType].map(([type, entry]) => {
+              const rate = reference.taxRates.find((r) => r.cargoType === type)
+              return (
+                <li key={type} className="flex items-start justify-between gap-4">
+                  <div className="flex flex-col">
+                    <span className="text-stone-700">{t(`cargoTypes.${type}`)}</span>
+                    {rate && (
+                      <span className="text-xs text-stone-500 tabular-nums">
+                        {format.quantity(entry.quantity, rate.unit)} ·{' '}
+                        {t(
+                          `trips.tax.${rate.perQuantity === 1 ? 'rateValuePerOne' : 'rateValue'}.${rate.unit}`,
+                          {
+                            rate: format.currency(rate.ratePerKm),
+                            per: format.number(rate.perQuantity)
+                          }
+                        )}
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-medium whitespace-nowrap text-stone-900 tabular-nums">
+                    {format.currency(entry.cost)}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+
         <div className="rounded-lg border border-brand-200 bg-brand-50 p-4">
-          <div className="text-xs font-medium text-brand-800">{t('trips.tax.total')}</div>
-          <div className="mt-1 text-2xl font-semibold text-brand-900 tabular-nums">
-            {tax !== null ? format.currency(tax) : '—'}
-          </div>
-          {tax !== null && rate && distanceKm !== null && (
-            <div className="mt-2 text-xs text-brand-800 tabular-nums">
-              {t(rate.perQuantity === 1 ? 'trips.tax.formula' : 'trips.tax.formulaPer', {
-                rate: format.number(rate.ratePerKm),
-                distance: format.number(distanceKm),
-                quantity: format.number(quantityValue),
-                per: format.number(rate.perQuantity)
-              })}
-            </div>
-          )}
+          <TaxBreakdown
+            tripCost={tripCost}
+            lines={taxes.lines}
+            total={tripCost !== null ? taxes.total : null}
+          />
         </div>
 
         <p className="flex gap-2 text-xs text-stone-500">

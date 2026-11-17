@@ -2,7 +2,8 @@ import { randomBytes } from 'crypto'
 import { and, eq } from 'drizzle-orm'
 import QRCode from 'qrcode'
 import { certificates, getDb, manifests, payments, vehicles, type Payment } from '../db'
-import type { FleetResult, TripRecord } from '../../shared/fleet'
+import type { FleetResult } from '../../shared/fleet'
+import { calculateTaxes } from '../../shared/tax'
 import {
   CERTIFICATE_VALID_DAYS,
   buildQrPayload,
@@ -11,14 +12,10 @@ import {
   type TripDetails
 } from '../../shared/billing'
 import { esali } from './esali'
-import { toTripRecord, tripColumns } from './trips'
+import { getTaxSettings, toTripRecord, tripColumns, writeTaxes, type TripRow } from './trips'
 
 const ownedTripColumns = { ...tripColumns, vehicleCapacity: vehicles.capacity }
-type OwnedTrip = Omit<TripRecord, 'tripDate' | 'createdAt'> & {
-  tripDate: Date
-  createdAt: Date
-  vehicleCapacity: number
-}
+type OwnedTrip = TripRow & { vehicleCapacity: number }
 
 // The manifest with its vehicle, only if it belongs to this owner
 function findOwnedTrip(ownerId: number, manifestId: unknown): OwnedTrip | undefined {
@@ -98,7 +95,7 @@ export async function getTripDetails(
   }
 }
 
-// Asks E-Sali for a bill ID for the trip's tax and moves the manifest to `billed`
+// Asks E-Sali for a bill ID for the trip's taxes and moves the manifest to `billed`
 export async function generateBill(
   ownerId: number,
   manifestId: number
@@ -109,11 +106,18 @@ export async function generateBill(
   if (paymentOf(trip.id)) return getTripDetails(ownerId, trip.id)
   if (trip.status !== 'draft') return { ok: false, error: 'already_billed' }
 
-  const { billId } = esali.createBill({ amount: trip.taxAmount })
+  // Billed at today's tax percentages (they may have changed since the draft was saved); the
+  // lines are frozen from here on
   const db = getDb()
+  const taxes = calculateTaxes(trip.tripCost, getTaxSettings(db))
+  const { billId } = esali.createBill({ amount: taxes.total })
   db.transaction((tx) => {
-    tx.insert(payments).values({ manifestId: trip.id, billId, amount: trip.taxAmount }).run()
-    tx.update(manifests).set({ status: 'billed' }).where(eq(manifests.id, trip.id)).run()
+    writeTaxes(tx, trip.id, taxes.lines)
+    tx.insert(payments).values({ manifestId: trip.id, billId, amount: taxes.total }).run()
+    tx.update(manifests)
+      .set({ status: 'billed', taxAmount: taxes.total })
+      .where(eq(manifests.id, trip.id))
+      .run()
   })
   return getTripDetails(ownerId, trip.id)
 }

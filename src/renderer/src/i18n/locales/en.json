@@ -115,7 +115,7 @@
   },
   "statuses": {
     "draft": "Draft",
-    "billed": "Billed",
+    "billed": "Pending payment",
     "paid": "Paid",
     "certified": "Certified",
     "cancelled": "Cancelled"
@@ -209,6 +209,9 @@
       "unit_mismatch": "This vehicle can't carry the selected cargo type.",
       "over_capacity": "Cargo quantity exceeds the vehicle's capacity.",
       "invalid_date": "Choose a valid trip date.",
+      "manifest_not_found": "This trip could not be found.",
+      "already_billed": "A bill has already been issued for this trip.",
+      "not_billed": "Generate a bill ID for this trip first.",
       "unknown": "Something went wrong. Please try again."
     }
   },
@@ -274,6 +277,91 @@
       "formula": "{{rate}} × {{distance}} km × {{quantity}}",
       "formulaPer": "{{rate}} × {{distance}} km × {{quantity}} ÷ {{per}}",
       "distanceNote": "Distance is estimated from city coordinates (straight line × {{factor}} road factor). Tax = rate × distance × quantity."
+    },
+    "open": "Open trip details",
+    "details": {
+      "title": "Trip #{{id}}",
+      "subtitle": "Created {{date}}",
+      "summary": "Trip details",
+      "vehicle": "Vehicle",
+      "vehicleType": "Vehicle type",
+      "route": "Route",
+      "cargo": "Cargo",
+      "tripDate": "Trip date",
+      "distance": "Estimated distance",
+      "tax": "Tax due",
+      "moreActions": "More actions"
     }
+  },
+  "billing": {
+    "title": "Tax payment",
+    "amountDue": "Amount due",
+    "draft": {
+      "body": "Generate an E-Sali bill ID to pay the transport tax for this trip.",
+      "generate": "Generate bill ID"
+    },
+    "pending": {
+      "label": "E-Sali bill ID",
+      "hint": "Pay this bill ID from any mobile banking app (Bankak or another bank), then refresh to confirm the payment.",
+      "copy": "Copy bill ID",
+      "copied": "Copied",
+      "refresh": "Refresh status",
+      "notPaid": "Not paid yet. The trip stays pending until the payment is confirmed.",
+      "issuedAt": "Issued {{date}}"
+    },
+    "paid": {
+      "title": "Tax paid",
+      "body": "E-Sali confirmed the payment and the trip certificate has been issued.",
+      "billId": "E-Sali bill ID",
+      "paidAt": "Paid on",
+      "paymentRef": "Payment reference",
+      "certificateNo": "Certificate no.",
+      "validUntil": "Valid until",
+      "show": "Show / download certificate"
+    },
+    "payDemo": "Pay {{billId}}",
+    "demo": "Demo"
+  },
+  "certificate": {
+    "dialogTitle": "Trip certificate",
+    "download": "Download PDF",
+    "close": "Close",
+    "saved": "Certificate saved.",
+    "header": {
+      "republic": "Republic of the Sudan",
+      "ministry": "Ministry of Finance and Economic Planning",
+      "authority": "Tax Collection Authority",
+      "department": "Transport Tax Department",
+      "title": "Road Transport Tax Payment Certificate"
+    },
+    "sections": {
+      "vehicle": "Vehicle details",
+      "trip": "Trip and manifest details",
+      "tax": "Tax and payment",
+      "certificate": "Certificate details"
+    },
+    "fields": {
+      "plate": "Plate number",
+      "vehicleType": "Vehicle type",
+      "capacity": "Carrying capacity",
+      "manifestNo": "Manifest no.",
+      "origin": "Origin",
+      "destination": "Destination",
+      "distance": "Estimated distance",
+      "cargoType": "Cargo type",
+      "quantity": "Quantity",
+      "tripDate": "Trip date",
+      "taxAmount": "Tax amount",
+      "billId": "E-Sali bill ID",
+      "paymentStatus": "Payment status",
+      "paidAt": "Paid on",
+      "paymentRef": "Payment reference",
+      "certificateNo": "Certificate no.",
+      "issuedAt": "Issued on",
+      "validUntil": "Valid until"
+    },
+    "paid": "Paid",
+    "scanToVerify": "Scan the code to verify",
+    "footer": "This certificate was issued electronically by the Masarat system and needs no signature or stamp."
   }
 }

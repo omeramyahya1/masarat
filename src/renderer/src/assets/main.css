@@ -354,3 +354,55 @@
     font-size: 13px;
   }
 }
+
+/*
+ * Certificate PDF: printToPDF renders the whole window, so print only the open certificate.
+ * Unlayered on purpose, so it overrides the dialog's utility classes.
+ */
+@page {
+  size: A4;
+  margin: 10mm;
+}
+
+@media print {
+  html,
+  body {
+    background: #ffffff;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .print-certificate,
+  .print-certificate * {
+    visibility: visible;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-dialog {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .print-dialog::backdrop {
+    background: transparent;
+  }
+
+  .print-certificate {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}

@@ -1,33 +1,23 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, ArrowRight, LoaderCircle, Plus, Route } from 'lucide-react'
-import type {
-  FleetErrorCode,
-  ManifestStatus,
-  TripRecord,
-  TripReferenceData
-} from '../../../../shared/fleet'
+import type { FleetErrorCode, TripRecord, TripReferenceData } from '../../../../shared/fleet'
 import { useFormat } from '../../lib/format'
 import { FormAlert } from '../form/fields'
 import PlateBadge from '../fleet/PlateBadge'
+import TripDetails from './TripDetails'
 import TripForm from './TripForm'
-
-const STATUS_STYLES: Record<ManifestStatus, string> = {
-  draft: 'bg-stone-100 text-stone-700 ring-stone-200',
-  billed: 'bg-amber-50 text-amber-800 ring-amber-200',
-  paid: 'bg-sky-50 text-sky-800 ring-sky-200',
-  certified: 'bg-brand-50 text-brand-800 ring-brand-200',
-  cancelled: 'bg-red-50 text-red-800 ring-red-200'
-}
+import { STATUS_STYLES } from './statusStyles'
 
 function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
-  const [mode, setMode] = useState<'list' | 'new'>('list')
+  const [mode, setMode] = useState<'list' | 'new' | { tripId: number }>('list')
   const [reference, setReference] = useState<TripReferenceData | null>(null)
   const [trips, setTrips] = useState<TripRecord[] | null>(null)
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [created, setCreated] = useState<TripRecord | null>(null)
+  const openTrip = (tripId: number): void => setMode({ tripId })
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -52,6 +42,18 @@ function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.J
   const cityById = (id: number): TripReferenceData['cities'][number] | undefined =>
     reference?.cities.find((c) => c.id === id)
 
+  if (typeof mode === 'object' && reference) {
+    return (
+      <TripDetails
+        key={mode.tripId}
+        tripId={mode.tripId}
+        reference={reference}
+        onBack={() => setMode('list')}
+        onChanged={load}
+      />
+    )
+  }
+
   if (mode === 'new' && reference) {
     return (
       <section className="flex flex-col gap-4">
@@ -72,8 +74,9 @@ function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.J
           onCancel={() => setMode('list')}
           onGoToVehicles={onGoToVehicles}
           onCreated={(trip) => {
+            // The next step is paying the trip's tax, so go straight to its details
             setCreated(trip)
-            setMode('list')
+            openTrip(trip.id)
             load()
           }}
         />
@@ -148,9 +151,23 @@ function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.J
               {trips.map((trip) => (
                 <tr
                   key={trip.id}
-                  className={trip.id === created?.id ? 'bg-brand-50/60' : undefined}
+                  className={`cursor-pointer hover:bg-stone-50 ${trip.id === created?.id ? 'bg-brand-50/60' : ''}`}
+                  onClick={() => openTrip(trip.id)}
                 >
-                  <td className="whitespace-nowrap">{format.date(trip.tripDate)}</td>
+                  <td className="whitespace-nowrap">
+                    {/* Keyboard access to the row; the row itself handles mouse clicks */}
+                    <button
+                      type="button"
+                      className="text-start hover:underline"
+                      aria-label={`${t('trips.open')}: ${format.date(trip.tripDate)}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openTrip(trip.id)
+                      }}
+                    >
+                      {format.date(trip.tripDate)}
+                    </button>
+                  </td>
                   <td>
                     <PlateBadge plate={trip.plateNumber} />
                   </td>

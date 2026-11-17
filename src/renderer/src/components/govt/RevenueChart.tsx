@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useId, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Area,
@@ -31,13 +31,18 @@ function RevenueChart({
   // useId's punctuation isn't valid inside url(#…)
   const gradientId = `revenue-${useId().replace(/[^\w-]/g, '')}`
   const locale = format.isArabic ? 'ar-SD-u-nu-latn' : 'en-US'
-  const tickFormat = new Intl.DateTimeFormat(
-    locale,
-    bucket === 'month' ? { month: 'short' } : { month: 'short', day: 'numeric' }
-  )
-  const labelFormat = new Intl.DateTimeFormat(
-    locale,
-    bucket === 'month' ? { month: 'long', year: 'numeric' } : { dateStyle: 'medium' }
+  const { tickFormat, labelFormat } = useMemo(
+    () => ({
+      tickFormat: new Intl.DateTimeFormat(
+        locale,
+        bucket === 'month' ? { month: 'short' } : { month: 'short', day: 'numeric' }
+      ),
+      labelFormat: new Intl.DateTimeFormat(
+        locale,
+        bucket === 'month' ? { month: 'long', year: 'numeric' } : { dateStyle: 'medium' }
+      )
+    }),
+    [locale, bucket]
   )
 
   // The last bucket is still in progress, so it is drawn dashed instead of reading as a drop

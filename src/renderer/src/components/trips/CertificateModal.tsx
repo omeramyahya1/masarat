@@ -1,4 +1,5 @@
 import { useId, useMemo, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Download, LoaderCircle } from 'lucide-react'
 import type { FleetErrorCode, TripReferenceData } from '../../../../shared/fleet'
@@ -87,14 +88,25 @@ function CertificateModal({
     }
   }
 
-  return (
-    <Modal labelledBy={titleId} onClose={onClose} className="print-dialog max-w-3xl">
+  // printToPDF captures the live page, so the certificate has to stay open until it's saved
+  const close = (): void => {
+    if (!saving) onClose()
+  }
+
+  // Rendered straight into <body> so the print styles can drop the rest of the app from layout
+  return createPortal(
+    <Modal labelledBy={titleId} onClose={close} className="print-dialog max-w-3xl">
       <div className="no-print mb-4 flex items-center justify-between gap-4">
         <h2 id={titleId} className="text-lg font-semibold">
           {t('certificate.dialogTitle')}
         </h2>
         <div className="flex gap-2">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={saving}
+            onClick={close}
+          >
             {t('certificate.close')}
           </button>
           <button
@@ -217,7 +229,8 @@ function CertificateModal({
           {ar('certificate.footer')}
         </footer>
       </article>
-    </Modal>
+    </Modal>,
+    document.body
   )
 }
 

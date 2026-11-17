@@ -357,7 +357,8 @@
 
 /*
  * Certificate PDF: printToPDF renders the whole window, so print only the open certificate.
- * Unlayered on purpose, so it overrides the dialog's utility classes.
+ * The dialog is portalled into <body>; everything else is removed from layout (not just hidden)
+ * so it can't add pages. Unlayered on purpose, so it overrides the dialog's utility classes.
  */
 @page {
   size: A4;
@@ -367,25 +368,23 @@
 @media print {
   html,
   body {
+    height: auto;
+    overflow: visible;
     background: #ffffff;
   }
 
-  body * {
-    visibility: hidden;
-  }
-
-  .print-certificate,
-  .print-certificate * {
-    visibility: visible;
+  body > :not(.print-dialog) {
+    display: none !important;
   }
 
   .no-print {
     display: none !important;
   }
 
+  /* Not fixed: fixed boxes repeat on every printed page */
   .print-dialog {
-    position: fixed;
-    inset: 0;
+    position: absolute;
+    inset: 0 auto auto 0;
     width: 100%;
     max-width: none;
     max-height: none;

@@ -84,12 +84,12 @@ function TripDetails({
         action === 'generate'
           ? await window.api.billing.generate(tripId)
           : await window.api.billing.refresh(tripId)
+      // The list must hear about a status change even if the user has already left this page
+      if (result.ok && result.data.trip.status !== details?.trip.status) onChanged()
       if (!mounted.current) return
       if (!result.ok) return setError(result.error)
-      const before = details?.trip.status
       setDetails(result.data)
       if (action === 'refresh' && result.data.payment?.status !== 'paid') setNotPaid(true)
-      if (result.data.trip.status !== before) onChanged()
     } catch {
       if (mounted.current) setError('unknown')
     } finally {

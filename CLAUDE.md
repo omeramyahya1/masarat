@@ -27,7 +27,7 @@ It's an Electron desktop app with **two views the user can toggle between**:
 
 - **Plate numbers** (`src/shared/plate.ts`): a state code of 1-2 letters (KH, RS, NK, …), a series from 1 to 99, then a number from 1 to 99999. They are stored in English as `"KH 12/34567"` and shown in Arabic as `"خ ١٢ / ٣٤٥٦٧"` (letters → series → number, read right to left), with Eastern Arabic digits. Validation happens in the UI and services, not as a DB constraint.
 - **Digits**: plates are the only thing shown with Eastern Arabic digits (badge, plate text, plate inputs). Every other number, amount and date uses English digits, even in the Arabic UI. Stored and backend values are always English.
-- **Trip cost** (`calculateTripCost` in `src/shared/tax.ts`): `rate_per_km × distance_km × quantity / per_quantity`, with the per-km rates in `tax_rates`. Distance is the haversine distance between the cities × a 1.3 road factor (an estimate until real routing exists).
+- **Trip cost** (`calculateItemsCost` in `src/shared/tax.ts`): the sum of the cargo items' costs. Each item costs `rate_per_km × distance_km × quantity / per_quantity` at its own cargo type's rate (`tax_rates`), with its quantity in the rate's unit. Items keep a snapshot of the rate and their cost. Distance is the haversine distance between the cities × a 1.3 road factor (an estimate until real routing exists).
 - **Taxes** (`calculateTaxes`): percentages of the trip cost. These are VAT (default 17%), business profit tax (3%) and locality tax (2%). They are stored in `tax_settings` as basis points (1700 = 17%).
   - Each line is rounded to whole SDG, and the total is their sum.
   - The **bill is the tax total only** (`manifests.tax_amount`). The trip cost is shown for reference.
@@ -37,8 +37,10 @@ It's an Electron desktop app with **two views the user can toggle between**:
 - **Cargo items** (`manifest_cargo_items`): each trip lists what it carries, with a name, quantity and unit.
   - Units are measurable only: trucks use `kg` / `ton` and tankers use `liter` / `m3` (`itemUnitsFor`).
   - Items are converted to the vehicle's unit (`toVehicleUnit`), and their total is `manifests.cargo_quantity`, which drives the trip cost and must fit the vehicle's capacity.
-- **Cargo types**: the cargo type picks the per-km rate, and its unit must match the vehicle's (fuel and liquids (non-fuel) → liters → tanker; containers and general cargo → tons).
-- New trips are saved as `draft` manifests. Drafts can be edited in the same form (*Edit trip*) until their bill ID is generated (`updateTrip`, otherwise `not_draft`).
+- **Cargo types** are chosen **per item**, so a trip can mix them. The type picks the item's per-km rate, and its unit must match the vehicle's (fuel and liquids (non-fuel) → liters → tanker; containers and general cargo → tons).
+  - `manifests.cargo_type` / `rate_per_km` hold the trip's **main type**, the one that costs the most.
+  - `tripCargoTypes` lists all of a trip's types. The trips list shows "Mixed cargo" when there's more than one.
+- New trips are saved as `draft` manifests. Until their bill ID is generated, drafts can be edited in the same form (*Edit trip*, `updateTrip`) or **deleted** for good, with their items and tax lines (`deleteTrip`). Otherwise both return `not_draft`.
 
 ## Billing & certificates rules
 
@@ -57,8 +59,10 @@ It's an Electron desktop app with **two views the user can toggle between**:
   - *Revenue collected*: paid payments (the taxes) by `paid_at` in the period, with the % change vs the previous period of the same length (hidden when the records don't reach back that far).
   - *Active trips*: certified trips whose certificate is still valid (`valid_until ≥ now`). *Pending bills*: all unpaid bills. Neither is period-filtered.
   - *Collection rate*: paid ÷ billed amount for bills issued in the period.
-  - Revenue chart buckets: day / week (starting Sunday) / month. The current bucket is drawn dashed because it is incomplete. Breakdowns (cargo, routes, origin state) count revenue by when it was paid.
-- **Demo data** (`src/main/services/demoData.ts`): on startup, if there are no demo owners, 4 demo fleet companies are seeded with about a year of trips, bills (with matching `esali_sim_bills` rows), payments and certificates, using the real trip cost and tax calculation (at the default percentages). Each trip gets 1–4 cargo items with Arabic names, and about a quarter of tanker trips carry liquids. It is deterministic (fixed PRNG seed, dates relative to today). Demo users have `users.is_demo = 1`. The Government panel's hidden *⋯ → Regenerate demo data* deletes the demo owners and everything under them (including anything added by hand to a demo company), then reseeds; other owners' data and the demo government account are kept, and a signed-in demo owner is signed out.
+  - Revenue chart buckets: day / week (starting Sunday) / month. The current bucket is drawn dashed because it is incomplete. Breakdowns (cargo, tax, routes, origin state) count revenue by when it was paid.
+  - *Revenue by cargo type* splits each trip's taxes across its items in proportion to their cost.
+  - *Revenue by tax* sums the paid trips' `manifest_taxes` lines.
+- **Demo data** (`src/main/services/demoData.ts`): on startup, if there are no demo owners, 4 demo fleet companies are seeded with about a year of trips, bills (with matching `esali_sim_bills` rows), payments and certificates, using the real trip cost and tax calculation (at the default percentages). Each trip gets 1–4 cargo items with Arabic names, and about a quarter of tanker trips carry liquids. Some loads are mixed: about 15% of big-truck trips carry a container, and about 10% of fuel tanker trips carry liquids. It is deterministic (fixed PRNG seed, dates relative to today). Demo users have `users.is_demo = 1`. The Government panel's hidden *⋯ → Regenerate demo data* deletes the demo owners and everything under them (including anything added by hand to a demo company), then reseeds; other owners' data and the demo government account are kept, and a signed-in demo owner is signed out.
 - **Demo accounts** (`src/shared/demo.ts`, listed under *Demo accounts* on both login pages; clicking one fills the form):
   - Government: `ministry.demo` / `govt2026`
   - Fleet owners: `nile.transport` / `nile2026`, `redsea.logistics` / `redsea2026`, `kordofan.haulage` / `kordofan2026`, `gezira.freight` / `gezira2026`

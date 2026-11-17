@@ -101,6 +101,9 @@ export type FleetErrorCode =
   | 'unit_mismatch'
   | 'over_capacity'
   | 'invalid_date'
+  | 'manifest_not_found'
+  | 'already_billed'
+  | 'not_billed'
   | 'unknown'
 
 export type FleetResult<T> = { ok: true; data: T } | { ok: false; error: FleetErrorCode }

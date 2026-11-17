@@ -170,6 +170,23 @@ export const certificates = sqliteTable('certificates', {
   ...timestamps
 })
 
+// SIMULATION ONLY: stands in for E-Sali's own records of the bills it issued, so a simulated
+// payment survives restarts and only reaches `payments` when the app checks the bill's status.
+// Drop this table once the real E-Sali API is integrated.
+export const esaliSimBills = sqliteTable(
+  'esali_sim_bills',
+  {
+    id,
+    billId: text('bill_id').notNull().unique(),
+    amount: integer('amount').notNull(),
+    status: text('status', { enum: PAYMENT_STATUSES }).notNull().default('pending'),
+    paymentRef: text('payment_ref').unique(),
+    paidAt: integer('paid_at', { mode: 'timestamp' }),
+    ...timestamps
+  },
+  (t) => [check('esali_sim_bills_status_check', sql`${t.status} IN (${inList(PAYMENT_STATUSES)})`)]
+)
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type City = typeof cities.$inferSelect

@@ -9,6 +9,7 @@ import type {
   VehicleInput,
   VehicleRecord
 } from '../shared/fleet'
+import type { TripDetails } from '../shared/billing'
 
 export interface UpdateStatus {
   status:
@@ -54,6 +55,20 @@ const api = {
     list: (): Promise<FleetResult<TripRecord[]>> => ipcRenderer.invoke('trips:list'),
     create: (input: TripInput): Promise<FleetResult<TripRecord>> =>
       ipcRenderer.invoke('trips:create', input)
+  },
+  billing: {
+    getTrip: (manifestId: number): Promise<FleetResult<TripDetails>> =>
+      ipcRenderer.invoke('billing:get-trip', manifestId),
+    generate: (manifestId: number): Promise<FleetResult<TripDetails>> =>
+      ipcRenderer.invoke('billing:generate', manifestId),
+    refresh: (manifestId: number): Promise<FleetResult<TripDetails>> =>
+      ipcRenderer.invoke('billing:refresh', manifestId),
+    simulatePayment: (manifestId: number): Promise<FleetResult<null>> =>
+      ipcRenderer.invoke('billing:simulate-payment', manifestId)
+  },
+  certificates: {
+    savePdf: (fileName: string): Promise<FleetResult<{ saved: boolean }>> =>
+      ipcRenderer.invoke('certificates:save-pdf', fileName)
   },
   updater: {
     checkForUpdates: (): Promise<unknown> => ipcRenderer.invoke('updater:check'),

@@ -94,7 +94,7 @@ interface NumberFieldProps {
   label?: string
   hint?: string
   invalid?: boolean
-  // Western digits ("12.5"); shown with Arabic digits while the UI is in Arabic
+  // Western digits ("12.5"), which is also how they're shown
   value: string
   onValueChange: (value: string) => void
   allowDecimal?: boolean
@@ -105,6 +105,8 @@ interface NumberFieldProps {
   ariaLabel?: string
   placeholder?: string
   autoFocus?: boolean
+  // Show Eastern Arabic digits while the UI is in Arabic (plates only; other numbers stay Western)
+  arabicDigits?: boolean
 }
 
 export function NumberField({
@@ -119,12 +121,13 @@ export function NumberField({
   id: idProp,
   ariaLabel,
   placeholder,
-  autoFocus
+  autoFocus,
+  arabicDigits
 }: NumberFieldProps): React.JSX.Element {
   const { i18n } = useTranslation()
   const generatedId = useId()
   const id = idProp ?? generatedId
-  const isArabic = i18n.language === 'ar'
+  const showArabic = arabicDigits && i18n.language === 'ar'
   const pattern = allowDecimal ? /^\d*\.?\d{0,2}$/ : /^\d*$/
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>): void => {
@@ -145,7 +148,7 @@ export function NumberField({
           autoComplete="off"
           aria-label={ariaLabel}
           aria-invalid={invalid || undefined}
-          value={isArabic ? toArabicDigits(value) : value}
+          value={showArabic ? toArabicDigits(value) : value}
           placeholder={placeholder}
           autoFocus={autoFocus}
           onChange={handleChange}

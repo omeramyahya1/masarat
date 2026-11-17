@@ -7,7 +7,7 @@ import { PLATE_LETTERS_AR, formatPlate, parsePlate } from '../../../shared/plate
 const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩'
 const PERSIAN_DIGITS = '۰۱۲۳۴۵۶۷۸۹'
 
-// Eastern Arabic digits for display in Arabic; the decimal point becomes the Arabic separator
+// Eastern Arabic digits, used only for plates in Arabic; the decimal point becomes the Arabic separator
 export const toArabicDigits = (value: string): string =>
   value.replace(/[0-9]/g, (d) => ARABIC_DIGITS[Number(d)]).replace(/\./g, '٫')
 
@@ -39,7 +39,8 @@ export interface Formatters {
 
 // Formatters for a given language; the certificate always uses Arabic whatever the UI language
 export function createFormatters(isArabic: boolean, t: TFunction): Formatters {
-  const locale = isArabic ? 'ar-SD-u-nu-arab' : 'en-US'
+  // Numbers and dates use Western digits in both languages; only plates use Arabic digits
+  const locale = isArabic ? 'ar-SD-u-nu-latn' : 'en-US'
   const numberFormat = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 })
   const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' })
   const dateTimeFormat = new Intl.DateTimeFormat(locale, {

@@ -189,8 +189,8 @@
       "vehicleTypePlaceholder": "اختر النوع",
       "capacity": "السعة الاستيعابية",
       "capacityPlaceholder": {
-        "ton": "مثال: ٣٠",
-        "liter": "مثال: ٣٦٠٠٠"
+        "ton": "مثال: 30",
+        "liter": "مثال: 36000"
       },
       "capacityUnit": "الوحدة"
     },

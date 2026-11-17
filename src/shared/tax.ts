@@ -1,6 +1,6 @@
 // Trip cost and tax calculation, shared so the renderer can preview exactly what the main process
 // saves
-import type { TaxRateRecord } from './fleet'
+import { toVehicleUnit, type CargoItem, type CargoType, type TaxRateRecord } from './fleet'
 
 interface Point {
   lat: number
@@ -34,6 +34,30 @@ export function calculateTripCost(
   quantity: number
 ): number {
   return Math.round((rate.ratePerKm * distanceKm * quantity) / rate.perQuantity)
+}
+
+// Each item priced at its cargo type's rate (its quantity converted to the rate's unit, which is
+// the vehicle's). The trip cost is the sum; the main type is the one that costs the most.
+// Null if an item's type has no rate.
+export function calculateItemsCost(
+  items: readonly Pick<CargoItem, 'cargoType' | 'quantity' | 'unit'>[],
+  rates: readonly TaxRateRecord[],
+  distanceKm: number
+): { costs: number[]; total: number; mainType: CargoType | null } | null {
+  const costs: number[] = []
+  const byType = new Map<CargoType, number>()
+  for (const item of items) {
+    const rate = rates.find((r) => r.cargoType === item.cargoType)
+    if (!rate) return null
+    const cost = calculateTripCost(rate, distanceKm, toVehicleUnit(item.quantity, item.unit))
+    costs.push(cost)
+    byType.set(item.cargoType, (byType.get(item.cargoType) ?? 0) + cost)
+  }
+  let mainType: CargoType | null = null
+  for (const [type, cost] of byType) {
+    if (mainType === null || cost > (byType.get(mainType) ?? 0)) mainType = type
+  }
+  return { costs, total: costs.reduce((sum, cost) => sum + cost, 0), mainType }
 }
 
 // The taxes charged on a trip, each a percentage of its trip cost. Government users can change

@@ -43,6 +43,13 @@
       "when": 1794919171359,
       "tag": "0005_tax_breakdown_cargo_items",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794922704971,
+      "tag": "0006_cargo_item_types",
+      "breakpoints": true
     }
   ]
 }

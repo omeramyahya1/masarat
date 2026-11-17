@@ -17,6 +17,7 @@ import {
   itemUnitsFor,
   totalInVehicleUnit,
   type CargoItem,
+  type CargoItemRecord,
   type CargoType,
   type FleetErrorCode,
   type FleetResult,
@@ -27,8 +28,8 @@ import {
   type TripReferenceData
 } from '../../shared/fleet'
 import {
+  calculateItemsCost,
   calculateTaxes,
-  calculateTripCost,
   estimateRoadKm,
   type TaxLine,
   type TaxSetting
@@ -114,7 +115,7 @@ export function toTripRecords(rows: readonly TripRow[]): TripRecord[] {
   if (rows.length === 0) return []
   const db = getDb()
   const ids = rows.map((r) => r.id)
-  const items = new Map<number, CargoItem[]>()
+  const items = new Map<number, CargoItemRecord[]>()
   for (const item of db
     .select()
     .from(manifestCargoItems)
@@ -122,7 +123,15 @@ export function toTripRecords(rows: readonly TripRow[]): TripRecord[] {
     .orderBy(asc(manifestCargoItems.position))
     .all()) {
     const list = items.get(item.manifestId) ?? []
-    list.push({ name: item.name, quantity: item.quantity, unit: item.unit })
+    list.push({
+      name: item.name,
+      quantity: item.quantity,
+      unit: item.unit,
+      cargoType: item.cargoType,
+      ratePerKm: item.ratePerKm,
+      perQuantity: item.perQuantity,
+      cost: item.cost
+    })
     items.set(item.manifestId, list)
   }
   const taxes = new Map<number, TaxLine[]>()
@@ -170,21 +179,22 @@ function parseItems(value: unknown, vehicleUnit: QuantityUnit): CargoItem[] | nu
     if (!name || name.length > MAX_ITEM_NAME_LENGTH) return null
     if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity <= 0) return null
     if (!isItemUnit(raw?.unit) || !allowed.includes(raw.unit)) return null
-    items.push({ name, quantity, unit: raw.unit })
+    if (!isCargoType(raw?.cargoType)) return null
+    items.push({ name, quantity, unit: raw.unit, cargoType: raw.cargoType })
   }
   return items
 }
 
 interface BuiltTrip {
   manifest: Omit<typeof manifests.$inferInsert, 'status'>
-  items: CargoItem[]
+  items: CargoItemRecord[]
   taxes: TaxLine[]
 }
 
 // Validates a trip and computes its cost and taxes from the DB; the renderer's preview is never
 // trusted
 function buildTrip(ownerId: number, input: TripInput): FleetResult<BuiltTrip> {
-  if (!input || !isCargoType(input.cargoType)) return { ok: false, error: 'missing_fields' }
+  if (!input) return { ok: false, error: 'missing_fields' }
 
   const vehicle = findOwnedVehicle(ownerId, input.vehicleId)
   if (!vehicle) return { ok: false, error: 'vehicle_not_found' }
@@ -200,13 +210,15 @@ function buildTrip(ownerId: number, input: TripInput): FleetResult<BuiltTrip> {
   const destination = route.find((c) => c.id === input.destinationCityId)
   if (!origin || !destination) return { ok: false, error: 'city_not_found' }
 
-  const rate = db.select().from(taxRates).where(eq(taxRates.cargoType, input.cargoType)).get()
-  if (!rate) return { ok: false, error: 'unknown' }
-  // Cargo is measured in the rate's unit, which has to match what the vehicle carries
-  if (rate.unit !== vehicle.capacityUnit) return { ok: false, error: 'unit_mismatch' }
-
   const items = parseItems(input.items, vehicle.capacityUnit)
   if (!items) return { ok: false, error: 'invalid_items' }
+  const rates = db.select().from(taxRates).all()
+  // Each item is measured in its rate's unit, which has to match what the vehicle carries
+  for (const item of items) {
+    const rate = rates.find((r) => r.cargoType === item.cargoType)
+    if (!rate) return { ok: false, error: 'invalid_items' }
+    if (rate.unit !== vehicle.capacityUnit) return { ok: false, error: 'unit_mismatch' }
+  }
   const quantity = totalInVehicleUnit(items)
   if (!(quantity > 0)) return { ok: false, error: 'invalid_quantity' }
   if (quantity > vehicle.capacity) return { ok: false, error: 'over_capacity' }
@@ -215,7 +227,11 @@ function buildTrip(ownerId: number, input: TripInput): FleetResult<BuiltTrip> {
   if (!tripDate) return { ok: false, error: 'invalid_date' }
 
   const distanceKm = estimateRoadKm(origin, destination)
-  const tripCost = calculateTripCost(rate, distanceKm, quantity)
+  const priced = calculateItemsCost(items, rates, distanceKm)
+  if (!priced || !priced.mainType) return { ok: false, error: 'unknown' }
+  const mainRate = rates.find((r) => r.cargoType === priced.mainType)
+  if (!mainRate) return { ok: false, error: 'unknown' }
+  const tripCost = priced.total
   const taxes = calculateTaxes(tripCost, getTaxSettings(db))
   return {
     ok: true,
@@ -224,22 +240,30 @@ function buildTrip(ownerId: number, input: TripInput): FleetResult<BuiltTrip> {
         vehicleId: vehicle.id,
         originCityId: origin.id,
         destinationCityId: destination.id,
-        cargoType: input.cargoType,
+        cargoType: priced.mainType,
         cargoQuantity: quantity,
-        cargoUnit: rate.unit,
+        cargoUnit: vehicle.capacityUnit,
         tripDate,
         distanceKm,
-        ratePerKm: rate.ratePerKm,
+        ratePerKm: mainRate.ratePerKm,
         tripCost,
         taxAmount: taxes.total
       },
-      items,
+      items: items.map((item, index) => {
+        const rate = rates.find((r) => r.cargoType === item.cargoType)
+        return {
+          ...item,
+          ratePerKm: rate?.ratePerKm ?? 0,
+          perQuantity: rate?.perQuantity ?? 1,
+          cost: priced.costs[index]
+        }
+      }),
       taxes: taxes.lines
     }
   }
 }
 
-function writeItems(tx: Tx, manifestId: number, items: readonly CargoItem[]): void {
+function writeItems(tx: Tx, manifestId: number, items: readonly CargoItemRecord[]): void {
   tx.delete(manifestCargoItems).where(eq(manifestCargoItems.manifestId, manifestId)).run()
   tx.insert(manifestCargoItems)
     .values(items.map((item, position) => ({ manifestId, position, ...item })))

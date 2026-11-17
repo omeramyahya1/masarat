@@ -128,6 +128,7 @@ export const manifests = sqliteTable(
     destinationCityId: integer('destination_city_id')
       .notNull()
       .references(() => cities.id, { onDelete: 'restrict' }),
+    // The main cargo type (the item type with the largest cost) and its rate; each item keeps its own
     cargoType: text('cargo_type', { enum: CARGO_TYPES }).notNull(),
     // Total of the cargo items, in the vehicle's unit
     cargoQuantity: real('cargo_quantity').notNull(),
@@ -153,7 +154,8 @@ export const manifests = sqliteTable(
   ]
 )
 
-// What a manifest carries; quantities in the item's own unit (converted for the capacity check)
+// What a manifest carries; quantities in the item's own unit (converted for the capacity check).
+// Each item has its own cargo type, priced at its rate; the trip cost is the sum of the costs.
 export const manifestCargoItems = sqliteTable(
   'manifest_cargo_items',
   {
@@ -165,10 +167,16 @@ export const manifestCargoItems = sqliteTable(
     name: text('name').notNull(),
     quantity: real('quantity').notNull(),
     unit: text('unit', { enum: ITEM_UNITS }).notNull(),
+    cargoType: text('cargo_type', { enum: CARGO_TYPES }).notNull(),
+    // Snapshot of the rate and the resulting cost, like the manifest's
+    ratePerKm: integer('rate_per_km').notNull(),
+    perQuantity: integer('per_quantity').notNull(),
+    cost: integer('cost').notNull(),
     ...timestamps
   },
   (t) => [
     index('manifest_cargo_items_manifest_id_idx').on(t.manifestId),
+    check('manifest_cargo_items_cargo_type_check', sql`${t.cargoType} IN (${inList(CARGO_TYPES)})`),
     check('manifest_cargo_items_unit_check', sql`${t.unit} IN (${inList(ITEM_UNITS)})`),
     check('manifest_cargo_items_quantity_check', sql`${t.quantity} > 0`)
   ]

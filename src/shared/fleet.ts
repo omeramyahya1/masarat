@@ -93,13 +93,21 @@ export interface CargoItem {
   name: string
   quantity: number
   unit: ItemUnit
+  // Picks the item's rate; its unit has to match the vehicle's
+  cargoType: CargoType
+}
+
+// A saved item, with the rate it was priced at and its share of the trip cost
+export interface CargoItemRecord extends CargoItem {
+  ratePerKm: number
+  perQuantity: number
+  cost: number
 }
 
 export interface TripInput {
   vehicleId: number
   originCityId: number
   destinationCityId: number
-  cargoType: CargoType
   items: CargoItem[]
   // Local calendar date, YYYY-MM-DD
   tripDate: string
@@ -123,7 +131,7 @@ export interface TripRecord {
   // Total of the tax lines; this is what the bill asks for
   taxAmount: number
   taxes: TaxLine[]
-  items: CargoItem[]
+  items: CargoItemRecord[]
   status: ManifestStatus
   createdAt: number
 }

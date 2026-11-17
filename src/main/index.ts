@@ -15,8 +15,11 @@ import {
   refreshBillStatus,
   simulatePayment
 } from './services/billing'
+import { getDashboard } from './services/dashboard'
+import { ensureDemoData, regenerateDemoData } from './services/demoData'
 import type { AuthResult, LogInInput, SignUpInput, UserRole } from '../shared/auth'
 import type { FleetResult, TripInput, VehicleInput } from '../shared/fleet'
+import { isDashboardPeriod } from '../shared/dashboard'
 
 // Configure updater logging
 autoUpdater.logger = log
@@ -237,6 +240,35 @@ function registerFleetHandlers(): void {
   )
 }
 
+// Government panel handlers; they need the government session, and see every owner's data
+async function runGovt<T>(
+  action: () => FleetResult<T> | Promise<FleetResult<T>>
+): Promise<FleetResult<T>> {
+  if (!getSession('govt')) return { ok: false, error: 'not_signed_in' }
+  try {
+    return await action()
+  } catch (err) {
+    log.error('Government request failed:', err)
+    return { ok: false, error: 'unknown' }
+  }
+}
+
+function registerGovtHandlers(): void {
+  ipcMain.handle('govt:dashboard', (_event, period: unknown) =>
+    runGovt(() =>
+      isDashboardPeriod(period)
+        ? { ok: true, data: getDashboard(period) }
+        : { ok: false, error: 'missing_fields' }
+    )
+  )
+  ipcMain.handle('govt:regenerate-demo', () =>
+    runGovt(async () => {
+      await regenerateDemoData()
+      return { ok: true, data: null }
+    })
+  )
+}
+
 // Auth Handlers
 async function runAuth(action: () => Promise<AuthResult>): Promise<AuthResult> {
   try {
@@ -257,7 +289,7 @@ function registerAuthHandlers(): void {
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 
@@ -272,8 +304,15 @@ app.whenReady().then(() => {
   ipcMain.on('ping', () => console.log('pong'))
 
   registerFleetHandlers()
+  registerGovtHandlers()
   registerAuthHandlers()
   configureAutoUpdater()
+  // Before the window opens, so the first dashboard load already has data
+  try {
+    await ensureDemoData()
+  } catch (err) {
+    log.error('Seeding demo data failed:', err)
+  }
   createWindow()
 
   app.on('activate', function () {

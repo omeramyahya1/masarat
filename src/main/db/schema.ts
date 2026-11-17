@@ -38,6 +38,8 @@ export const users = sqliteTable(
     fullName: text('full_name').notNull(),
     phone: text('phone'),
     companyName: text('company_name'),
+    // Seeded demo accounts (see services/demoData.ts); "Regenerate demo data" only touches these
+    isDemo: integer('is_demo', { mode: 'boolean' }).notNull().default(false),
     ...timestamps
   },
   (t) => [check('users_role_check', sql`${t.role} IN (${inList(USER_ROLES)})`)]

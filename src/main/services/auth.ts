@@ -21,7 +21,7 @@ const scrypt = promisify(scryptCallback) as (
 const KEY_LENGTH = 64
 
 // Stored as "scrypt$<salt hex>$<hash hex>"
-async function hashPassword(password: string): Promise<string> {
+export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16)
   const hash = await scrypt(password, salt, KEY_LENGTH)
   return `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`
@@ -124,6 +124,11 @@ export async function logIn(input: LogInInput): Promise<AuthResult> {
 export function logOut(role: UserRole): void {
   nextGeneration(role)
   sessions.delete(role)
+}
+
+// Signs out any panel whose user is about to be deleted (demo accounts on "Regenerate demo data")
+export function dropSessionsOf(userIds: ReadonlySet<number>): void {
+  for (const [role, user] of sessions) if (userIds.has(user.id)) logOut(role)
 }
 
 export function getSession(role: UserRole): AuthUser | null {

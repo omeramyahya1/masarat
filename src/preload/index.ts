@@ -10,6 +10,7 @@ import type {
   VehicleRecord
 } from '../shared/fleet'
 import type { TripDetails } from '../shared/billing'
+import type { DashboardData, DashboardPeriod } from '../shared/dashboard'
 
 export interface UpdateStatus {
   status:
@@ -69,6 +70,11 @@ const api = {
   certificates: {
     savePdf: (fileName: string): Promise<FleetResult<{ saved: boolean }>> =>
       ipcRenderer.invoke('certificates:save-pdf', fileName)
+  },
+  govt: {
+    dashboard: (period: DashboardPeriod): Promise<FleetResult<DashboardData>> =>
+      ipcRenderer.invoke('govt:dashboard', period),
+    regenerateDemoData: (): Promise<FleetResult<null>> => ipcRenderer.invoke('govt:regenerate-demo')
   },
   updater: {
     checkForUpdates: (): Promise<unknown> => ipcRenderer.invoke('updater:check'),

@@ -35,11 +35,11 @@ const paymentOf = (manifestId: number): Payment | undefined =>
   getDb().select().from(payments).where(eq(payments.manifestId, manifestId)).get()
 
 // e.g. MSR-2026-000042
-const certificateNoFor = (manifestId: number, issuedAt: Date): string =>
+export const certificateNoFor = (manifestId: number, issuedAt: Date): string =>
   `MSR-${issuedAt.getFullYear()}-${String(manifestId).padStart(6, '0')}`
 
 // End of the day CERTIFICATE_VALID_DAYS after the trip date
-function validUntilFor(tripDate: Date): Date {
+export function validUntilFor(tripDate: Date): Date {
   const end = new Date(tripDate)
   end.setDate(end.getDate() + CERTIFICATE_VALID_DAYS)
   end.setHours(23, 59, 59, 0)

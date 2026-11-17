@@ -1,7 +1,16 @@
 // Government dashboard: totals and breakdowns across all fleet owners
 import { and, count, desc, eq, gte, lt, sql, sum } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
-import { certificates, cities, getDb, manifests, payments, users, vehicles } from '../db'
+import {
+  certificates,
+  cities,
+  getDb,
+  manifestTaxes,
+  manifests,
+  payments,
+  users,
+  vehicles
+} from '../db'
 import { MANIFEST_STATUSES, type ManifestStatus } from '../../shared/fleet'
 import type {
   BucketSize,
@@ -118,6 +127,17 @@ export function getDashboard(period: DashboardPeriod): DashboardData {
     .orderBy(desc(revenue))
     .all()
 
+  // The paid trips' tax lines; together they add up to the revenue
+  const taxRevenue = sql<number>`sum(${manifestTaxes.amount})`.mapWith(Number)
+  const byTax = db
+    .select({ code: manifestTaxes.code, revenue: taxRevenue })
+    .from(payments)
+    .innerJoin(manifestTaxes, eq(manifestTaxes.manifestId, payments.manifestId))
+    .where(paidInPeriod)
+    .groupBy(manifestTaxes.code)
+    .orderBy(desc(taxRevenue))
+    .all()
+
   const topRoutes = db
     .select({
       originCityId: manifests.originCityId,
@@ -212,6 +232,7 @@ export function getDashboard(period: DashboardPeriod): DashboardData {
     },
     revenueSeries: revenueSeries(start, now, bucket),
     byCargo,
+    byTax,
     topRoutes,
     byState,
     statusCounts,

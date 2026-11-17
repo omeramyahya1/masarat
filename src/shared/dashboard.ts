@@ -1,5 +1,6 @@
 // Government dashboard data, computed in the main process (src/main/services/dashboard.ts)
 import type { CargoType, ManifestStatus } from './fleet'
+import type { TaxCode } from './tax'
 
 export const DASHBOARD_PERIODS = ['30d', '90d', '12m'] as const
 export type DashboardPeriod = (typeof DASHBOARD_PERIODS)[number]
@@ -40,6 +41,12 @@ export interface CargoSlice {
   trips: number
 }
 
+// Revenue collected for one tax (VAT, business profit, locality)
+export interface TaxSlice {
+  code: TaxCode
+  revenue: number
+}
+
 export interface RouteRevenue {
   originCityId: number
   destinationCityId: number
@@ -74,6 +81,7 @@ export interface DashboardData {
   kpis: DashboardKpis
   revenueSeries: RevenuePoint[]
   byCargo: CargoSlice[]
+  byTax: TaxSlice[]
   topRoutes: RouteRevenue[]
   byState: StateRevenue[]
   // Manifests created in the period, by status

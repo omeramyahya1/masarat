@@ -460,6 +460,9 @@
       "cargo": {
         "title": "Revenue by cargo type"
       },
+      "tax": {
+        "title": "Revenue by tax"
+      },
       "breakdown": {
         "label": "Breakdown",
         "routes": "Top routes by revenue",

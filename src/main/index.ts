@@ -8,7 +8,7 @@ import icon from '../../resources/icon.png?asset'
 import { initDb, closeDb } from './db'
 import { getSession, logIn, logOut, signUp } from './services/auth'
 import { addVehicle, deleteVehicle, listVehicles, updateVehicle } from './services/fleet'
-import { createTrip, getReferenceData, listTrips } from './services/trips'
+import { createTrip, getReferenceData, listTrips, updateTrip } from './services/trips'
 import {
   generateBill,
   getTripDetails,
@@ -16,8 +16,10 @@ import {
   simulatePayment
 } from './services/billing'
 import { getDashboard } from './services/dashboard'
+import { getTaxSettingsView, updateTaxRates } from './services/taxes'
 import { ensureDemoData, regenerateDemoData } from './services/demoData'
 import type { AuthResult, LogInInput, SignUpInput, UserRole } from '../shared/auth'
+import type { TaxRatesInput } from '../shared/tax'
 import type { FleetResult, TripInput, VehicleInput } from '../shared/fleet'
 import { isDashboardPeriod } from '../shared/dashboard'
 
@@ -206,6 +208,9 @@ function registerFleetHandlers(): void {
   ipcMain.handle('trips:create', (_event, input: TripInput) =>
     runFleet((ownerId) => createTrip(ownerId, input))
   )
+  ipcMain.handle('trips:update', (_event, id: number, input: TripInput) =>
+    runFleet((ownerId) => updateTrip(ownerId, id, input))
+  )
 
   ipcMain.handle('billing:get-trip', (_event, manifestId: number) =>
     runFleetAsync((ownerId) => getTripDetails(ownerId, manifestId))
@@ -264,6 +269,16 @@ function registerGovtHandlers(): void {
         ? { ok: true, data: getDashboard(period) }
         : { ok: false, error: 'missing_fields' }
     )
+  )
+  ipcMain.handle('govt:get-tax-settings', () =>
+    runGovt(() => ({ ok: true, data: getTaxSettingsView() }))
+  )
+  ipcMain.handle('govt:update-tax-rates', (_event, input: TaxRatesInput) =>
+    runGovt(() => {
+      // runGovt has checked the session; the change is logged under this user
+      const user = getSession('govt')
+      return user ? updateTaxRates(user.id, input) : { ok: false, error: 'not_signed_in' }
+    })
   )
   ipcMain.handle('govt:regenerate-demo', () =>
     runGovt(async () => {

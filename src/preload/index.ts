@@ -11,6 +11,7 @@ import type {
 } from '../shared/fleet'
 import type { TripDetails } from '../shared/billing'
 import type { DashboardData, DashboardPeriod } from '../shared/dashboard'
+import type { TaxRatesInput, TaxSettingsView } from '../shared/tax'
 
 export interface UpdateStatus {
   status:
@@ -55,7 +56,9 @@ const api = {
       ipcRenderer.invoke('trips:get-reference-data'),
     list: (): Promise<FleetResult<TripRecord[]>> => ipcRenderer.invoke('trips:list'),
     create: (input: TripInput): Promise<FleetResult<TripRecord>> =>
-      ipcRenderer.invoke('trips:create', input)
+      ipcRenderer.invoke('trips:create', input),
+    update: (id: number, input: TripInput): Promise<FleetResult<TripRecord>> =>
+      ipcRenderer.invoke('trips:update', id, input)
   },
   billing: {
     getTrip: (manifestId: number): Promise<FleetResult<TripDetails>> =>
@@ -76,6 +79,10 @@ const api = {
       ipcRenderer.invoke('govt:get-reference-data'),
     dashboard: (period: DashboardPeriod): Promise<FleetResult<DashboardData>> =>
       ipcRenderer.invoke('govt:dashboard', period),
+    getTaxSettings: (): Promise<FleetResult<TaxSettingsView>> =>
+      ipcRenderer.invoke('govt:get-tax-settings'),
+    updateTaxRates: (input: TaxRatesInput): Promise<FleetResult<TaxSettingsView>> =>
+      ipcRenderer.invoke('govt:update-tax-rates', input),
     regenerateDemoData: (): Promise<FleetResult<null>> => ipcRenderer.invoke('govt:regenerate-demo')
   },
   updater: {

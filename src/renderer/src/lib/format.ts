@@ -1,12 +1,13 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type { CityRecord, QuantityUnit } from '../../../shared/fleet'
 import { PLATE_LETTERS_AR, formatPlate, parsePlate } from '../../../shared/plate'
 
 const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩'
 const PERSIAN_DIGITS = '۰۱۲۳۴۵۶۷۸۹'
 
-// Eastern Arabic digits for display in Arabic; the decimal point becomes the Arabic separator
+// Eastern Arabic digits, used only for plates in Arabic; the decimal point becomes the Arabic separator
 export const toArabicDigits = (value: string): string =>
   value.replace(/[0-9]/g, (d) => ARABIC_DIGITS[Number(d)]).replace(/\./g, '٫')
 
@@ -30,37 +31,46 @@ export interface Formatters {
   currency: (amount: number) => string
   quantity: (value: number, unit: QuantityUnit) => string
   date: (ms: number) => string
+  dateTime: (ms: number) => string
   // Stored English plate ("KH 12/34567") in the current language ("خ ١٢ / ٣٤٥٦٧" in Arabic)
   plate: (plate: string) => string
   city: (city: Pick<CityRecord, 'name' | 'nameAr'> | undefined) => string
 }
 
+// Formatters for a given language; the certificate always uses Arabic whatever the UI language
+export function createFormatters(isArabic: boolean, t: TFunction): Formatters {
+  // Numbers and dates use Western digits in both languages; only plates use Arabic digits
+  const locale = isArabic ? 'ar-SD-u-nu-latn' : 'en-US'
+  const numberFormat = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 })
+  const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' })
+  const dateTimeFormat = new Intl.DateTimeFormat(locale, {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  })
+  const number = (value: number): string => numberFormat.format(value)
+
+  return {
+    isArabic,
+    number,
+    currency: (amount) => t('common.currency', { amount: number(amount) }),
+    quantity: (value, unit) => t(`units.short.${unit}`, { value: number(value) }),
+    date: (ms) => dateFormat.format(ms),
+    dateTime: (ms) => dateTimeFormat.format(ms),
+    plate: (plate) => {
+      const parts = parsePlate(plate)
+      if (!parts) return plate
+      if (!isArabic) return formatPlate(parts)
+      // Spaces around the slash keep "letters, series, number" in right-to-left order;
+      // without them the bidi algorithm reads "١٢/٣٤٥٦٧" as one left-to-right number
+      const { code, series, number } = parts
+      return `${PLATE_LETTERS_AR[code]} ${toArabicDigits(String(series))} / ${toArabicDigits(String(number))}`
+    },
+    city: (city) => (city ? (isArabic && city.nameAr) || city.name : '—')
+  }
+}
+
 export function useFormat(): Formatters {
   const { t, i18n } = useTranslation()
   const isArabic = i18n.language === 'ar'
-
-  return useMemo(() => {
-    const locale = isArabic ? 'ar-SD-u-nu-arab' : 'en-US'
-    const numberFormat = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 })
-    const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' })
-    const number = (value: number): string => numberFormat.format(value)
-
-    return {
-      isArabic,
-      number,
-      currency: (amount) => t('common.currency', { amount: number(amount) }),
-      quantity: (value, unit) => t(`units.short.${unit}`, { value: number(value) }),
-      date: (ms) => dateFormat.format(ms),
-      plate: (plate) => {
-        const parts = parsePlate(plate)
-        if (!parts) return plate
-        if (!isArabic) return formatPlate(parts)
-        // Spaces around the slash keep "letters, series, number" in right-to-left order;
-        // without them the bidi algorithm reads "١٢/٣٤٥٦٧" as one left-to-right number
-        const { code, series, number } = parts
-        return `${PLATE_LETTERS_AR[code]} ${toArabicDigits(String(series))} / ${toArabicDigits(String(number))}`
-      },
-      city: (city) => (city ? (isArabic && city.nameAr) || city.name : '—')
-    }
-  }, [isArabic, t])
+  return useMemo(() => createFormatters(isArabic, t), [isArabic, t])
 }

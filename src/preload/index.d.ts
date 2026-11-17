@@ -8,6 +8,7 @@ import type {
   VehicleInput,
   VehicleRecord
 } from '../shared/fleet'
+import type { TripDetails } from '../shared/billing'
 
 export interface UpdateStatus {
   status:
@@ -48,6 +49,19 @@ export interface TripsAPI {
   create: (input: TripInput) => Promise<FleetResult<TripRecord>>
 }
 
+export interface BillingAPI {
+  getTrip: (manifestId: number) => Promise<FleetResult<TripDetails>>
+  generate: (manifestId: number) => Promise<FleetResult<TripDetails>>
+  refresh: (manifestId: number) => Promise<FleetResult<TripDetails>>
+  // Demo only: pays the bill at the simulated E-Sali
+  simulatePayment: (manifestId: number) => Promise<FleetResult<null>>
+}
+
+export interface CertificatesAPI {
+  // Prints the current page (certificate print styles) to a PDF the user saves
+  savePdf: (fileName: string) => Promise<FleetResult<{ saved: boolean }>>
+}
+
 export interface AuthAPI {
   signUp: (input: SignUpInput) => Promise<AuthResult>
   logIn: (input: LogInInput) => Promise<AuthResult>
@@ -59,6 +73,8 @@ export interface CustomAPI {
   auth: AuthAPI
   fleet: FleetAPI
   trips: TripsAPI
+  billing: BillingAPI
+  certificates: CertificatesAPI
   updater: UpdaterAPI
 }
 

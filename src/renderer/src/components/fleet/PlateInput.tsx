@@ -48,6 +48,7 @@ function PlateInput({ value, onChange }: PlateInputProps): React.JSX.Element {
           ariaLabel={t('fleet.fields.plateSeries')}
           value={value.series}
           maxDigits={PLATE_SERIES_MAX_DIGITS}
+          arabicDigits
           placeholder={t('fleet.fields.plateSeriesPlaceholder')}
           onValueChange={(series) => onChange({ ...value, series })}
         />
@@ -58,6 +59,7 @@ function PlateInput({ value, onChange }: PlateInputProps): React.JSX.Element {
           ariaLabel={t('fleet.fields.plateNumber')}
           value={value.number}
           maxDigits={PLATE_NUMBER_MAX_DIGITS}
+          arabicDigits
           placeholder={t('fleet.fields.plateNumberPlaceholder')}
           onValueChange={(number) => onChange({ ...value, number })}
         />

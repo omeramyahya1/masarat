@@ -354,3 +354,54 @@
     font-size: 13px;
   }
 }
+
+/*
+ * Certificate PDF: printToPDF renders the whole window, so print only the open certificate.
+ * The dialog is portalled into <body>; everything else is removed from layout (not just hidden)
+ * so it can't add pages. Unlayered on purpose, so it overrides the dialog's utility classes.
+ */
+@page {
+  size: A4;
+  margin: 10mm;
+}
+
+@media print {
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+    background: #ffffff;
+  }
+
+  body > :not(.print-dialog) {
+    display: none !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  /* Not fixed: fixed boxes repeat on every printed page */
+  .print-dialog {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .print-dialog::backdrop {
+    background: transparent;
+  }
+
+  .print-certificate {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}

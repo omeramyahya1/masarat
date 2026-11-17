@@ -1,4 +1,5 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
+import { writeFile } from 'fs/promises'
 import { autoUpdater } from 'electron-updater'
 import log from 'electron-log'
 import { join } from 'path'
@@ -8,6 +9,12 @@ import { initDb, closeDb } from './db'
 import { getSession, logIn, logOut, signUp } from './services/auth'
 import { addVehicle, deleteVehicle, listVehicles, updateVehicle } from './services/fleet'
 import { createTrip, getReferenceData, listTrips } from './services/trips'
+import {
+  generateBill,
+  getTripDetails,
+  refreshBillStatus,
+  simulatePayment
+} from './services/billing'
 import type { AuthResult, LogInInput, SignUpInput, UserRole } from '../shared/auth'
 import type { FleetResult, TripInput, VehicleInput } from '../shared/fleet'
 
@@ -158,6 +165,19 @@ function runFleet<T>(action: (ownerId: number) => FleetResult<T>): FleetResult<T
   }
 }
 
+async function runFleetAsync<T>(
+  action: (ownerId: number) => Promise<FleetResult<T>>
+): Promise<FleetResult<T>> {
+  const owner = getSession('owner')
+  if (!owner) return { ok: false, error: 'not_signed_in' }
+  try {
+    return await action(owner.id)
+  } catch (err) {
+    log.error('Fleet request failed:', err)
+    return { ok: false, error: 'unknown' }
+  }
+}
+
 function registerFleetHandlers(): void {
   initDb()
 
@@ -182,6 +202,38 @@ function registerFleetHandlers(): void {
   )
   ipcMain.handle('trips:create', (_event, input: TripInput) =>
     runFleet((ownerId) => createTrip(ownerId, input))
+  )
+
+  ipcMain.handle('billing:get-trip', (_event, manifestId: number) =>
+    runFleetAsync((ownerId) => getTripDetails(ownerId, manifestId))
+  )
+  ipcMain.handle('billing:generate', (_event, manifestId: number) =>
+    runFleetAsync((ownerId) => generateBill(ownerId, manifestId))
+  )
+  ipcMain.handle('billing:refresh', (_event, manifestId: number) =>
+    runFleetAsync((ownerId) => refreshBillStatus(ownerId, manifestId))
+  )
+  ipcMain.handle('billing:simulate-payment', (_event, manifestId: number) =>
+    runFleet((ownerId) => simulatePayment(ownerId, manifestId))
+  )
+
+  // Saves the page as a PDF; the certificate's print styles hide everything else
+  ipcMain.handle('certificates:save-pdf', (event, fileName: unknown) =>
+    runFleetAsync(async () => {
+      const window = BrowserWindow.fromWebContents(event.sender)
+      const defaultPath =
+        typeof fileName === 'string' && /^[\w.-]+$/.test(fileName)
+          ? `${fileName}.pdf`
+          : 'certificate.pdf'
+      const options = { defaultPath, filters: [{ name: 'PDF', extensions: ['pdf'] }] }
+      const { canceled, filePath } = window
+        ? await dialog.showSaveDialog(window, options)
+        : await dialog.showSaveDialog(options)
+      if (canceled || !filePath) return { ok: true, data: { saved: false } }
+      const pdf = await event.sender.printToPDF({ pageSize: 'A4', printBackground: true })
+      await writeFile(filePath, pdf)
+      return { ok: true, data: { saved: true } }
+    })
   )
 }
 

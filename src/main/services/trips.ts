@@ -51,35 +51,42 @@ export function getReferenceData(): TripReferenceData {
   }
 }
 
+// Columns of a TripRecord; select from manifests joined with vehicles
+export const tripColumns = {
+  id: manifests.id,
+  vehicleId: manifests.vehicleId,
+  plateNumber: vehicles.plateNumber,
+  vehicleType: vehicles.vehicleType,
+  originCityId: manifests.originCityId,
+  destinationCityId: manifests.destinationCityId,
+  cargoType: manifests.cargoType,
+  cargoQuantity: manifests.cargoQuantity,
+  cargoUnit: manifests.cargoUnit,
+  tripDate: manifests.tripDate,
+  distanceKm: manifests.distanceKm,
+  ratePerKm: manifests.ratePerKm,
+  taxAmount: manifests.taxAmount,
+  status: manifests.status,
+  createdAt: manifests.createdAt
+}
+
+type TripRow = Omit<TripRecord, 'tripDate' | 'createdAt'> & { tripDate: Date; createdAt: Date }
+
+export const toTripRecord = (row: TripRow): TripRecord => ({
+  ...row,
+  tripDate: row.tripDate.getTime(),
+  createdAt: row.createdAt.getTime()
+})
+
 export function listTrips(ownerId: number): TripRecord[] {
   return getDb()
-    .select({
-      id: manifests.id,
-      vehicleId: manifests.vehicleId,
-      plateNumber: vehicles.plateNumber,
-      vehicleType: vehicles.vehicleType,
-      originCityId: manifests.originCityId,
-      destinationCityId: manifests.destinationCityId,
-      cargoType: manifests.cargoType,
-      cargoQuantity: manifests.cargoQuantity,
-      cargoUnit: manifests.cargoUnit,
-      tripDate: manifests.tripDate,
-      distanceKm: manifests.distanceKm,
-      ratePerKm: manifests.ratePerKm,
-      taxAmount: manifests.taxAmount,
-      status: manifests.status,
-      createdAt: manifests.createdAt
-    })
+    .select(tripColumns)
     .from(manifests)
     .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
     .where(eq(vehicles.ownerId, ownerId))
     .orderBy(desc(manifests.createdAt), desc(manifests.id))
     .all()
-    .map((row) => ({
-      ...row,
-      tripDate: row.tripDate.getTime(),
-      createdAt: row.createdAt.getTime()
-    }))
+    .map(toTripRecord)
 }
 
 // Recomputes the tax from the DB rates (the renderer's preview is never trusted) and saves a draft

@@ -1,0 +1,134 @@
+# Builds every release file in CI and publishes the GitHub release only once all of them are
+# attached, so the release notification (Slack) never arrives before the downloads exist.
+#
+#   1. prepare: creates the release as a draft (drafts aren't announced)
+#   2. build:   Linux AppImage and Windows installer + portable .exe, in parallel, uploaded to the draft
+#   3. publish: checks every file is there, then publishes the draft
+#
+# Runs when `npm run release` pushes a v<version> tag. It can also be started by hand
+# (Actions tab > Release > Run workflow) to retry a tag whose run failed.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build, e.g. v1.0.6
+        required: true
+
+permissions:
+  # Needed to create the release and upload files to it
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GH_REPO: ${{ github.repository }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+
+      # electron-builder uploads to the release named after package.json's version,
+      # so a mismatch would publish to the wrong release
+      - name: Check the tag matches package.json
+        id: version
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::Tag $TAG does not match package.json version v$version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Create the draft release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if state="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [ "$state" = "false" ]; then
+              echo "::error::Release $TAG is already published. Bump the version (npm version patch)."
+              exit 1
+            fi
+            echo "Reusing the existing draft for $TAG"
+          else
+            gh release create "$TAG" --draft --verify-tag --title "$VERSION" --generate-notes
+          fi
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: --linux AppImage
+          - os: windows-latest
+            target: --win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      # postinstall rebuilds better-sqlite3 for Electron on this OS
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck and build
+        run: npm run build
+
+      # Uploads into the draft created above (electron-builder.yml has releaseType: draft)
+      - name: Package and upload to the draft release
+        run: npx electron-builder ${{ matrix.target }} --publish always
+        env:
+          # Allow re-running a build for a draft created more than 2 hours ago
+          EP_GH_IGNORE_TIME: true
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check every file is attached
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          assets="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          echo "$assets"
+          missing=0
+          for name in \
+            "masarat-mvp-$VERSION.AppImage" \
+            "latest-linux.yml" \
+            "masarat-mvp-$VERSION-setup.exe" \
+            "masarat-mvp-$VERSION-portable.exe" \
+            "latest.yml"; do
+            if ! grep -qxF "$name" <<< "$assets"; then
+              echo "::error::$name is missing from the $TAG draft"
+              missing=1
+            fi
+          done
+          exit $missing
+
+      # The only step that publishes: the notification goes out with everything attached
+      - name: Publish the release
+        run: gh release edit "$TAG" --draft=false --latest

@@ -85,8 +85,15 @@ It's an Electron desktop app with **two views the user can toggle between**:
 ## Releasing
 
 - Packaging config lives only in `electron-builder.yml`. Don't add a `build` key to `package.json`: electron-builder would read that instead and silently ignore the yml (including `extraResources: drizzle`, without which installed builds can't migrate).
-- `npm version patch`, then `GH_TOKEN=<token> npm run release:linux`. `scripts/tag-release.mjs` pushes the `v<version>` tag for the current commit, then the AppImage is built and published as a GitHub release.
-- Publishing the release triggers `.github/workflows/release-windows.yml`, which builds the NSIS installer and portable `.exe` from the same tag and uploads them to that release. electron-updater reads `latest-linux.yml` / `latest.yml` from the latest release.
+- **To release**: commit everything, run `npm version patch` and `git push`, then `npm run release`. `scripts/tag-release.mjs` pushes the `v<version>` tag for the current commit. Nothing is built locally.
+- **The tag starts `.github/workflows/release.yml`**:
+  1. *prepare* creates the release as a **draft**.
+  2. *build* runs the Linux AppImage (ubuntu) and the Windows installer and portable `.exe` (windows) in parallel. electron-builder uploads them into the draft (`releaseType: draft` in `electron-builder.yml`).
+  3. *publish* checks that all 5 files are attached (`AppImage`, `latest-linux.yml`, `-setup.exe`, `-portable.exe`, `latest.yml`), then publishes.
+
+  Publishing is what triggers the release notification (Slack), so it only goes out once every download exists. Don't publish the draft by hand.
+- **If a run fails**: fix the problem, then Actions → *Release* → *Run workflow* with the tag. It reuses the draft. If the fix needs new code, bump the version instead.
+- electron-updater reads `latest-linux.yml` / `latest.yml` from the latest published release.
 
 ## Guidelines
 

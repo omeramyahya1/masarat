@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type -- plain JS script, no type annotations */
-// Runs before `npm run release:linux` publishes. It tags the current commit as v<version> and
-// pushes the tag, so the GitHub release (and the Windows build in CI) use exactly this commit.
-// Without a pushed tag, GitHub would create the tag on the tip of the default branch instead.
+// `npm run release`: tags the current commit as v<version> and pushes the tag. The push starts
+// .github/workflows/release.yml, which builds the Linux and Windows files from exactly this commit
+// into a draft release and publishes it once every file is attached.
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
@@ -11,12 +11,6 @@ const git = (...args) =>
 function fail(message) {
   console.error(`\nRelease stopped: ${message}\n`)
   process.exit(1)
-}
-
-if (!process.env.GH_TOKEN) {
-  fail(
-    'GH_TOKEN is not set. Export a GitHub token with "repo" access first:\n  export GH_TOKEN=<token>'
-  )
 }
 
 if (git('status', '--porcelain')) {
@@ -41,6 +35,9 @@ if (remote) {
     )
   }
   console.log(`${tag} is already on GitHub for this commit.`)
+  console.log(
+    'To build it again, run the Release workflow by hand (Actions tab > Release > Run workflow).'
+  )
   process.exit(0)
 }
 
@@ -57,3 +54,10 @@ if (!local) git('tag', tag)
 
 console.log(`Pushing ${tag} (${head.slice(0, 7)}) to GitHub...`)
 execFileSync('git', ['push', 'origin', `refs/tags/${tag}`], { stdio: 'inherit' })
+
+// e.g. git@github.com:owner/repo.git or https://github.com/owner/repo.git
+const repo = git('remote', 'get-url', 'origin').match(/github\.com[:/](.+?)(\.git)?$/)?.[1]
+console.log(
+  `\n${tag} pushed. The release is built and published by GitHub Actions:` +
+    (repo ? `\n  https://github.com/${repo}/actions/workflows/release.yml` : '')
+)

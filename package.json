@@ -21,7 +21,7 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
-    "release:linux": "node scripts/tag-release.mjs && npm run build && electron-builder --linux AppImage --publish always",
+    "release": "node scripts/tag-release.mjs",
     "doctor": "npx react-doctor@latest"
   },
   "dependencies": {

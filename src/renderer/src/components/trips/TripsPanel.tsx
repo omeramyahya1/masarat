@@ -12,7 +12,9 @@ import { STATUS_STYLES } from './statusStyles'
 function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
-  const [mode, setMode] = useState<'list' | 'new' | { tripId: number }>('list')
+  const [mode, setMode] = useState<'list' | 'new' | { tripId: number } | { editing: TripRecord }>(
+    'list'
+  )
   const [reference, setReference] = useState<TripReferenceData | null>(null)
   const [trips, setTrips] = useState<TripRecord[] | null>(null)
   const [error, setError] = useState<FleetErrorCode | null>(null)
@@ -42,40 +44,52 @@ function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.J
   const cityById = (id: number): TripReferenceData['cities'][number] | undefined =>
     reference?.cities.find((c) => c.id === id)
 
-  if (typeof mode === 'object' && reference) {
+  if (typeof mode === 'object' && 'tripId' in mode && reference) {
     return (
       <TripDetails
         key={mode.tripId}
         tripId={mode.tripId}
         reference={reference}
         onBack={() => setMode('list')}
+        onEdit={(trip) => setMode({ editing: trip })}
         onChanged={load}
       />
     )
   }
 
-  if (mode === 'new' && reference) {
+  if ((mode === 'new' || (typeof mode === 'object' && 'editing' in mode)) && reference) {
+    const editing = mode === 'new' ? undefined : mode.editing
+    // Editing returns to the trip it came from; a new trip returns to the list
+    const leave = (): void => (editing ? openTrip(editing.id) : setMode('list'))
     return (
       <section className="flex flex-col gap-4">
         <div>
           <button
             type="button"
             className="link inline-flex items-center gap-1 text-sm"
-            onClick={() => setMode('list')}
+            onClick={leave}
           >
             <ArrowLeft size={14} className="rtl:-scale-x-100" />
-            {t('trips.backToList')}
+            {editing ? t('trips.backToTrip') : t('trips.backToList')}
           </button>
-          <h2 className="mt-2 text-lg font-semibold text-stone-900">{t('trips.form.title')}</h2>
-          <p className="text-sm text-stone-500">{t('trips.form.subtitle')}</p>
+          <h2 className="mt-2 text-lg font-semibold text-stone-900">
+            {editing
+              ? t('trips.form.editTitle', { id: format.number(editing.id) })
+              : t('trips.form.title')}
+          </h2>
+          <p className="text-sm text-stone-500">
+            {editing ? t('trips.form.editSubtitle') : t('trips.form.subtitle')}
+          </p>
         </div>
         <TripForm
+          key={editing?.id ?? 'new'}
           reference={reference}
-          onCancel={() => setMode('list')}
+          trip={editing}
+          onCancel={leave}
           onGoToVehicles={onGoToVehicles}
-          onCreated={(trip) => {
-            // The next step is paying the trip's tax, so go straight to its details
-            setCreated(trip)
+          onSaved={(trip) => {
+            // The next step is paying the trip's taxes, so go straight to its details
+            if (!editing) setCreated(trip)
             openTrip(trip.id)
             load()
           }}

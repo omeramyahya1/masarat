@@ -1,42 +1,65 @@
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowRight, Calculator, Info, LoaderCircle, Truck } from 'lucide-react'
-import type {
-  CargoType,
-  FleetErrorCode,
-  TripRecord,
-  TripReferenceData,
-  VehicleRecord
+import {
+  totalInVehicleUnit,
+  type CargoType,
+  type FleetErrorCode,
+  type TripRecord,
+  type TripReferenceData,
+  type VehicleRecord
 } from '../../../../shared/fleet'
-import { ROAD_FACTOR, calculateTax, estimateRoadKm } from '../../../../shared/tax'
+import {
+  ROAD_FACTOR,
+  calculateTaxes,
+  calculateTripCost,
+  estimateRoadKm
+} from '../../../../shared/tax'
 import { todayIso, useFormat } from '../../lib/format'
 import { useMountedRef } from '../../lib/useMountedRef'
-import { FieldLabel, FormAlert, NumberField, SelectField, SubmitButton } from '../form/fields'
+import { FieldLabel, FormAlert, SelectField, SubmitButton } from '../form/fields'
 import PlateBadge from '../fleet/PlateBadge'
+import CargoItemsEditor from './CargoItemsEditor'
+import { fitItemsTo, newItemDraft, type ItemDraft } from './itemDrafts'
+import TaxBreakdown from './TaxBreakdown'
+
+// A stored trip date (local midnight) as YYYY-MM-DD for the date input
+function isoDate(ms: number): string {
+  const date = new Date(ms)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
 
 interface TripFormProps {
   reference: TripReferenceData
+  // A draft to edit; without it the form creates a new trip
+  trip?: TripRecord
   onCancel: () => void
-  onCreated: (trip: TripRecord) => void
+  onSaved: (trip: TripRecord) => void
   onGoToVehicles: () => void
 }
 
 function TripForm({
   reference,
+  trip,
   onCancel,
-  onCreated,
+  onSaved,
   onGoToVehicles
 }: TripFormProps): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
   const dateId = useId()
   const [vehicles, setVehicles] = useState<VehicleRecord[] | null>(null)
-  const [vehicleId, setVehicleId] = useState('')
-  const [originId, setOriginId] = useState('')
-  const [destinationId, setDestinationId] = useState('')
-  const [cargoType, setCargoType] = useState<CargoType | ''>('')
-  const [quantity, setQuantity] = useState('')
-  const [tripDate, setTripDate] = useState(todayIso)
+  const [vehicleId, setVehicleId] = useState(trip ? String(trip.vehicleId) : '')
+  const [originId, setOriginId] = useState(trip ? String(trip.originCityId) : '')
+  const [destinationId, setDestinationId] = useState(trip ? String(trip.destinationCityId) : '')
+  const [cargoType, setCargoType] = useState<CargoType | ''>(trip?.cargoType ?? '')
+  const [items, setItems] = useState<ItemDraft[]>(() =>
+    trip && trip.items.length > 0
+      ? trip.items.map((item) => newItemDraft(item.unit, item))
+      : [newItemDraft(trip?.cargoUnit ?? 'ton')]
+  )
+  const [tripDate, setTripDate] = useState(() => (trip ? isoDate(trip.tripDate) : todayIso()))
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [pending, setPending] = useState(false)
   const mounted = useMountedRef()
@@ -57,8 +80,15 @@ function TripForm({
   const rate = reference.taxRates.find((r) => r.cargoType === cargoType)
   const origin = reference.cities.find((c) => String(c.id) === originId)
   const destination = reference.cities.find((c) => String(c.id) === destinationId)
-  const quantityValue = Number(quantity)
-  const overCapacity = Boolean(vehicle && quantity !== '' && quantityValue > vehicle.capacity)
+  const parsedItems = items.map((item) => ({
+    name: item.name.trim(),
+    quantity: Number(item.quantity),
+    unit: item.unit
+  }))
+  const quantityValue = totalInVehicleUnit(
+    parsedItems.filter((item) => item.quantity > 0 && Number.isFinite(item.quantity))
+  )
+  const overCapacity = Boolean(vehicle && quantityValue > vehicle.capacity)
 
   const cityOptions = useMemo(
     () =>
@@ -72,41 +102,50 @@ function TripForm({
     origin && destination && origin.id !== destination.id
       ? estimateRoadKm(origin, destination)
       : null
-  const tax =
+  const tripCost =
     distanceKm !== null && rate && quantityValue > 0
-      ? calculateTax(rate, distanceKm, quantityValue)
+      ? calculateTripCost(rate, distanceKm, quantityValue)
       : null
+  // Previewed with today's percentages; the bill uses the ones current when it's issued
+  const taxes = calculateTaxes(tripCost ?? 0, reference.taxSettings)
 
   const handleVehicleChange = (id: string): void => {
     setVehicleId(id)
     const next = vehicles?.find((v) => String(v.id) === id)
-    if (next && rate && rate.unit !== next.capacityUnit) setCargoType('')
+    if (!next) return
+    if (rate && rate.unit !== next.capacityUnit) setCargoType('')
+    setItems((current) => fitItemsTo(current, next.capacityUnit))
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
-    if (!vehicle || !origin || !destination || !cargoType || quantity === '' || !tripDate) {
+    if (!vehicle || !origin || !destination || !cargoType || !tripDate) {
       setError('missing_fields')
       return
     }
     if (origin.id === destination.id) return setError('same_route')
-    if (!(quantityValue > 0)) return setError('invalid_quantity')
+    if (parsedItems.some((item) => !item.name || !(item.quantity > 0))) {
+      return setError('invalid_items')
+    }
     if (overCapacity) return setError('over_capacity')
 
     setError(null)
     setPending(true)
     try {
-      const result = await window.api.trips.create({
+      const input = {
         vehicleId: vehicle.id,
         originCityId: origin.id,
         destinationCityId: destination.id,
         cargoType,
-        cargoQuantity: quantityValue,
+        items: parsedItems,
         tripDate
-      })
+      }
+      const result = trip
+        ? await window.api.trips.update(trip.id, input)
+        : await window.api.trips.create(input)
       // The user may have left this form (and opened a new one) while the request was in flight
       if (!mounted.current) return
-      if (result.ok) onCreated(result.data)
+      if (result.ok) onSaved(result.data)
       else setError(result.error)
     } catch {
       if (mounted.current) setError('unknown')
@@ -146,8 +185,6 @@ function TripForm({
       </div>
     )
   }
-
-  const unit = vehicle?.capacityUnit ?? rate?.unit
 
   return (
     <form
@@ -223,7 +260,7 @@ function TripForm({
           <legend className="mb-3 text-sm font-semibold text-stone-800">
             {t('trips.form.cargoSection')}
           </legend>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="sm:w-1/2 sm:pe-2">
             <SelectField
               label={t('trips.fields.cargoType')}
               placeholder={t('trips.fields.cargoTypePlaceholder')}
@@ -234,16 +271,20 @@ function TripForm({
               }))}
               onChange={(e) => setCargoType(e.target.value as CargoType)}
             />
-            <NumberField
-              label={t('trips.fields.quantity')}
-              value={quantity}
-              allowDecimal
-              maxDigits={7}
-              invalid={overCapacity}
-              suffix={unit ? t(`units.name.${unit}`) : undefined}
-              hint={overCapacity ? t('fleet.errors.over_capacity') : undefined}
-              onValueChange={setQuantity}
-            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <span className="label">{t('trips.items.title')}</span>
+            {vehicle ? (
+              <CargoItemsEditor
+                items={items}
+                unit={vehicle.capacityUnit}
+                total={quantityValue}
+                capacity={vehicle.capacity}
+                onChange={setItems}
+              />
+            ) : (
+              <p className="text-sm text-stone-500">{t('trips.items.chooseVehicle')}</p>
+            )}
           </div>
         </fieldset>
 
@@ -251,7 +292,11 @@ function TripForm({
           <button type="button" className="btn btn-secondary" onClick={onCancel}>
             {t('common.cancel')}
           </button>
-          <SubmitButton pending={pending} className="" label={t('trips.form.submit')} />
+          <SubmitButton
+            pending={pending}
+            className=""
+            label={t(trip ? 'trips.form.save' : 'trips.form.submit')}
+          />
         </div>
       </div>
 
@@ -292,21 +337,23 @@ function TripForm({
           </SummaryRow>
         </dl>
 
+        {tripCost !== null && rate && distanceKm !== null && (
+          <p className="-mt-1 text-xs text-stone-500 tabular-nums">
+            {t(rate.perQuantity === 1 ? 'trips.tax.formula' : 'trips.tax.formulaPer', {
+              rate: format.number(rate.ratePerKm),
+              distance: format.number(distanceKm),
+              quantity: format.number(quantityValue),
+              per: format.number(rate.perQuantity)
+            })}
+          </p>
+        )}
+
         <div className="rounded-lg border border-brand-200 bg-brand-50 p-4">
-          <div className="text-xs font-medium text-brand-800">{t('trips.tax.total')}</div>
-          <div className="mt-1 text-2xl font-semibold text-brand-900 tabular-nums">
-            {tax !== null ? format.currency(tax) : '—'}
-          </div>
-          {tax !== null && rate && distanceKm !== null && (
-            <div className="mt-2 text-xs text-brand-800 tabular-nums">
-              {t(rate.perQuantity === 1 ? 'trips.tax.formula' : 'trips.tax.formulaPer', {
-                rate: format.number(rate.ratePerKm),
-                distance: format.number(distanceKm),
-                quantity: format.number(quantityValue),
-                per: format.number(rate.perQuantity)
-              })}
-            </div>
-          )}
+          <TaxBreakdown
+            tripCost={tripCost}
+            lines={taxes.lines}
+            total={tripCost !== null ? taxes.total : null}
+          />
         </div>
 
         <p className="flex gap-2 text-xs text-stone-500">

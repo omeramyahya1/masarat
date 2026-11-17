@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
-import type { CityRecord, QuantityUnit } from '../../../shared/fleet'
+import type { CityRecord, ItemUnit, QuantityUnit } from '../../../shared/fleet'
+import { MAX_TAX_BPS } from '../../../shared/tax'
 import { PLATE_LETTERS_AR, formatPlate, parsePlate } from '../../../shared/plate'
 
 const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩'
@@ -34,7 +35,9 @@ export interface Formatters {
   compactCurrency: (amount: number) => string
   // 0..1 as a percentage
   percent: (ratio: number) => string
-  quantity: (value: number, unit: QuantityUnit) => string
+  // A tax percentage stored in basis points: 1700 -> "17%", 1250 -> "12.5%"
+  taxRate: (bps: number) => string
+  quantity: (value: number, unit: QuantityUnit | ItemUnit) => string
   date: (ms: number) => string
   dateTime: (ms: number) => string
   // Stored English plate ("KH 12/34567") in the current language ("خ ١٢ / ٣٤٥٦٧" in Arabic)
@@ -60,6 +63,10 @@ export function createFormatters(isArabic: boolean, t: TFunction): Formatters {
     style: 'percent',
     maximumFractionDigits: 1
   })
+  const taxRateFormat = new Intl.NumberFormat(locale, {
+    style: 'percent',
+    maximumFractionDigits: 2
+  })
   const number = (value: number): string => numberFormat.format(value)
   const compactNumber = (value: number): string => compactFormat.format(value)
 
@@ -70,6 +77,7 @@ export function createFormatters(isArabic: boolean, t: TFunction): Formatters {
     compactNumber,
     compactCurrency: (amount) => t('common.currency', { amount: compactNumber(amount) }),
     percent: (ratio) => percentFormat.format(ratio),
+    taxRate: (bps) => taxRateFormat.format(bps / MAX_TAX_BPS),
     quantity: (value, unit) => t(`units.short.${unit}`, { value: number(value) }),
     date: (ms) => dateFormat.format(ms),
     dateTime: (ms) => dateTimeFormat.format(ms),

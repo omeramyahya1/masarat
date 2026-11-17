@@ -8,10 +8,11 @@ import {
   Copy,
   FileBadge,
   LoaderCircle,
+  Pencil,
   ReceiptText,
   RefreshCw
 } from 'lucide-react'
-import type { FleetErrorCode, TripReferenceData } from '../../../../shared/fleet'
+import type { FleetErrorCode, TripRecord, TripReferenceData } from '../../../../shared/fleet'
 import type { TripDetails as TripDetailsData } from '../../../../shared/billing'
 import { useFormat } from '../../lib/format'
 import { useMountedRef } from '../../lib/useMountedRef'
@@ -20,6 +21,7 @@ import PlateBadge from '../fleet/PlateBadge'
 import Menu from '../ui/Menu'
 import CertificateModal from './CertificateModal'
 import { STATUS_STYLES } from './statusStyles'
+import TaxBreakdown from './TaxBreakdown'
 
 type Action = 'generate' | 'refresh' | 'pay'
 
@@ -39,6 +41,8 @@ interface TripDetailsProps {
   tripId: number
   reference: TripReferenceData
   onBack: () => void
+  // Opens the form on this trip (drafts only)
+  onEdit: (trip: TripRecord) => void
   // The trip's status changed, so the list needs reloading
   onChanged: () => void
 }
@@ -47,6 +51,7 @@ function TripDetails({
   tripId,
   reference,
   onBack,
+  onEdit,
   onChanged
 }: TripDetailsProps): React.JSX.Element {
   const { t } = useTranslation()
@@ -154,6 +159,17 @@ function TripDetails({
             {t('trips.details.subtitle', { date: format.date(trip.createdAt) })}
           </p>
         </div>
+        {trip.status === 'draft' && (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={pending !== null}
+            onClick={() => onEdit(trip)}
+          >
+            <Pencil size={16} />
+            {t('trips.details.edit')}
+          </button>
+        )}
         {/* Demo control: kept out of the way so the main view looks like the real product */}
         {trip.status === 'billed' && payment && (
           <Menu
@@ -211,10 +227,40 @@ function TripDetails({
                 {t('units.km', { value: format.number(trip.distanceKm) })}
               </span>
             </Row>
-            <Row label={t('trips.details.tax')}>
-              <span className="text-base tabular-nums">{format.currency(trip.taxAmount)}</span>
-            </Row>
           </dl>
+
+          <h3 className="mt-6 mb-2 text-sm font-semibold text-stone-800">
+            {t('trips.items.title')}
+          </h3>
+          {trip.items.length > 0 ? (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-stone-200 text-xs text-stone-500">
+                  <th className="w-8 py-2 text-start font-medium">#</th>
+                  <th className="py-2 text-start font-medium">{t('trips.items.name')}</th>
+                  <th className="py-2 text-end font-medium">{t('trips.items.quantity')}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {trip.items.map((item, index) => (
+                  <tr key={index}>
+                    <td className="py-2 text-stone-400 tabular-nums">{format.number(index + 1)}</td>
+                    <td className="py-2 text-stone-900">
+                      <bdi>{item.name}</bdi>
+                    </td>
+                    <td className="py-2 text-end whitespace-nowrap tabular-nums">
+                      {format.quantity(item.quantity, item.unit)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-sm text-stone-500">{t('trips.items.none')}</p>
+          )}
+
+          <h3 className="mt-6 mb-2 text-sm font-semibold text-stone-800">{t('trips.tax.title')}</h3>
+          <TaxBreakdown tripCost={trip.tripCost} lines={trip.taxes} total={trip.taxAmount} />
         </div>
 
         <aside className="card flex flex-col gap-4 p-6">

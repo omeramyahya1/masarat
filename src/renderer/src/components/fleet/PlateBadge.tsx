@@ -19,10 +19,11 @@ function PlateBadge({ plate }: { plate: string }): React.JSX.Element {
       className="inline-flex items-stretch overflow-hidden rounded-md border-2 border-stone-800 bg-white text-sm leading-none font-semibold text-stone-900 shadow-sm"
       dir={isArabic ? 'rtl' : 'ltr'}
     >
-      <span className="flex items-center bg-brand-700 px-2 py-1 text-white">{letters}</span>
+      <span className="flex items-center bg-brand-700 px-2 py-1 text-white">
+        {letters} {digits(parts.series)}
+      </span>
       {/* Separate spans so the series stays next to the letters in both reading directions */}
       <span className="flex items-center gap-1 px-2.5 py-1 tabular-nums">
-        <span>{digits(parts.series)}</span>
         <span className="font-normal text-stone-400">/</span>
         <span>{digits(parts.number)}</span>
       </span>

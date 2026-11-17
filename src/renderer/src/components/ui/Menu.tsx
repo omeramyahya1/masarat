@@ -7,8 +7,16 @@ export interface MenuItem {
   disabled?: boolean
 }
 
-// "⋯" button with a small popover menu; closes on outside click, Escape or selection
-function Menu({ label, items }: { label: string; items: MenuItem[] }): React.JSX.Element {
+interface MenuProps {
+  // Accessible name of the button
+  label: string
+  items: MenuItem[]
+  // Visible button content; the default is a "⋯" icon button
+  trigger?: ReactNode
+}
+
+// Button with a small popover menu; closes on outside click, Escape or selection
+function Menu({ label, items, trigger }: MenuProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const menuId = useId()
@@ -33,19 +41,20 @@ function Menu({ label, items }: { label: string; items: MenuItem[] }): React.JSX
     <div ref={rootRef} className="relative">
       <button
         type="button"
-        className="icon-btn"
-        aria-label={label}
+        className={trigger ? 'btn btn-secondary btn-sm' : 'icon-btn'}
+        aria-label={trigger ? undefined : label}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         onClick={() => setOpen((v) => !v)}
       >
-        <EllipsisVertical size={18} />
+        {trigger ?? <EllipsisVertical size={18} />}
       </button>
       {open && (
         <ul
           id={menuId}
           role="menu"
+          aria-label={label}
           className="card absolute end-0 top-full z-10 mt-1 min-w-48 overflow-hidden py-1 shadow-lg"
         >
           {items.map((item, index) => (

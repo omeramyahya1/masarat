@@ -21,7 +21,7 @@ const scrypt = promisify(scryptCallback) as (
 const KEY_LENGTH = 64
 
 // Stored as "scrypt$<salt hex>$<hash hex>"
-async function hashPassword(password: string): Promise<string> {
+export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16)
   const hash = await scrypt(password, salt, KEY_LENGTH)
   return `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`
@@ -115,6 +115,13 @@ export async function logIn(input: LogInInput): Promise<AuthResult> {
   if (!found || !(await verifyPassword(password, found.passwordHash))) {
     return { ok: false, error: 'invalid_credentials' }
   }
+  // The account may have been deleted while the password was checked (demo data regenerated)
+  const stillExists = getDb()
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, found.id))
+    .get()
+  if (!stillExists) return { ok: false, error: 'invalid_credentials' }
   // Only reported after the password checks out, so it doesn't reveal which usernames exist
   if (found.role !== input.role) return { ok: false, error: 'wrong_panel' }
 
@@ -124,6 +131,11 @@ export async function logIn(input: LogInInput): Promise<AuthResult> {
 export function logOut(role: UserRole): void {
   nextGeneration(role)
   sessions.delete(role)
+}
+
+// Signs out any panel whose user is about to be deleted (demo accounts on "Regenerate demo data")
+export function dropSessionsOf(userIds: ReadonlySet<number>): void {
+  for (const [role, user] of sessions) if (userIds.has(user.id)) logOut(role)
 }
 
 export function getSession(role: UserRole): AuthUser | null {

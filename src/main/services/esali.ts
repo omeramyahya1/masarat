@@ -22,8 +22,8 @@ const randomDigits = (): string =>
   pad(randomInt(0, 10_000_000), 7) + pad(randomInt(0, 1_000_000), 6)
 
 // yyyy mm 0dd + 13 digits, from the local date the bill is issued
-export function newBillId(now = new Date()): string {
-  return `${now.getFullYear()}${pad(now.getMonth() + 1, 2)}${pad(now.getDate(), 3)}${randomDigits()}`
+export function newBillId(now = new Date(), digits = randomDigits()): string {
+  return `${now.getFullYear()}${pad(now.getMonth() + 1, 2)}${pad(now.getDate(), 3)}${digits}`
 }
 
 class MockEsaliGateway implements EsaliGateway {

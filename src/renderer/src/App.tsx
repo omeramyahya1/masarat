@@ -26,6 +26,13 @@ function App(): React.JSX.Element {
   const setSession = (role: UserRole, user: AuthUser | null): void =>
     setSessions((current) => ({ ...current, [role]: user }))
 
+  // The main process can end a session on its own (e.g. regenerating demo data deletes the demo
+  // owners), so re-read it whenever a panel is opened
+  const openPanel = (role: UserRole): void => {
+    setActiveRole(role)
+    window.api.auth.getSession(role).then((user) => setSession(role, user))
+  }
+
   const handleLogOut = async (role: UserRole): Promise<void> => {
     await window.api.auth.logOut(role)
     setSession(role, null)
@@ -71,7 +78,7 @@ function App(): React.JSX.Element {
                       ? 'bg-white text-brand-800 shadow-sm ring-1 ring-stone-200'
                       : 'text-stone-600 hover:text-stone-900'
                   }`}
-                  onClick={() => setActiveRole(role)}
+                  onClick={() => openPanel(role)}
                 >
                   <Icon size={16} />
                   {t(`panels.${role}.tab`)}

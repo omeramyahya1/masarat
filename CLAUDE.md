@@ -38,9 +38,22 @@ It's an Electron desktop app with **two views the user can toggle between**:
 - **Certificate**: number `MSR-<yyyy>-<manifestId 6 digits>`, valid until the end of trip date + 30 days. Always rendered in Arabic (`i18n.getFixedT('ar')` + `createFormatters`), with the Sudan emblem (`assets/sudan-emblem.svg`, Wikimedia Commons). *Download PDF* uses `webContents.printToPDF`; the `@media print` rules in `main.css` print only `.print-certificate`.
 - **QR payload** (`buildQrPayload`): JSON `{"esaliBillId","status":"paid","plate"}`. Later it should become a URL to a page showing the manifest's status (looked up by `certificates.qr_token`).
 
+## Government dashboard & demo data
+
+- **Dashboard** (`src/main/services/dashboard.ts`, UI in `components/govt/`): the Government panel opens on an overview across all fleet owners, for the last 30 days, 90 days or 12 months. Handlers go through `runGovt` (government session required).
+  - *Revenue collected*: paid payments by `paid_at` in the period, with the % change vs the previous period of the same length (hidden when the records don't reach back that far).
+  - *Active trips*: certified trips whose certificate is still valid (`valid_until ≥ now`). *Pending bills*: all unpaid bills. Neither is period-filtered.
+  - *Collection rate*: paid ÷ billed amount for bills issued in the period.
+  - Revenue chart buckets: day / week (starting Sunday) / month. The current bucket is drawn dashed because it is incomplete. Breakdowns (cargo, routes, origin state) count revenue by when it was paid.
+- **Demo data** (`src/main/services/demoData.ts`): on startup, if there are no demo owners, 4 demo fleet companies are seeded with about a year of trips, bills (with matching `esali_sim_bills` rows), payments and certificates, using the real tax calculation. It is deterministic (fixed PRNG seed, dates relative to today). Demo users have `users.is_demo = 1`. The Government panel's hidden *⋯ → Regenerate demo data* deletes the demo owners and everything under them (including anything added by hand to a demo company), then reseeds; other owners' data and the demo government account are kept, and a signed-in demo owner is signed out.
+- **Demo accounts** (`src/shared/demo.ts`, listed under *Demo accounts* on both login pages; clicking one fills the form):
+  - Government: `ministry.demo` / `govt2026`
+  - Fleet owners: `nile.transport` / `nile2026`, `redsea.logistics` / `redsea2026`, `kordofan.haulage` / `kordofan2026`, `gezira.freight` / `gezira2026`
+- Charts use **Recharts** (lazy-loaded) for the time series; ranked bars are plain HTML so they follow RTL. Charts keep time left → right in Arabic, with the value axis on the right.
+
 ## Tech stack
 
-- Electron + electron-vite, React 19, TypeScript
+- Electron + electron-vite, React 19, TypeScript, Recharts
 - `src/main`: Electron main process (`src/main/index.ts`)
 - `src/main/db`: local database layer using **SQLite (better-sqlite3) + Drizzle ORM** (`schema.ts`, `client.ts`). The Drizzle config is in `drizzle.config.ts` and migrations go to `./drizzle`.
 - `src/preload`: preload bridge (`index.ts`, types in `index.d.ts`). The renderer reaches the DB and main process only through this bridge.

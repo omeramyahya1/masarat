@@ -9,6 +9,7 @@ import type {
   VehicleRecord
 } from '../shared/fleet'
 import type { TripDetails } from '../shared/billing'
+import type { DashboardData, DashboardPeriod } from '../shared/dashboard'
 
 export interface UpdateStatus {
   status:
@@ -62,6 +63,13 @@ export interface CertificatesAPI {
   savePdf: (fileName: string) => Promise<FleetResult<{ saved: boolean }>>
 }
 
+export interface GovtAPI {
+  getReferenceData: () => Promise<FleetResult<TripReferenceData>>
+  dashboard: (period: DashboardPeriod) => Promise<FleetResult<DashboardData>>
+  // Demo only: rebuilds the seeded demo owners' data
+  regenerateDemoData: () => Promise<FleetResult<null>>
+}
+
 export interface AuthAPI {
   signUp: (input: SignUpInput) => Promise<AuthResult>
   logIn: (input: LogInInput) => Promise<AuthResult>
@@ -75,6 +83,7 @@ export interface CustomAPI {
   trips: TripsAPI
   billing: BillingAPI
   certificates: CertificatesAPI
+  govt: GovtAPI
   updater: UpdaterAPI
 }
 

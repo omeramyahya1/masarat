@@ -12,7 +12,9 @@ out
 prompt.txt
 
 CLAUDE.local.md
+.claude/settings.json
 
 masarat.db*
 
 *.csv
+

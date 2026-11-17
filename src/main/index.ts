@@ -8,7 +8,7 @@ import icon from '../../resources/icon.png?asset'
 import { initDb, closeDb } from './db'
 import { getSession, logIn, logOut, signUp } from './services/auth'
 import { addVehicle, deleteVehicle, listVehicles, updateVehicle } from './services/fleet'
-import { createTrip, getReferenceData, listTrips, updateTrip } from './services/trips'
+import { createTrip, deleteTrip, getReferenceData, listTrips, updateTrip } from './services/trips'
 import {
   generateBill,
   getTripDetails,
@@ -210,6 +210,9 @@ function registerFleetHandlers(): void {
   )
   ipcMain.handle('trips:update', (_event, id: number, input: TripInput) =>
     runFleet((ownerId) => updateTrip(ownerId, id, input))
+  )
+  ipcMain.handle('trips:delete', (_event, id: number) =>
+    runFleet((ownerId) => deleteTrip(ownerId, id))
   )
 
   ipcMain.handle('billing:get-trip', (_event, manifestId: number) =>

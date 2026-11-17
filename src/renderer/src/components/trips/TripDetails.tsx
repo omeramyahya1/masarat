@@ -10,7 +10,8 @@ import {
   LoaderCircle,
   Pencil,
   ReceiptText,
-  RefreshCw
+  RefreshCw,
+  Trash2
 } from 'lucide-react'
 import type { FleetErrorCode, TripRecord, TripReferenceData } from '../../../../shared/fleet'
 import type { TripDetails as TripDetailsData } from '../../../../shared/billing'
@@ -20,6 +21,7 @@ import { FormAlert } from '../form/fields'
 import PlateBadge from '../fleet/PlateBadge'
 import Menu from '../ui/Menu'
 import CertificateModal from './CertificateModal'
+import DeleteTripDialog from './DeleteTripDialog'
 import { STATUS_STYLES } from './statusStyles'
 import TaxBreakdown from './TaxBreakdown'
 
@@ -43,6 +45,8 @@ interface TripDetailsProps {
   onBack: () => void
   // Opens the form on this trip (drafts only)
   onEdit: (trip: TripRecord) => void
+  // The draft was deleted
+  onDeleted: () => void
   // The trip's status changed, so the list needs reloading
   onChanged: () => void
 }
@@ -52,6 +56,7 @@ function TripDetails({
   reference,
   onBack,
   onEdit,
+  onDeleted,
   onChanged
 }: TripDetailsProps): React.JSX.Element {
   const { t } = useTranslation()
@@ -63,6 +68,7 @@ function TripDetails({
   const [notPaid, setNotPaid] = useState(false)
   const [copied, setCopied] = useState(false)
   const [showCertificate, setShowCertificate] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   useEffect(() => {
     window.api.billing
@@ -160,15 +166,26 @@ function TripDetails({
           </p>
         </div>
         {trip.status === 'draft' && (
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            disabled={pending !== null}
-            onClick={() => onEdit(trip)}
-          >
-            <Pencil size={16} />
-            {t('trips.details.edit')}
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={pending !== null}
+              onClick={() => setConfirmDelete(true)}
+            >
+              <Trash2 size={16} />
+              {t('trips.details.delete')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={pending !== null}
+              onClick={() => onEdit(trip)}
+            >
+              <Pencil size={16} />
+              {t('trips.details.edit')}
+            </button>
+          </div>
         )}
         {/* Demo control: kept out of the way so the main view looks like the real product */}
         {trip.status === 'billed' && payment && (
@@ -380,6 +397,15 @@ function TripDetails({
           )}
         </aside>
       </div>
+
+      {confirmDelete && (
+        <DeleteTripDialog
+          trip={trip}
+          reference={reference}
+          onClose={() => setConfirmDelete(false)}
+          onDeleted={onDeleted}
+        />
+      )}
 
       {showCertificate && certificate && payment && (
         <CertificateModal

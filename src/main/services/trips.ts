@@ -317,3 +317,25 @@ export function updateTrip(
   if (row.status !== 'draft') return failure('not_draft')
   return { ok: true, data: toTripRecord(row) }
 }
+
+// Deletes a draft trip for good; once its bill is issued the trip is part of the record
+export function deleteTrip(ownerId: number, manifestId: number): FleetResult<null> {
+  const existing = findOwnedTripRow(ownerId, manifestId)
+  if (!existing) return failure('manifest_not_found')
+  if (existing.status !== 'draft') return failure('not_draft')
+
+  const deleted = getDb().transaction((tx) => {
+    // Re-checked inside the transaction so a bill issued meanwhile isn't lost
+    const current = tx
+      .select({ status: manifests.status })
+      .from(manifests)
+      .where(eq(manifests.id, existing.id))
+      .get()
+    if (current?.status !== 'draft') return false
+    tx.delete(manifestCargoItems).where(eq(manifestCargoItems.manifestId, existing.id)).run()
+    tx.delete(manifestTaxes).where(eq(manifestTaxes.manifestId, existing.id)).run()
+    tx.delete(manifests).where(eq(manifests.id, existing.id)).run()
+    return true
+  })
+  return deleted ? { ok: true, data: null } : failure('not_draft')
+}

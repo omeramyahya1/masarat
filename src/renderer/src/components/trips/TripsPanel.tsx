@@ -19,7 +19,11 @@ function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.J
   const [trips, setTrips] = useState<TripRecord[] | null>(null)
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [created, setCreated] = useState<TripRecord | null>(null)
-  const openTrip = (tripId: number): void => setMode({ tripId })
+  const [deleted, setDeleted] = useState<number | null>(null)
+  const openTrip = (tripId: number): void => {
+    setDeleted(null)
+    setMode({ tripId })
+  }
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -52,6 +56,12 @@ function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.J
         reference={reference}
         onBack={() => setMode('list')}
         onEdit={(trip) => setMode({ editing: trip })}
+        onDeleted={() => {
+          setCreated(null)
+          setDeleted(mode.tripId)
+          setMode('list')
+          load()
+        }}
         onChanged={load}
       />
     )
@@ -100,6 +110,7 @@ function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.J
 
   const startNew = (): void => {
     setCreated(null)
+    setDeleted(null)
     setMode('new')
   }
 
@@ -119,6 +130,9 @@ function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.J
       </div>
 
       {error && <FormAlert message={t(`fleet.errors.${error}`)} />}
+      {deleted !== null && (
+        <FormAlert tone="success" message={t('trips.deleted', { id: format.number(deleted) })} />
+      )}
       {created && (
         <FormAlert
           tone="success"

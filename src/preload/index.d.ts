@@ -51,6 +51,8 @@ export interface TripsAPI {
   create: (input: TripInput) => Promise<FleetResult<TripRecord>>
   // Drafts only
   update: (id: number, input: TripInput) => Promise<FleetResult<TripRecord>>
+  // Drafts only; removes the trip for good
+  delete: (id: number) => Promise<FleetResult<null>>
 }
 
 export interface BillingAPI {

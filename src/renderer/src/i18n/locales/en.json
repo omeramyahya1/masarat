@@ -305,7 +305,8 @@
       "tripDate": "Trip date",
       "distance": "Estimated distance",
       "moreActions": "More actions",
-      "edit": "Edit trip"
+      "edit": "Edit trip",
+      "delete": "Delete"
     },
     "backToTrip": "Back to trip",
     "items": {
@@ -326,7 +327,13 @@
         "ton": "e.g. Cement",
         "liter": "e.g. Drinking water"
       }
-    }
+    },
+    "deleteDialog": {
+      "title": "Delete trip #{{id}}?",
+      "body": "This draft and its cargo items will be deleted. This can't be undone.",
+      "confirm": "Delete trip"
+    },
+    "deleted": "Trip #{{id}} was deleted."
   },
   "billing": {
     "title": "Tax payment",

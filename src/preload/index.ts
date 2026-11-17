@@ -58,7 +58,8 @@ const api = {
     create: (input: TripInput): Promise<FleetResult<TripRecord>> =>
       ipcRenderer.invoke('trips:create', input),
     update: (id: number, input: TripInput): Promise<FleetResult<TripRecord>> =>
-      ipcRenderer.invoke('trips:update', id, input)
+      ipcRenderer.invoke('trips:update', id, input),
+    delete: (id: number): Promise<FleetResult<null>> => ipcRenderer.invoke('trips:delete', id)
   },
   billing: {
     getTrip: (manifestId: number): Promise<FleetResult<TripDetails>> =>

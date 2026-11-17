@@ -29,6 +29,11 @@ export interface Formatters {
   isArabic: boolean
   number: (value: number) => string
   currency: (amount: number) => string
+  // Short forms for large figures: "29.1B SDG" / "29.1 مليار ج.س"
+  compactNumber: (value: number) => string
+  compactCurrency: (amount: number) => string
+  // 0..1 as a percentage
+  percent: (ratio: number) => string
   quantity: (value: number, unit: QuantityUnit) => string
   date: (ms: number) => string
   dateTime: (ms: number) => string
@@ -47,12 +52,24 @@ export function createFormatters(isArabic: boolean, t: TFunction): Formatters {
     dateStyle: 'medium',
     timeStyle: 'short'
   })
+  const compactFormat = new Intl.NumberFormat(locale, {
+    notation: 'compact',
+    maximumFractionDigits: 1
+  })
+  const percentFormat = new Intl.NumberFormat(locale, {
+    style: 'percent',
+    maximumFractionDigits: 1
+  })
   const number = (value: number): string => numberFormat.format(value)
+  const compactNumber = (value: number): string => compactFormat.format(value)
 
   return {
     isArabic,
     number,
     currency: (amount) => t('common.currency', { amount: number(amount) }),
+    compactNumber,
+    compactCurrency: (amount) => t('common.currency', { amount: compactNumber(amount) }),
+    percent: (ratio) => percentFormat.format(ratio),
     quantity: (value, unit) => t(`units.short.${unit}`, { value: number(value) }),
     date: (ms) => dateFormat.format(ms),
     dateTime: (ms) => dateTimeFormat.format(ms),

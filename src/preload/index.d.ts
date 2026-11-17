@@ -64,6 +64,7 @@ export interface CertificatesAPI {
 }
 
 export interface GovtAPI {
+  getReferenceData: () => Promise<FleetResult<TripReferenceData>>
   dashboard: (period: DashboardPeriod) => Promise<FleetResult<DashboardData>>
   // Demo only: rebuilds the seeded demo owners' data
   regenerateDemoData: () => Promise<FleetResult<null>>

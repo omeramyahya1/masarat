@@ -58,6 +58,9 @@
       "wrong_panel": "This account belongs to the other panel. Switch panels to log in.",
       "cancelled": "Sign-in was cancelled. Please try again.",
       "unknown": "Something went wrong. Please try again."
+    },
+    "demoAccounts": {
+      "title": "Demo accounts"
     }
   },
   "home": {
@@ -363,5 +366,103 @@
     "paid": "Paid",
     "scanToVerify": "Scan the code to verify",
     "footer": "This certificate was issued electronically by the Masarat system and needs no signature or stamp."
+  },
+  "govt": {
+    "dashboard": {
+      "title": "Overview",
+      "scope": "Tax collection across all fleet owners",
+      "subtitle": "All fleet owners · Updated {{time}}",
+      "period": "Period",
+      "periods": {
+        "30d": "Last 30 days",
+        "90d": "Last 90 days",
+        "12m": "Last 12 months"
+      },
+      "refresh": "Refresh",
+      "moreActions": "More actions",
+      "empty": "No data for this period yet.",
+      "kpis": {
+        "revenue": "Revenue collected",
+        "vsPrevious": "vs previous period",
+        "activeTrips": "Active trips",
+        "activeTripsHint": "Certified, certificate still valid",
+        "pendingBills": "Pending bills",
+        "pendingAmount": "{{amount}} awaiting payment",
+        "certificates": "Certificates issued",
+        "collectionRate": "Collection rate",
+        "collectionRateHint": "Paid share of the amount billed in the period",
+        "vehicles": "Registered vehicles",
+        "fleetOwners": "{{value}} fleet owners"
+      },
+      "revenue": {
+        "title": {
+          "day": "Revenue collected per day",
+          "week": "Revenue collected per week",
+          "month": "Revenue collected per month"
+        },
+        "weekOf": "Week of {{date}}",
+        "trips": "{{value}} paid trips",
+        "soFar": "to date",
+        "toDateNote": {
+          "day": "Dashed: today so far",
+          "week": "Dashed: this week so far",
+          "month": "Dashed: this month so far"
+        }
+      },
+      "status": {
+        "title": "Trip progress",
+        "registered": "Trips registered",
+        "billed": "Bill issued",
+        "certified": "Paid & certified",
+        "drafts": "{{value}} still drafts, without a bill"
+      },
+      "cargo": {
+        "title": "Revenue by cargo type"
+      },
+      "breakdown": {
+        "label": "Breakdown",
+        "routes": "Top routes by revenue",
+        "states": "Revenue by origin state",
+        "byRoute": "Routes",
+        "byState": "States"
+      },
+      "recent": {
+        "title": "Latest bills",
+        "date": "Date",
+        "company": "Fleet owner",
+        "vehicle": "Vehicle",
+        "route": "Route",
+        "amount": "Amount",
+        "status": "Status",
+        "paid": "Paid",
+        "pending": "Pending payment"
+      },
+      "regenerate": {
+        "action": "Regenerate demo data",
+        "title": "Regenerate demo data?",
+        "body": "This deletes the demo fleet companies and all their vehicles, trips, bills and certificates, then creates them again with fresh dates. Data entered by hand is kept. Anyone signed in as a demo company is signed out.",
+        "confirm": "Regenerate"
+      }
+    }
+  },
+  "states": {
+    "Khartoum": "Khartoum",
+    "Red Sea": "Red Sea",
+    "North Kordofan": "North Kordofan",
+    "Kassala": "Kassala",
+    "White Nile": "White Nile",
+    "South Darfur": "South Darfur",
+    "Gezira": "Gezira",
+    "Gedaref": "Gedaref",
+    "North Darfur": "North Darfur",
+    "East Darfur": "East Darfur",
+    "Sennar": "Sennar",
+    "Blue Nile": "Blue Nile",
+    "West Darfur": "West Darfur",
+    "River Nile": "River Nile",
+    "West Kordofan": "West Kordofan",
+    "South Kordofan": "South Kordofan",
+    "Northern": "Northern",
+    "Central Darfur": "Central Darfur"
   }
 }

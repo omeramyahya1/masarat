@@ -72,6 +72,8 @@ const api = {
       ipcRenderer.invoke('certificates:save-pdf', fileName)
   },
   govt: {
+    getReferenceData: (): Promise<FleetResult<TripReferenceData>> =>
+      ipcRenderer.invoke('govt:get-reference-data'),
     dashboard: (period: DashboardPeriod): Promise<FleetResult<DashboardData>> =>
       ipcRenderer.invoke('govt:dashboard', period),
     regenerateDemoData: (): Promise<FleetResult<null>> => ipcRenderer.invoke('govt:regenerate-demo')

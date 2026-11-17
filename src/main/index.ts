@@ -254,6 +254,10 @@ async function runGovt<T>(
 }
 
 function registerGovtHandlers(): void {
+  // Cities and rates, for labelling routes
+  ipcMain.handle('govt:get-reference-data', () =>
+    runGovt(() => ({ ok: true, data: getReferenceData() }))
+  )
   ipcMain.handle('govt:dashboard', (_event, period: unknown) =>
     runGovt(() =>
       isDashboardPeriod(period)

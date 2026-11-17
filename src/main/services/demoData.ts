@@ -159,17 +159,17 @@ async function createAccount(account: DemoAccount): Promise<number | null> {
 }
 
 async function seedOwners(): Promise<void> {
-  // Accounts first: hashing passwords is async and the transaction can't await
-  const ownerIds: number[] = []
-  for (const account of DEMO_OWNER_ACCOUNTS) {
-    const id = await createAccount(account)
-    if (id !== null) ownerIds.push(id)
-  }
-  if (ownerIds.length === 0) return
   try {
-    seedTrips(ownerIds)
+    // Accounts first: hashing passwords is async and the transaction can't await
+    const ownerIds: number[] = []
+    for (const account of DEMO_OWNER_ACCOUNTS) {
+      const id = await createAccount(account)
+      if (id !== null) ownerIds.push(id)
+    }
+    if (ownerIds.length > 0) seedTrips(ownerIds)
   } catch (err) {
-    // Don't leave empty demo accounts behind, or the next startup would skip seeding
+    // Don't leave empty demo accounts behind, or the next startup would skip seeding. Only this
+    // attempt's accounts exist here: seedOwners runs when there are no demo owners left.
     deleteDemoOwners()
     throw err
   }

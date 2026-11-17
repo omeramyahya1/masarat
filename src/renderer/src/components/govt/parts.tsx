@@ -44,11 +44,32 @@ export function Segmented<T extends string>({
   value: T
   onChange: (value: T) => void
 }): React.JSX.Element {
+  const { i18n } = useTranslation()
+
+  // Radio-group keyboard pattern: Tab stops on the selected option, arrow keys move the selection
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    const forward = i18n.dir() === 'rtl' ? 'ArrowLeft' : 'ArrowRight'
+    const backward = i18n.dir() === 'rtl' ? 'ArrowRight' : 'ArrowLeft'
+    const step =
+      event.key === forward || event.key === 'ArrowDown'
+        ? 1
+        : event.key === backward || event.key === 'ArrowUp'
+          ? -1
+          : 0
+    if (step === 0) return
+    event.preventDefault()
+    const current = options.findIndex((option) => option.value === value)
+    const next = (current + step + options.length) % options.length
+    onChange(options[next].value)
+    event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')[next]?.focus()
+  }
+
   return (
     <div
       role="radiogroup"
       aria-label={label}
       className="flex gap-1 rounded-lg border border-stone-200 bg-stone-100 p-0.5"
+      onKeyDown={onKeyDown}
     >
       {options.map((option) => (
         <button
@@ -56,6 +77,7 @@ export function Segmented<T extends string>({
           type="button"
           role="radio"
           aria-checked={option.value === value}
+          tabIndex={option.value === value ? 0 : -1}
           className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
             option.value === value
               ? 'bg-white text-brand-800 shadow-sm ring-1 ring-stone-200'

@@ -34,13 +34,22 @@ function GovtDashboard(): React.JSX.Element {
   const [loading, setLoading] = useState(true)
   const [reloadKey, setReloadKey] = useState(0)
   const [confirming, setConfirming] = useState(false)
+  // City names only label routes; if they fail to load, the next refresh retries them
+  const [citiesFailed, setCitiesFailed] = useState(false)
+  const [citiesKey, setCitiesKey] = useState(0)
 
   useEffect(() => {
     window.api.govt
       .getReferenceData()
-      .then((result) => mounted.current && result.ok && setCities(result.data.cities))
-      .catch(() => undefined)
-  }, [mounted])
+      .then((result) => {
+        if (!mounted.current) return
+        if (result.ok) {
+          setCities(result.data.cities)
+          setCitiesFailed(false)
+        } else setCitiesFailed(true)
+      })
+      .catch(() => mounted.current && setCitiesFailed(true))
+  }, [mounted, citiesKey])
 
   useEffect(() => {
     let current = true
@@ -65,6 +74,7 @@ function GovtDashboard(): React.JSX.Element {
   const reload = (): void => {
     setLoading(true)
     setReloadKey((key) => key + 1)
+    if (citiesFailed) setCitiesKey((key) => key + 1)
   }
   const changePeriod = (value: DashboardPeriod): void => {
     if (value === period) return
@@ -158,7 +168,7 @@ function GovtDashboard(): React.JSX.Element {
       {header}
       {error && <FormAlert message={t(`fleet.errors.${error}`)} />}
 
-      <KpiGrid kpis={data.kpis} periodLabel={t(`govt.dashboard.periods.${period}`)} />
+      <KpiGrid kpis={data.kpis} periodLabel={t(`govt.dashboard.periods.${data.period}`)} />
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card title={t(`govt.dashboard.revenue.title.${data.bucket}`)} className="lg:col-span-2">

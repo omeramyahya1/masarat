@@ -115,6 +115,13 @@ export async function logIn(input: LogInInput): Promise<AuthResult> {
   if (!found || !(await verifyPassword(password, found.passwordHash))) {
     return { ok: false, error: 'invalid_credentials' }
   }
+  // The account may have been deleted while the password was checked (demo data regenerated)
+  const stillExists = getDb()
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, found.id))
+    .get()
+  if (!stillExists) return { ok: false, error: 'invalid_credentials' }
   // Only reported after the password checks out, so it doesn't reveal which usernames exist
   if (found.role !== input.role) return { ok: false, error: 'wrong_panel' }
 

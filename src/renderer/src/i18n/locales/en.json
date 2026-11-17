@@ -440,7 +440,7 @@
       "regenerate": {
         "action": "Regenerate demo data",
         "title": "Regenerate demo data?",
-        "body": "This deletes the demo fleet companies and all their vehicles, trips, bills and certificates, then creates them again with fresh dates. Data entered by hand is kept. Anyone signed in as a demo company is signed out.",
+        "body": "This deletes the demo fleet companies and all their vehicles, trips, bills and certificates, then creates them again with fresh dates. Anything added by hand to a demo company is deleted too; other companies' data is kept. Anyone signed in as a demo company is signed out.",
         "confirm": "Regenerate"
       }
     }

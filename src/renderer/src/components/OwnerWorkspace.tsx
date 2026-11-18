@@ -1,14 +1,23 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Route, Truck } from 'lucide-react'
+import { IdCard, Route, Truck, UsersRound } from 'lucide-react'
+import type { AuthUser } from '../../../shared/auth'
+import DriversPanel from './fleet/DriversPanel'
 import VehiclesPanel from './fleet/VehiclesPanel'
+import ProfilePanel from './owner/ProfilePanel'
 import TripsPanel from './trips/TripsPanel'
 import SectionNav from './ui/SectionNav'
 
-type Section = 'vehicles' | 'trips'
+type Section = 'vehicles' | 'drivers' | 'trips' | 'profile'
 
-// Fleet owner home: manage vehicles and register trips
-function OwnerWorkspace(): React.JSX.Element {
+// Fleet owner home: manage vehicles and drivers, register trips and keep the company profile
+function OwnerWorkspace({
+  user,
+  onUserChange
+}: {
+  user: AuthUser
+  onUserChange: (user: AuthUser) => void
+}): React.JSX.Element {
   const { t } = useTranslation()
   const [section, setSection] = useState<Section>('vehicles')
 
@@ -18,7 +27,9 @@ function OwnerWorkspace(): React.JSX.Element {
         label={t('owner.sections')}
         sections={[
           { id: 'vehicles', label: t('owner.vehicles'), icon: Truck },
-          { id: 'trips', label: t('owner.trips'), icon: Route }
+          { id: 'drivers', label: t('owner.drivers'), icon: UsersRound },
+          { id: 'trips', label: t('owner.trips'), icon: Route },
+          { id: 'profile', label: t('owner.profile'), icon: IdCard }
         ]}
         value={section}
         onChange={setSection}
@@ -27,6 +38,10 @@ function OwnerWorkspace(): React.JSX.Element {
       <div className="mx-auto w-full max-w-6xl flex-1 p-6">
         {section === 'vehicles' ? (
           <VehiclesPanel />
+        ) : section === 'drivers' ? (
+          <DriversPanel />
+        ) : section === 'profile' ? (
+          <ProfilePanel user={user} onUserChange={onUserChange} />
         ) : (
           <TripsPanel onGoToVehicles={() => setSection('vehicles')} />
         )}

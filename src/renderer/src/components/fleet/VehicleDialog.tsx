@@ -2,6 +2,7 @@ import { useId, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Truck } from 'lucide-react'
 import {
+  MAX_REGISTRATION_LENGTH,
   QUANTITY_UNITS,
   VEHICLE_TYPES,
   defaultUnitFor,
@@ -11,7 +12,7 @@ import {
   type VehicleType
 } from '../../../../shared/fleet'
 import { parsePlate } from '../../../../shared/plate'
-import { FormAlert, NumberField, SelectField, SubmitButton } from '../form/fields'
+import { FormAlert, NumberField, SelectField, SubmitButton, TextField } from '../form/fields'
 import Modal from '../ui/Modal'
 import { plateValueToString, type PlateValue } from '../../lib/plateValue'
 import { useMountedRef } from '../../lib/useMountedRef'
@@ -35,6 +36,7 @@ function VehicleDialog({ vehicle, onClose, onSaved }: VehicleDialogProps): React
   const { t } = useTranslation()
   const titleId = useId()
   const [plate, setPlate] = useState<PlateValue>(() => initialPlate(vehicle))
+  const [registrationNo, setRegistrationNo] = useState(vehicle?.registrationNo ?? '')
   const [vehicleType, setVehicleType] = useState<VehicleType | ''>(vehicle?.vehicleType ?? '')
   const [capacity, setCapacity] = useState(vehicle ? String(vehicle.capacity) : '')
   const [unit, setUnit] = useState<QuantityUnit>(vehicle?.capacityUnit ?? 'ton')
@@ -53,7 +55,7 @@ function VehicleDialog({ vehicle, onClose, onSaved }: VehicleDialogProps): React
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
     const plateNumber = plateValueToString(plate)
-    if (!plateNumber || !vehicleType || capacity === '') {
+    if (!plateNumber || !registrationNo.trim() || !vehicleType || capacity === '') {
       setError('missing_fields')
       return
     }
@@ -63,7 +65,13 @@ function VehicleDialog({ vehicle, onClose, onSaved }: VehicleDialogProps): React
       return
     }
 
-    const input = { plateNumber, vehicleType, capacity: capacityValue, capacityUnit: unit }
+    const input = {
+      plateNumber,
+      registrationNo: registrationNo.trim(),
+      vehicleType,
+      capacity: capacityValue,
+      capacityUnit: unit
+    }
     setError(null)
     setPending(true)
     try {
@@ -99,6 +107,16 @@ function VehicleDialog({ vehicle, onClose, onSaved }: VehicleDialogProps): React
         {error && <FormAlert message={t(`fleet.errors.${error}`)} />}
 
         <PlateInput value={plate} onChange={setPlate} />
+
+        <TextField
+          label={t('fleet.fields.registrationNo')}
+          hint={t('fleet.fields.registrationNoHint')}
+          value={registrationNo}
+          maxLength={MAX_REGISTRATION_LENGTH}
+          autoComplete="off"
+          ltr
+          onChange={(e) => setRegistrationNo(e.target.value)}
+        />
 
         <SelectField
           label={t('fleet.fields.vehicleType')}

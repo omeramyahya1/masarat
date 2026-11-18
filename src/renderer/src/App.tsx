@@ -93,7 +93,12 @@ function App(): React.JSX.Element {
 
       <main className="flex flex-1 flex-col overflow-auto">
         {user ? (
-          <HomeView key={activeRole} user={user} onLogOut={() => handleLogOut(activeRole)} />
+          <HomeView
+            key={activeRole}
+            user={user}
+            onLogOut={() => handleLogOut(activeRole)}
+            onUserChange={(updated) => setSession(activeRole, updated)}
+          />
         ) : (
           <AuthPanel
             key={activeRole}

@@ -9,6 +9,9 @@ export interface AuthUser {
   fullName: string
   phone: string | null
   companyName: string | null
+  // Fleet owners' carrier details, printed on their manifests
+  address: string | null
+  tin: string | null
 }
 
 export interface SignUpInput {
@@ -18,6 +21,17 @@ export interface SignUpInput {
   password: string
   phone?: string
   companyName?: string
+  address?: string
+  tin?: string
+}
+
+// A fleet owner's own details, editable from their Profile section
+export interface ProfileInput {
+  fullName: string
+  phone: string
+  companyName: string
+  address: string
+  tin: string
 }
 
 export interface LogInInput {
@@ -34,6 +48,9 @@ export type AuthErrorCode =
   | 'invalid_credentials'
   | 'wrong_panel'
   | 'cancelled'
+  | 'invalid_tin'
+  | 'address_too_long'
+  | 'not_signed_in'
   | 'unknown'
 
 export type AuthResult = { ok: true; user: AuthUser } | { ok: false; error: AuthErrorCode }
@@ -41,3 +58,6 @@ export type AuthResult = { ok: true; user: AuthUser } | { ok: false; error: Auth
 // Usernames are stored lowercased
 export const USERNAME_PATTERN = /^[a-z0-9_.]{3,32}$/
 export const PASSWORD_MIN_LENGTH = 8
+// Tax Identification Number (الرقم الضريبي): free text, at most this long
+export const MAX_TIN_LENGTH = 30
+export const MAX_ADDRESS_LENGTH = 200

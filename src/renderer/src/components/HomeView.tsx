@@ -7,9 +7,10 @@ import GovtWorkspace from './govt/GovtWorkspace'
 interface HomeViewProps {
   user: AuthUser
   onLogOut: () => void
+  onUserChange: (user: AuthUser) => void
 }
 
-function HomeView({ user, onLogOut }: HomeViewProps): React.JSX.Element {
+function HomeView({ user, onLogOut, onUserChange }: HomeViewProps): React.JSX.Element {
   const { t } = useTranslation()
 
   return (
@@ -32,7 +33,11 @@ function HomeView({ user, onLogOut }: HomeViewProps): React.JSX.Element {
         </button>
       </div>
 
-      {user.role === 'owner' ? <OwnerWorkspace /> : <GovtWorkspace />}
+      {user.role === 'owner' ? (
+        <OwnerWorkspace user={user} onUserChange={onUserChange} />
+      ) : (
+        <GovtWorkspace />
+      )}
     </div>
   )
 }

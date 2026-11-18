@@ -58,11 +58,29 @@ export const users = sqliteTable(
     fullName: text('full_name').notNull(),
     phone: text('phone'),
     companyName: text('company_name'),
+    // Fleet owners' carrier details, printed on their manifests
+    address: text('address'),
+    tin: text('tin'),
     // Seeded demo accounts (see services/demoData.ts); "Regenerate demo data" only touches these
     isDemo: integer('is_demo', { mode: 'boolean' }).notNull().default(false),
     ...timestamps
   },
   (t) => [check('users_role_check', sql`${t.role} IN (${inList(USER_ROLES)})`)]
+)
+
+// A fleet owner's drivers, picked on each trip (the manifest keeps a copy of the name and phone)
+export const drivers = sqliteTable(
+  'drivers',
+  {
+    id,
+    ownerId: integer('owner_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    phone: text('phone').notNull(),
+    ...timestamps
+  },
+  (t) => [uniqueIndex('drivers_owner_phone_idx').on(t.ownerId, t.phone)]
 )
 
 // Seeded from src/main/sd.csv (see drizzle/0001_seed_reference_data.sql)
@@ -85,6 +103,8 @@ export const vehicles = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
     plateNumber: text('plate_number').notNull().unique(),
+    // رقم الترخيص. Required by the UI and services; null only for vehicles added before it existed
+    registrationNo: text('registration_no'),
     vehicleType: text('vehicle_type', { enum: VEHICLE_TYPES }).notNull(),
     capacity: real('capacity').notNull(),
     capacityUnit: text('capacity_unit', { enum: QUANTITY_UNITS }).notNull(),
@@ -301,6 +321,7 @@ export type NewUser = typeof users.$inferInsert
 export type City = typeof cities.$inferSelect
 export type Vehicle = typeof vehicles.$inferSelect
 export type NewVehicle = typeof vehicles.$inferInsert
+export type Driver = typeof drivers.$inferSelect
 export type TaxRate = typeof taxRates.$inferSelect
 export type Manifest = typeof manifests.$inferSelect
 export type ManifestCargoItem = typeof manifestCargoItems.$inferSelect

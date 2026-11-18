@@ -6,6 +6,7 @@ import { and, eq, inArray } from 'drizzle-orm'
 import {
   certificates,
   cities,
+  drivers,
   esaliSimBills,
   getDb,
   manifestCargoItems,
@@ -139,6 +140,34 @@ const ITEM_NAMES: Record<CargoType, readonly string[]> = {
   ]
 }
 
+// Demo drivers' names, combined at random
+const DRIVER_FIRST_NAMES = [
+  'عثمان',
+  'الطيب',
+  'حسن',
+  'عبد الله',
+  'محمد',
+  'إبراهيم',
+  'يوسف',
+  'آدم',
+  'بشير',
+  'صالح',
+  'عمر',
+  'الصادق'
+]
+const DRIVER_LAST_NAMES = [
+  'أحمد',
+  'محمد الحسن',
+  'عبد الرحمن',
+  'إدريس',
+  'آدم',
+  'الطاهر',
+  'خليل',
+  'موسى',
+  'بابكر',
+  'النور'
+]
+
 // Taxes as they were billed: demo history uses the default percentages and fees
 const DEFAULT_TAX_SETTINGS = TAX_CODES.map((code) => ({ code, rateBps: DEFAULT_TAX_BPS[code] }))
 const DEFAULT_FEE_SETTINGS = FEE_CODES.map((code) => ({ code, amount: DEFAULT_FEES[code] }))
@@ -245,6 +274,8 @@ async function createAccount(account: DemoAccount): Promise<number | null> {
       passwordHash: await hashPassword(account.password),
       fullName: account.fullName,
       companyName: account.companyName,
+      address: account.address,
+      tin: account.tin,
       isDemo: true
     })
     .returning({ id: users.id })
@@ -355,9 +386,26 @@ function seedTrips(ownerIds: number[]): void {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
+  // Registration numbers and drivers come from their own stream, so adding them didn't change the
+  // trips the main stream generates
+  const extra = mulberry32(20261118)
+
   db.transaction((tx) => {
     const fleet: SeedVehicle[] = []
     for (const ownerId of ownerIds) {
+      const driverCount = between(extra, 5, 8)
+      const phones = new Set<string>()
+      while (phones.size < driverCount) phones.add(`09${digits(extra, 8)}`)
+      tx.insert(drivers)
+        .values(
+          [...phones].map((phone) => ({
+            ownerId,
+            name: `${pick(extra, DRIVER_FIRST_NAMES)} ${pick(extra, DRIVER_LAST_NAMES)}`,
+            phone
+          }))
+        )
+        .run()
+
       const count = between(rand, 8, 14)
       for (let i = 0; i < count; i++) {
         const vehicleType = pickWeighted(rand, FLEET_MIX)
@@ -369,6 +417,7 @@ function seedTrips(ownerIds: number[]): void {
           .values({
             ownerId,
             plateNumber: uniquePlate(),
+            registrationNo: digits(extra, 7),
             vehicleType,
             capacity,
             capacityUnit: unit,
@@ -556,6 +605,7 @@ function deleteDemoOwners(): void {
     tx.delete(payments).where(inArray(payments.manifestId, demoManifests)).run()
     tx.delete(manifests).where(inArray(manifests.vehicleId, demoVehicles)).run()
     tx.delete(vehicles).where(inArray(vehicles.ownerId, ownerIds)).run()
+    tx.delete(drivers).where(inArray(drivers.ownerId, ownerIds)).run()
     tx.delete(users).where(inArray(users.id, ownerIds)).run()
   })
 }

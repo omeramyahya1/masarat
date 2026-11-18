@@ -8,6 +8,9 @@ export interface DemoAccount {
   password: string
   fullName: string
   companyName: string | null
+  // Fleet owners' carrier details
+  address: string | null
+  tin: string | null
 }
 
 export const DEMO_OWNER_ACCOUNTS: readonly DemoAccount[] = [
@@ -16,28 +19,36 @@ export const DEMO_OWNER_ACCOUNTS: readonly DemoAccount[] = [
     username: 'nile.transport',
     password: 'nile2026',
     fullName: 'Ahmed Osman',
-    companyName: 'Nile Transport Co.'
+    companyName: 'Nile Transport Co.',
+    address: 'الخرطوم بحري، المنطقة الصناعية، شارع المعونة',
+    tin: '300145872'
   },
   {
     role: 'owner',
     username: 'redsea.logistics',
     password: 'redsea2026',
     fullName: 'Fatima Hassan',
-    companyName: 'Red Sea Logistics'
+    companyName: 'Red Sea Logistics',
+    address: 'بورتسودان، حي الميناء، مربع 4',
+    tin: '300267419'
   },
   {
     role: 'owner',
     username: 'kordofan.haulage',
     password: 'kordofan2026',
     fullName: 'Mohamed Ali',
-    companyName: 'Kordofan Haulage'
+    companyName: 'Kordofan Haulage',
+    address: 'الأبيض، السوق الكبير، شارع النيل',
+    tin: '300389036'
   },
   {
     role: 'owner',
     username: 'gezira.freight',
     password: 'gezira2026',
     fullName: 'Amna Ibrahim',
-    companyName: 'Gezira Freight'
+    companyName: 'Gezira Freight',
+    address: 'ود مدني، المنطقة الصناعية، شارع الجمهورية',
+    tin: '300412658'
   }
 ]
 
@@ -47,7 +58,9 @@ export const DEMO_GOVT_ACCOUNT: DemoAccount = {
   username: 'ministry.demo',
   password: 'govt2026',
   fullName: 'Tax Collection Officer',
-  companyName: null
+  companyName: null,
+  address: null,
+  tin: null
 }
 
 export const demoAccountsFor = (role: UserRole): readonly DemoAccount[] =>

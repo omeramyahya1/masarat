@@ -6,8 +6,9 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initDb, closeDb } from './db'
-import { getSession, logIn, logOut, signUp } from './services/auth'
+import { getSession, logIn, logOut, signUp, updateProfile } from './services/auth'
 import { addVehicle, deleteVehicle, listVehicles, updateVehicle } from './services/fleet'
+import { addDriver, deleteDriver, listDrivers, updateDriver } from './services/drivers'
 import { createTrip, deleteTrip, getReferenceData, listTrips, updateTrip } from './services/trips'
 import {
   generateBill,
@@ -18,9 +19,9 @@ import {
 import { getDashboard } from './services/dashboard'
 import { getTaxSettingsView, updateTaxRates } from './services/taxes'
 import { ensureDemoData, regenerateDemoData } from './services/demoData'
-import type { AuthResult, LogInInput, SignUpInput, UserRole } from '../shared/auth'
+import type { AuthResult, LogInInput, ProfileInput, SignUpInput, UserRole } from '../shared/auth'
 import type { TaxRatesInput } from '../shared/tax'
-import type { FleetResult, TripInput, VehicleInput } from '../shared/fleet'
+import type { DriverInput, FleetResult, TripInput, VehicleInput } from '../shared/fleet'
 import { isDashboardPeriod } from '../shared/dashboard'
 
 // Configure updater logging
@@ -199,6 +200,19 @@ function registerFleetHandlers(): void {
     runFleet((ownerId) => deleteVehicle(ownerId, id))
   )
 
+  ipcMain.handle('fleet:list-drivers', () =>
+    runFleet((ownerId) => ({ ok: true, data: listDrivers(ownerId) }))
+  )
+  ipcMain.handle('fleet:add-driver', (_event, input: DriverInput) =>
+    runFleet((ownerId) => addDriver(ownerId, input))
+  )
+  ipcMain.handle('fleet:update-driver', (_event, id: number, input: DriverInput) =>
+    runFleet((ownerId) => updateDriver(ownerId, id, input))
+  )
+  ipcMain.handle('fleet:delete-driver', (_event, id: number) =>
+    runFleet((ownerId) => deleteDriver(ownerId, id))
+  )
+
   ipcMain.handle('trips:get-reference-data', () =>
     runFleet(() => ({ ok: true, data: getReferenceData() }))
   )
@@ -306,6 +320,9 @@ function registerAuthHandlers(): void {
   ipcMain.handle('auth:log-in', (_event, input: LogInInput) => runAuth(() => logIn(input)))
   ipcMain.handle('auth:log-out', (_event, role: UserRole) => logOut(role))
   ipcMain.handle('auth:get-session', (_event, role: UserRole) => getSession(role))
+  ipcMain.handle('auth:update-profile', (_event, input: ProfileInput) =>
+    runAuth(async () => updateProfile(input))
+  )
 }
 
 // This method will be called when Electron has finished

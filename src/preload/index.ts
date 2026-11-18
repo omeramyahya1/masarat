@@ -1,7 +1,16 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { AuthResult, AuthUser, LogInInput, SignUpInput, UserRole } from '../shared/auth'
 import type {
+  AuthResult,
+  AuthUser,
+  LogInInput,
+  ProfileInput,
+  SignUpInput,
+  UserRole
+} from '../shared/auth'
+import type {
+  DriverInput,
+  DriverRecord,
   FleetResult,
   TripInput,
   TripRecord,
@@ -39,7 +48,9 @@ const api = {
     logIn: (input: LogInInput): Promise<AuthResult> => ipcRenderer.invoke('auth:log-in', input),
     logOut: (role: UserRole): Promise<void> => ipcRenderer.invoke('auth:log-out', role),
     getSession: (role: UserRole): Promise<AuthUser | null> =>
-      ipcRenderer.invoke('auth:get-session', role)
+      ipcRenderer.invoke('auth:get-session', role),
+    updateProfile: (input: ProfileInput): Promise<AuthResult> =>
+      ipcRenderer.invoke('auth:update-profile', input)
   },
   fleet: {
     listVehicles: (): Promise<FleetResult<VehicleRecord[]>> =>
@@ -49,7 +60,15 @@ const api = {
     updateVehicle: (id: number, input: VehicleInput): Promise<FleetResult<VehicleRecord>> =>
       ipcRenderer.invoke('fleet:update-vehicle', id, input),
     deleteVehicle: (id: number): Promise<FleetResult<null>> =>
-      ipcRenderer.invoke('fleet:delete-vehicle', id)
+      ipcRenderer.invoke('fleet:delete-vehicle', id),
+    listDrivers: (): Promise<FleetResult<DriverRecord[]>> =>
+      ipcRenderer.invoke('fleet:list-drivers'),
+    addDriver: (input: DriverInput): Promise<FleetResult<DriverRecord>> =>
+      ipcRenderer.invoke('fleet:add-driver', input),
+    updateDriver: (id: number, input: DriverInput): Promise<FleetResult<DriverRecord>> =>
+      ipcRenderer.invoke('fleet:update-driver', id, input),
+    deleteDriver: (id: number): Promise<FleetResult<null>> =>
+      ipcRenderer.invoke('fleet:delete-driver', id)
   },
   trips: {
     getReferenceData: (): Promise<FleetResult<TripReferenceData>> =>

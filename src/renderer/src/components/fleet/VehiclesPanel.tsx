@@ -78,6 +78,7 @@ function VehiclesPanel(): React.JSX.Element {
             <thead>
               <tr>
                 <th>{t('fleet.columns.plate')}</th>
+                <th>{t('fleet.columns.registrationNo')}</th>
                 <th>{t('fleet.columns.type')}</th>
                 <th>{t('fleet.columns.capacity')}</th>
                 <th>{t('fleet.columns.trips')}</th>
@@ -91,6 +92,13 @@ function VehiclesPanel(): React.JSX.Element {
                 <tr key={vehicle.id}>
                   <td>
                     <PlateBadge plate={vehicle.plateNumber} />
+                  </td>
+                  <td>
+                    {vehicle.registrationNo ? (
+                      <bdi className="font-mono text-xs">{vehicle.registrationNo}</bdi>
+                    ) : (
+                      <span className="text-amber-700">{t('fleet.missingRegistration')}</span>
+                    )}
                   </td>
                   <td>{t(`vehicleTypes.${vehicle.vehicleType}`)}</td>
                   <td className="tabular-nums">

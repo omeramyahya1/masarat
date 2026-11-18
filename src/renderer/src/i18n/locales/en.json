@@ -41,6 +41,9 @@
       "usernameHint": "3 to 32 characters: lowercase letters, numbers, dots or underscores.",
       "phone": "Phone number",
       "companyName": "Company name",
+      "address": "Address",
+      "tin": "Tax Identification Number (TIN)",
+      "tinHint": "Your company's TIN as registered with the Taxation Chamber.",
       "password": "Password",
       "passwordHint": "At least {{min}} characters.",
       "confirmPassword": "Confirm password",
@@ -57,6 +60,9 @@
       "invalid_credentials": "Incorrect username or password.",
       "wrong_panel": "This account belongs to the other panel. Switch panels to log in.",
       "cancelled": "Sign-in was cancelled. Please try again.",
+      "invalid_tin": "The TIN can be at most 30 characters.",
+      "address_too_long": "The address can be at most 200 characters.",
+      "not_signed_in": "Your session has ended. Please log in again.",
       "unknown": "Something went wrong. Please try again."
     },
     "demoAccounts": {
@@ -152,22 +158,35 @@
   "owner": {
     "sections": "Fleet owner sections",
     "vehicles": "Vehicles",
-    "trips": "Trips"
+    "drivers": "Drivers",
+    "trips": "Trips",
+    "profile": "Profile"
+  },
+  "profile": {
+    "title": "Profile",
+    "subtitle": "Your account and company details.",
+    "carrier": "Carrier details",
+    "companyHint": "The company or transport office name printed on your manifests.",
+    "carrierNote": "The company name, address and TIN are printed on your manifests as the carrier. The address and TIN are needed before you can generate a bill ID.",
+    "save": "Save profile",
+    "saved": "Profile saved."
   },
   "fleet": {
     "title": "Vehicles",
-    "subtitle": "Register the vehicles in your fleet, with their type and carrying capacity.",
+    "subtitle": "Register the vehicles in your fleet, with their registration number, type and carrying capacity.",
     "add": "Add vehicle",
     "edit": "Edit",
     "editPlate": "Edit vehicle {{plate}}",
     "delete": "Delete",
     "deletePlate": "Delete vehicle {{plate}}",
+    "missingRegistration": "Missing. Edit to add it",
     "empty": {
       "title": "No vehicles yet",
       "body": "Add your first vehicle to start registering trips and paying transport tax."
     },
     "columns": {
       "plate": "Plate number",
+      "registrationNo": "Registration no.",
       "type": "Type",
       "capacity": "Capacity",
       "trips": "Trips"
@@ -175,7 +194,7 @@
     "dialog": {
       "addTitle": "Add a vehicle",
       "editTitle": "Edit vehicle",
-      "subtitle": "Plate, type and carrying capacity.",
+      "subtitle": "Plate, registration number, type and carrying capacity.",
       "add": "Add vehicle",
       "save": "Save changes"
     },
@@ -193,6 +212,8 @@
       "plateNumberPlaceholder": "1 – 99999",
       "platePreview": "Preview:",
       "plateHint": "Choose the state letters, then enter the series (1–99) and the number (1–99999).",
+      "registrationNo": "Registration number",
+      "registrationNoHint": "As written on the vehicle's registration (licence) document.",
       "vehicleType": "Vehicle type",
       "vehicleTypePlaceholder": "Select a type",
       "capacity": "Carrying capacity",
@@ -224,7 +245,44 @@
       "invalid_items": "Every cargo item needs a name and a quantity greater than zero.",
       "not_draft": "This trip's bill ID has been generated, so it can no longer be edited.",
       "invalid_tax_rate": "Enter a percentage from 0 to 100, with up to two decimals.",
-      "invalid_fee": "Enter a whole amount from 0 to 1,000,000 SDG."
+      "invalid_fee": "Enter a whole amount from 0 to 1,000,000 SDG.",
+      "invalid_registration": "Enter the vehicle's registration number (up to 30 characters).",
+      "invalid_phone": "Enter a valid phone number: 7 to 15 digits, optionally starting with +.",
+      "phone_taken": "You already have a driver with this phone number.",
+      "driver_not_found": "This driver could not be found."
+    }
+  },
+  "drivers": {
+    "title": "Drivers",
+    "subtitle": "The drivers who drive your vehicles. Each trip names one, and their name and phone are printed on its manifest.",
+    "add": "Add driver",
+    "edit": "Edit",
+    "editName": "Edit driver {{name}}",
+    "delete": "Delete",
+    "deleteName": "Delete driver {{name}}",
+    "empty": {
+      "title": "No drivers yet",
+      "body": "Add your drivers so you can pick one when you register a trip."
+    },
+    "columns": {
+      "name": "Name",
+      "phone": "Phone number"
+    },
+    "dialog": {
+      "addTitle": "Add a driver",
+      "editTitle": "Edit driver",
+      "subtitle": "Name and phone number.",
+      "add": "Add driver",
+      "save": "Save changes"
+    },
+    "deleteDialog": {
+      "title": "Delete this driver?",
+      "body": "The driver will be removed from your list. Manifests already issued keep their name and phone."
+    },
+    "fields": {
+      "name": "Driver name",
+      "phone": "Phone number",
+      "phoneHint": "e.g. 0912345678. It can start with +249."
     }
   },
   "trips": {

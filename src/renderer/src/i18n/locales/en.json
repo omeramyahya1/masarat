@@ -121,6 +121,21 @@
     "tanker": "Tanker",
     "container_truck": "Container truck"
   },
+  "tripKinds": {
+    "domestic": "Domestic",
+    "import": "Import",
+    "export": "Export"
+  },
+  "packingTypes": {
+    "barrels": "Barrels",
+    "sacks": "Sacks",
+    "packages": "Packages",
+    "cartons": "Cartons",
+    "boxes": "Boxes",
+    "pallets": "Pallets",
+    "bales": "Bales",
+    "bulk": "Bulk"
+  },
   "cargoTypes": {
     "fuel": "Fuel",
     "containers": "Containers",
@@ -249,7 +264,11 @@
       "invalid_registration": "Enter the vehicle's registration number (up to 30 characters).",
       "invalid_phone": "Enter a valid phone number: 7 to 15 digits, optionally starting with +.",
       "phone_taken": "You already have a driver with this phone number.",
-      "driver_not_found": "This driver could not be found."
+      "driver_not_found": "This driver could not be found.",
+      "driver_in_use": "This driver is on a draft trip. Change the trip's driver or delete the trip first.",
+      "invalid_trailer": "Enter valid trailer plates (up to 3), each different from the vehicle's own plate.",
+      "invalid_party": "Check the sender and receiver: names up to 120 characters, addresses up to 200, and valid phone numbers.",
+      "incomplete_manifest": "The manifest isn't complete yet. Fill in the missing details before generating the bill ID."
     }
   },
   "drivers": {
@@ -312,8 +331,9 @@
     "form": {
       "title": "New trip",
       "subtitle": "Enter the trip details. The trip cost and taxes are calculated as you go.",
-      "vehicleSection": "Vehicle",
+      "vehicleSection": "Vehicle and driver",
       "routeSection": "Route",
+      "partiesSection": "Sender and receiver",
       "cargoSection": "Cargo",
       "vehicleCapacity": "Capacity: {{capacity}}",
       "submit": "Save trip",
@@ -321,9 +341,29 @@
       "editSubtitle": "Drafts can be changed until their bill ID is generated.",
       "save": "Save changes"
     },
+    "party": {
+      "shipper": "Sender (shipper)",
+      "receiver": "Receiver",
+      "name": "Name (person or company)",
+      "address": "Address",
+      "phone": "Phone number"
+    },
+    "trailers": {
+      "title": "Trailers",
+      "plateOf": "Trailer {{n}} plate",
+      "removeOf": "Remove trailer {{n}}",
+      "remove": "Remove trailer",
+      "add": "Add trailer",
+      "none": "None: a single vehicle."
+    },
     "fields": {
       "vehicle": "Vehicle",
       "vehiclePlaceholder": "Select a vehicle",
+      "driver": "Driver",
+      "driverPlaceholder": "Select a driver",
+      "noDrivers": "No drivers yet. Add one",
+      "newDriver": "New driver",
+      "tripKind": "Trip type",
       "origin": "Origin",
       "destination": "Destination",
       "cityPlaceholder": "Select a city",
@@ -367,12 +407,21 @@
     "items": {
       "title": "Cargo items",
       "type": "Cargo type",
-      "name": "Item",
-      "quantity": "Quantity",
+      "name": "Description",
+      "quantity": "Weight",
       "unit": "Unit",
+      "packingType": "Packing",
+      "packageCount": "Packages",
+      "notes": "Notes",
+      "packingTypeOf": "Item {{n}} packing type",
+      "packageCountOf": "Item {{n}} number of packages",
+      "notesOf": "Item {{n}} notes",
+      "packingTypePlaceholder": "e.g. Sacks",
+      "packageCountPlaceholder": "Qty",
+      "notesPlaceholder": "Optional",
       "nameOf": "Item {{n}} name",
       "typeOf": "Item {{n}} cargo type",
-      "quantityOf": "Item {{n}} quantity",
+      "quantityOf": "Item {{n}} weight",
       "unitOf": "Item {{n}} unit",
       "removeOf": "Remove item {{n}}",
       "remove": "Remove item",

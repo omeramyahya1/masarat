@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import type { TaxLine } from '../../../../shared/tax'
 import { useFormat } from '../../lib/format'
 
-// Trip cost, then each tax as a percentage of it, then the total due
+// Trip cost, then each tax as a percentage of it and each fixed fee, then the total due
 function TaxBreakdown({
   tripCost,
   lines,
@@ -27,12 +27,7 @@ function TaxBreakdown({
       </div>
       {lines?.map((line) => (
         <div key={line.code} className="flex items-baseline justify-between gap-4">
-          <dt className="text-stone-500">
-            {t('trips.tax.line', {
-              name: t(`taxes.${line.code}`),
-              rate: format.taxRate(line.rateBps)
-            })}
-          </dt>
+          <dt className="text-stone-500">{format.taxLine(line)}</dt>
           <dd className="whitespace-nowrap text-stone-900 tabular-nums">
             {money(tripCost === null ? null : line.amount)}
           </dd>

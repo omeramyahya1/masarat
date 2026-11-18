@@ -127,8 +127,8 @@ function TripForm({
     entry.quantity += totalInVehicleUnit([item])
     costByType.set(item.cargoType, entry)
   })
-  // Previewed with today's percentages; the bill uses the ones current when it's issued
-  const taxes = calculateTaxes(tripCost ?? 0, reference.taxSettings)
+  // Previewed with today's percentages and fees; the bill uses the ones current when it's issued
+  const taxes = calculateTaxes(tripCost ?? 0, reference.taxSettings, reference.feeSettings)
 
   const handleVehicleChange = (id: string): void => {
     setVehicleId(id)

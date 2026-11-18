@@ -1,5 +1,5 @@
 // Types and rules shared by the main process (fleet and trip services) and the renderer
-import type { TaxLine, TaxSetting } from './tax'
+import type { FeeSetting, TaxLine, TaxSetting } from './tax'
 
 // Enum values, also used by the DB schema so the UI and services share one source of truth
 export const VEHICLE_TYPES = [
@@ -85,8 +85,9 @@ export interface TaxRateRecord {
 export interface TripReferenceData {
   cities: CityRecord[]
   taxRates: TaxRateRecord[]
-  // Current tax percentages, for the form's preview
+  // Current tax percentages and fees, for the form's preview
   taxSettings: TaxSetting[]
+  feeSettings: FeeSetting[]
 }
 
 export interface CargoItem {
@@ -157,6 +158,7 @@ export type FleetErrorCode =
   | 'invalid_items'
   | 'not_draft'
   | 'invalid_tax_rate'
+  | 'invalid_fee'
   | 'unknown'
 
 export type FleetResult<T> = { ok: true; data: T } | { ok: false; error: FleetErrorCode }

@@ -65,6 +65,14 @@ export function calculateItemsCost(
 export const TAX_CODES = ['vat', 'business_profit', 'locality'] as const
 export type TaxCode = (typeof TAX_CODES)[number]
 
+// Fixed fees added to every bill, in whole SDG, not taxed. Editable like the percentages.
+export const FEE_CODES = ['manifest_fee'] as const
+export type FeeCode = (typeof FEE_CODES)[number]
+
+// Every line a bill can have: the taxes, then the fees
+export const LINE_CODES = [...TAX_CODES, ...FEE_CODES] as const
+export type LineCode = (typeof LINE_CODES)[number]
+
 // Percentages are stored as basis points: 1700 = 17.00%
 export const DEFAULT_TAX_BPS: Record<TaxCode, number> = {
   vat: 1700,
@@ -73,35 +81,59 @@ export const DEFAULT_TAX_BPS: Record<TaxCode, number> = {
 }
 export const MAX_TAX_BPS = 10_000
 
+export const DEFAULT_FEES: Record<FeeCode, number> = {
+  manifest_fee: 1500
+}
+export const MAX_FEE = 1_000_000
+
 export interface TaxSetting {
   code: TaxCode
   rateBps: number
 }
 
-export interface TaxLine extends TaxSetting {
+export interface FeeSetting {
+  code: FeeCode
+  amount: number
+}
+
+// A line of a bill. rateBps is null for a fixed fee.
+export interface TaxLine {
+  code: LineCode
+  rateBps: number | null
   amount: number
 }
 
 export const isTaxCode = (value: unknown): value is TaxCode =>
   (TAX_CODES as readonly unknown[]).includes(value)
 
-// One line per tax, in TAX_CODES order, each rounded to whole SDG; the total is their sum
+export const isFeeCode = (value: unknown): value is FeeCode =>
+  (FEE_CODES as readonly unknown[]).includes(value)
+
+// One line per tax, in TAX_CODES order, each rounded to whole SDG, then one per fee. The total is
+// their sum.
 export function calculateTaxes(
   tripCost: number,
-  settings: readonly TaxSetting[]
+  settings: readonly TaxSetting[],
+  fees: readonly FeeSetting[]
 ): { lines: TaxLine[]; total: number } {
-  const lines = TAX_CODES.map((code) => {
+  const taxLines = TAX_CODES.map((code) => {
     const rateBps = settings.find((s) => s.code === code)?.rateBps ?? DEFAULT_TAX_BPS[code]
     return { code, rateBps, amount: Math.round((tripCost * rateBps) / MAX_TAX_BPS) }
   })
+  const feeLines = FEE_CODES.map((code) => ({
+    code,
+    rateBps: null,
+    amount: fees.find((f) => f.code === code)?.amount ?? DEFAULT_FEES[code]
+  }))
+  const lines: TaxLine[] = [...taxLines, ...feeLines]
   return { lines, total: lines.reduce((sum, line) => sum + line.amount, 0) }
 }
 
-// A logged change to a tax percentage
+// A logged change to a tax percentage (in basis points) or a fee (in SDG)
 export interface TaxChange {
-  code: TaxCode
-  oldBps: number
-  newBps: number
+  code: LineCode
+  oldValue: number
+  newValue: number
   // Full name of the government user who made it
   changedBy: string
   changedAt: number
@@ -109,9 +141,10 @@ export interface TaxChange {
 
 export interface TaxSettingsView {
   rates: TaxSetting[]
+  fees: FeeSetting[]
   // Newest first
   history: TaxChange[]
 }
 
-// New percentages in basis points, keyed by tax
-export type TaxRatesInput = Partial<Record<TaxCode, number>>
+// New values keyed by line: percentages in basis points, fees in SDG
+export type TaxRatesInput = Partial<Record<LineCode, number>>

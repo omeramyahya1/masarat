@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import type { CityRecord, ItemUnit, QuantityUnit } from '../../../shared/fleet'
-import { MAX_TAX_BPS } from '../../../shared/tax'
+import { MAX_TAX_BPS, type TaxLine } from '../../../shared/tax'
 import { PLATE_LETTERS_AR, formatPlate, parsePlate } from '../../../shared/plate'
 
 const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩'
@@ -37,6 +37,8 @@ export interface Formatters {
   percent: (ratio: number) => string
   // A tax percentage stored in basis points: 1700 -> "17%", 1250 -> "12.5%"
   taxRate: (bps: number) => string
+  // A bill line's label: "VAT (17%)", or just the name for a fixed fee
+  taxLine: (line: Pick<TaxLine, 'code' | 'rateBps'>) => string
   quantity: (value: number, unit: QuantityUnit | ItemUnit) => string
   // "A, B and C" / "أ وب وج"
   list: (values: string[]) => string
@@ -81,6 +83,13 @@ export function createFormatters(isArabic: boolean, t: TFunction): Formatters {
     compactCurrency: (amount) => t('common.currency', { amount: compactNumber(amount) }),
     percent: (ratio) => percentFormat.format(ratio),
     taxRate: (bps) => taxRateFormat.format(bps / MAX_TAX_BPS),
+    taxLine: ({ code, rateBps }) =>
+      rateBps === null
+        ? t(`taxes.${code}`)
+        : t('trips.tax.line', {
+            name: t(`taxes.${code}`),
+            rate: taxRateFormat.format(rateBps / MAX_TAX_BPS)
+          }),
     list: (values) => listFormat.format(values),
     quantity: (value, unit) => t(`units.short.${unit}`, { value: number(value) }),
     date: (ms) => dateFormat.format(ms),

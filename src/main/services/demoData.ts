@@ -26,7 +26,9 @@ import {
 import { DEMO_GOVT_ACCOUNT, DEMO_OWNER_ACCOUNTS, type DemoAccount } from '../../shared/demo'
 import { PLATE_CODES, formatPlate } from '../../shared/plate'
 import {
+  DEFAULT_FEES,
   DEFAULT_TAX_BPS,
+  FEE_CODES,
   TAX_CODES,
   calculateItemsCost,
   calculateTaxes,
@@ -137,8 +139,9 @@ const ITEM_NAMES: Record<CargoType, readonly string[]> = {
   ]
 }
 
-// Taxes as they were billed: demo history uses the default percentages
+// Taxes as they were billed: demo history uses the default percentages and fees
 const DEFAULT_TAX_SETTINGS = TAX_CODES.map((code) => ({ code, rateBps: DEFAULT_TAX_BPS[code] }))
+const DEFAULT_FEE_SETTINGS = FEE_CODES.map((code) => ({ code, amount: DEFAULT_FEES[code] }))
 
 // Splits a load (in the vehicle's unit) into 1-4 named items, rounded down so the total never
 // grows past the load
@@ -415,7 +418,7 @@ function seedTrips(ownerIds: number[]): void {
         const mainRate = priced?.mainType ? rates.get(priced.mainType) : undefined
         if (!priced || !mainRate) continue
         const tripCost = priced.total
-        const taxes = calculateTaxes(tripCost, DEFAULT_TAX_SETTINGS)
+        const taxes = calculateTaxes(tripCost, DEFAULT_TAX_SETTINGS, DEFAULT_FEE_SETTINGS)
         const taxAmount = taxes.total
         if (taxAmount <= 0) continue
 

@@ -1,6 +1,6 @@
 // Government dashboard data, computed in the main process (src/main/services/dashboard.ts)
 import type { CargoType, ManifestStatus } from './fleet'
-import type { TaxCode } from './tax'
+import type { LineCode } from './tax'
 
 export const DASHBOARD_PERIODS = ['30d', '90d', '12m'] as const
 export type DashboardPeriod = (typeof DASHBOARD_PERIODS)[number]
@@ -41,9 +41,9 @@ export interface CargoSlice {
   trips: number
 }
 
-// Revenue collected for one tax (VAT, business profit, locality)
+// Revenue collected for one bill line (VAT, business profit, locality, manifest fee)
 export interface TaxSlice {
-  code: TaxCode
+  code: LineCode
   revenue: number
 }
 

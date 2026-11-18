@@ -1,15 +1,15 @@
--- Trips are reseeded with the new manifest details, not migrated: delete every trip and the demo
--- owners (the next startup seeds them again). Other accounts, their vehicles and drivers are kept.
--- The tables are empty when they're rebuilt below, so nothing is copied into them.
-DELETE FROM `esali_sim_bills`;--> statement-breakpoint
-DELETE FROM `certificates`;--> statement-breakpoint
-DELETE FROM `payments`;--> statement-breakpoint
-DELETE FROM `manifest_taxes`;--> statement-breakpoint
-DELETE FROM `manifest_cargo_items`;--> statement-breakpoint
-DELETE FROM `manifests`;--> statement-breakpoint
+-- Demo owners are reseeded with the manifest details: delete them and everything under them (the
+-- next startup seeds them again). Other owners' trips are copied into the rebuilt tables; their
+-- new fields start empty (trip type domestic).
+DELETE FROM `esali_sim_bills` WHERE `bill_id` IN (SELECT `bill_id` FROM `payments` WHERE `manifest_id` IN (SELECT `id` FROM `manifests` WHERE `vehicle_id` IN (SELECT `id` FROM `vehicles` WHERE `owner_id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner'))));--> statement-breakpoint
+DELETE FROM `certificates` WHERE `manifest_id` IN (SELECT `id` FROM `manifests` WHERE `vehicle_id` IN (SELECT `id` FROM `vehicles` WHERE `owner_id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner')));--> statement-breakpoint
+DELETE FROM `payments` WHERE `manifest_id` IN (SELECT `id` FROM `manifests` WHERE `vehicle_id` IN (SELECT `id` FROM `vehicles` WHERE `owner_id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner')));--> statement-breakpoint
+DELETE FROM `manifest_taxes` WHERE `manifest_id` IN (SELECT `id` FROM `manifests` WHERE `vehicle_id` IN (SELECT `id` FROM `vehicles` WHERE `owner_id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner')));--> statement-breakpoint
+DELETE FROM `manifest_cargo_items` WHERE `manifest_id` IN (SELECT `id` FROM `manifests` WHERE `vehicle_id` IN (SELECT `id` FROM `vehicles` WHERE `owner_id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner')));--> statement-breakpoint
+DELETE FROM `manifests` WHERE `id` IN (SELECT `id` FROM `manifests` WHERE `vehicle_id` IN (SELECT `id` FROM `vehicles` WHERE `owner_id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner')));--> statement-breakpoint
 DELETE FROM `drivers` WHERE `owner_id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner');--> statement-breakpoint
 DELETE FROM `vehicles` WHERE `owner_id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner');--> statement-breakpoint
-DELETE FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner';--> statement-breakpoint
+DELETE FROM `users` WHERE `id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner');--> statement-breakpoint
 CREATE TABLE `manifest_trailers` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`manifest_id` integer NOT NULL,
@@ -45,6 +45,7 @@ CREATE TABLE `__new_manifest_cargo_items` (
 	CONSTRAINT "manifest_cargo_items_quantity_check" CHECK("__new_manifest_cargo_items"."quantity" > 0)
 );
 --> statement-breakpoint
+INSERT INTO `__new_manifest_cargo_items`("id", "manifest_id", "position", "name", "quantity", "unit", "cargo_type", "rate_per_km", "per_quantity", "cost", "created_at", "updated_at") SELECT "id", "manifest_id", "position", "name", "quantity", "unit", "cargo_type", "rate_per_km", "per_quantity", "cost", "created_at", "updated_at" FROM `manifest_cargo_items`;--> statement-breakpoint
 DROP TABLE `manifest_cargo_items`;--> statement-breakpoint
 ALTER TABLE `__new_manifest_cargo_items` RENAME TO `manifest_cargo_items`;--> statement-breakpoint
 PRAGMA foreign_keys=ON;--> statement-breakpoint
@@ -90,6 +91,7 @@ CREATE TABLE `__new_manifests` (
 	CONSTRAINT "manifests_quantity_check" CHECK("__new_manifests"."cargo_quantity" > 0)
 );
 --> statement-breakpoint
+INSERT INTO `__new_manifests`("id", "vehicle_id", "origin_city_id", "destination_city_id", "cargo_type", "cargo_quantity", "cargo_unit", "trip_date", "distance_km", "rate_per_km", "trip_cost", "tax_amount", "status", "created_at", "updated_at") SELECT "id", "vehicle_id", "origin_city_id", "destination_city_id", "cargo_type", "cargo_quantity", "cargo_unit", "trip_date", "distance_km", "rate_per_km", "trip_cost", "tax_amount", "status", "created_at", "updated_at" FROM `manifests`;--> statement-breakpoint
 DROP TABLE `manifests`;--> statement-breakpoint
 ALTER TABLE `__new_manifests` RENAME TO `manifests`;--> statement-breakpoint
 CREATE INDEX `manifests_vehicle_id_idx` ON `manifests` (`vehicle_id`);--> statement-breakpoint

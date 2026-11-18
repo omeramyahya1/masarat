@@ -6,8 +6,12 @@ import type { DocumentType, FleetResult, Party, QuantityUnit } from '../../share
 import type { OcrItem, OcrResult, ScanInput } from '../../shared/ocr'
 import { findOwnedDocumentFile, findStaged, isDocumentType, stagedPath } from './documents'
 
+// The document describes a different shipment from the one the trip's other documents described
+export class ScanConflictError extends Error {}
+
 export interface OcrService {
-  // fileName is the name the owner's file had (the stored copy is renamed)
+  // fileName is the name the owner's file had (the stored copy is renamed). Throws
+  // ScanConflictError when the document can't belong to the shipment already read (`scenario`).
   scan(
     docType: DocumentType,
     file: { path: string; fileName: string },
@@ -165,10 +169,17 @@ class MockOcrService implements OcrService {
   ): Promise<OcrResult> {
     await new Promise((resolve) => setTimeout(resolve, SCAN_DELAY_MS))
     // The first document picks a shipment from its name and size; later ones reuse it
-    const index =
-      scenario !== null && scenario >= 0 && scenario < SHIPMENTS.length
-        ? scenario
-        : fingerprint(file) % SHIPMENTS.length
+    let index: number
+    if (scenario !== null && scenario >= 0 && scenario < SHIPMENTS.length) {
+      // Later documents have to describe the same shipment, so a certificate of origin can't
+      // follow an export's invoice: report it rather than switch the trip's type
+      if (!fits(docType, SHIPMENTS[scenario])) throw new ScanConflictError()
+      index = scenario
+    } else {
+      // The first document picks, from its name and size, among the shipments it can belong to
+      const candidates = SHIPMENTS.flatMap((shipment, i) => (fits(docType, shipment) ? [i] : []))
+      index = candidates[fingerprint(file) % candidates.length]
+    }
     const shipment = SHIPMENTS[index]
     const cargo = shipment.cargo[unit]
     switch (docType) {
@@ -182,19 +193,25 @@ class MockOcrService implements OcrService {
         }
       case 'packing_list':
         return { scenario: index, items: cargo }
-      // Only imports come with a certificate of origin
+      // fits() keeps these to imports (certificate of origin) and imports or exports
       case 'certificate_of_origin':
-        return { scenario: index, tripKind: 'import', shipper: shipment.shipper }
-      // An authorization is for an import or an export; a domestic shipment's leaves the type alone
       case 'trade_authorization':
         return {
           scenario: index,
-          ...(shipment.tripKind !== 'domestic' ? { tripKind: shipment.tripKind } : {}),
+          tripKind: shipment.tripKind,
           shipper: shipment.shipper,
-          receiver: shipment.receiver
+          ...(docType === 'trade_authorization' ? { receiver: shipment.receiver } : {})
         }
     }
   }
+}
+
+// Only imports come with a certificate of origin, and only imports and exports need an
+// authorization; the invoice and packing list go with any shipment
+function fits(docType: DocumentType, shipment: Shipment): boolean {
+  if (docType === 'certificate_of_origin') return shipment.tripKind === 'import'
+  if (docType === 'trade_authorization') return shipment.tripKind !== 'domestic'
+  return true
 }
 
 // The same file always reads as the same shipment
@@ -223,8 +240,10 @@ export async function scanDocument(
   }
   if (!file) return { ok: false, error: 'invalid_document' }
   const scenario = typeof input.scenario === 'number' ? input.scenario : null
-  return {
-    ok: true,
-    data: await ocr.scan(input.docType, file, { unit: input.unit, scenario })
+  try {
+    return { ok: true, data: await ocr.scan(input.docType, file, { unit: input.unit, scenario }) }
+  } catch (err) {
+    if (err instanceof ScanConflictError) return { ok: false, error: 'scan_conflict' }
+    throw err
   }
 }

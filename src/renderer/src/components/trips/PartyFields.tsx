@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useId, type ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   MAX_PARTY_ADDRESS_LENGTH,
@@ -28,8 +28,15 @@ function PartyFields({
   const { t } = useTranslation()
   const listId = useId()
 
-  const handleNameChange = (name: string): void => {
-    const known = suggestions.find((party) => party.name === name)
+  // Picking a suggestion from the list fills in its address and phone; typing a name that
+  // happens to match one (on the way to a longer name) only changes the name
+  const handleNameChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    const name = event.target.value
+    // Chromium reports a picked suggestion as insertReplacementText (or, in some versions, an
+    // input event without a type); typing always has one (insertText, deleteContentBackward, …)
+    const { inputType } = event.nativeEvent as InputEvent
+    const picked = !inputType || inputType === 'insertReplacementText'
+    const known = picked ? suggestions.find((party) => party.name === name) : undefined
     onChange(known ? { ...known } : { ...value, name })
   }
 
@@ -53,7 +60,7 @@ function PartyFields({
           autoComplete="off"
           maxLength={MAX_PARTY_NAME_LENGTH}
           value={value.name}
-          onChange={(e) => handleNameChange(e.target.value)}
+          onChange={handleNameChange}
         />
         <TextField
           label={t('trips.party.address')}

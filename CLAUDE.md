@@ -95,7 +95,7 @@ It's an Electron desktop app with **two views the user can toggle between**:
   - Migrations run with foreign keys off, then `foreign_key_check` runs, because drizzle rebuilds a table to change a CHECK.
   - Always read a generated migration: when a rebuild copies a column that doesn't exist yet, the SELECT has to be fixed by hand.
   - Renaming a column makes `drizzle-kit generate` ask an interactive question, which can't be answered here. Generate in two steps instead (first without the old columns, then with the new ones). Then merge them into one migration that uses `RENAME COLUMN`, keep the last snapshot, and fix its `prevId` and the journal.
-  - When the shape of trip data changes, the migration deletes all trips (manifests, items, tax lines, payments, certificates, `esali_sim_bills`) and the demo owners with their vehicles, instead of migrating them. The next startup reseeds the demo data. Other accounts and their vehicles are kept.
+  - When the shape of trip data changes, the migration deletes the **demo owners and everything under them** (their trips, bills, payments, certificates, `esali_sim_bills`, vehicles and drivers), so the next startup reseeds them in the new shape. **Other owners' data is always migrated, never deleted**: new columns start empty, bills already issued keep their lines and amounts, and copies in table rebuilds must keep every existing row. Test an upgrade from a database with a non-demo trip before releasing.
 - `src/preload`: preload bridge (`index.ts`, types in `index.d.ts`). The renderer reaches the DB and main process only through this bridge.
 - `src/renderer`: React UI
 - Auto-updates via `electron-updater`, published to GitHub releases (`omeramyahya1/masarat`)

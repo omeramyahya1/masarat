@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { UserPlus } from 'lucide-react'
 import type { DriverRecord } from '../../../../shared/fleet'
@@ -36,15 +37,19 @@ function DriverField({
         <UserPlus size={16} />
         {t('trips.fields.newDriver')}
       </button>
-      {adding && (
-        <DriverDialog
-          onClose={() => setAdding(false)}
-          onSaved={(driver) => {
-            setAdding(false)
-            onAdded(driver)
-          }}
-        />
-      )}
+      {/* Portaled out of the trip form: a <form> nested in another is submitted natively by the
+          browser (reloading the app) instead of reaching React */}
+      {adding &&
+        createPortal(
+          <DriverDialog
+            onClose={() => setAdding(false)}
+            onSaved={(driver) => {
+              setAdding(false)
+              onAdded(driver)
+            }}
+          />,
+          document.body
+        )}
     </div>
   )
 }

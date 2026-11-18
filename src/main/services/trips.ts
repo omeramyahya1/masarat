@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, inArray, isNotNull } from 'drizzle-orm'
+import log from 'electron-log'
 import {
   cities,
   getDb,
@@ -657,7 +658,12 @@ export function deleteTrip(ownerId: number, manifestId: number): FleetResult<nul
     return true
   })
   if (!deleted) return failure('not_draft')
-  removeTripFolder(existing.id)
+  // The trip is gone either way; a folder left behind is removed on the next startup
+  try {
+    removeTripFolder(existing.id)
+  } catch (err) {
+    log.error('Removing trip documents failed:', err)
+  }
   return { ok: true, data: null }
 }
 

@@ -2,6 +2,7 @@
 // payments and certificates, written to the real tables so live trips mix in with them.
 // Demo owners are flagged with users.is_demo; regenerating deletes only their rows.
 import { randomBytes } from 'crypto'
+import log from 'electron-log'
 import { and, eq, inArray } from 'drizzle-orm'
 import {
   certificates,
@@ -752,7 +753,8 @@ function deleteDemoOwners(): void {
   if (ownerIds.length === 0) return
   dropSessionsOf(new Set(ownerIds))
 
-  getDb().transaction((tx) => {
+  // Folders of demo trips that had attachments, removed once the rows are gone for good
+  const folders = getDb().transaction((tx) => {
     const demoVehicles = tx
       .select({ id: vehicles.id })
       .from(vehicles)
@@ -778,13 +780,21 @@ function deleteDemoOwners(): void {
       .where(inArray(tripDocuments.manifestId, demoManifests))
       .all()
     tx.delete(tripDocuments).where(inArray(tripDocuments.manifestId, demoManifests)).run()
-    for (const { manifestId } of attached) removeTripFolder(manifestId)
     tx.delete(payments).where(inArray(payments.manifestId, demoManifests)).run()
     tx.delete(manifests).where(inArray(manifests.vehicleId, demoVehicles)).run()
     tx.delete(vehicles).where(inArray(vehicles.ownerId, ownerIds)).run()
     tx.delete(drivers).where(inArray(drivers.ownerId, ownerIds)).run()
     tx.delete(users).where(inArray(users.id, ownerIds)).run()
+    return attached.map((a) => a.manifestId)
   })
+  // A folder that can't be removed now is picked up by removeOrphanFolders on the next startup
+  for (const manifestId of folders) {
+    try {
+      removeTripFolder(manifestId)
+    } catch (err) {
+      log.error('Removing demo trip documents failed:', err)
+    }
+  }
 }
 
 // On startup: seed once if there are no demo owners yet, and make sure the demo government

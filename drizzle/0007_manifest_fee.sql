@@ -1,14 +1,15 @@
 PRAGMA foreign_keys=OFF;--> statement-breakpoint
--- Trip data is reseeded with the new bill lines, not migrated: delete every trip and the demo
--- owners (the next startup seeds them again). Other accounts and their vehicles are kept.
-DELETE FROM `esali_sim_bills`;--> statement-breakpoint
-DELETE FROM `certificates`;--> statement-breakpoint
-DELETE FROM `payments`;--> statement-breakpoint
-DELETE FROM `manifest_taxes`;--> statement-breakpoint
-DELETE FROM `manifest_cargo_items`;--> statement-breakpoint
-DELETE FROM `manifests`;--> statement-breakpoint
+-- The demo owners are reseeded with the fee (the next startup seeds them again): delete them and
+-- everything under them. Other owners' trips are kept as they are; bills already issued keep
+-- their lines and amounts.
+DELETE FROM `esali_sim_bills` WHERE `bill_id` IN (SELECT `bill_id` FROM `payments` WHERE `manifest_id` IN (SELECT `id` FROM `manifests` WHERE `vehicle_id` IN (SELECT `id` FROM `vehicles` WHERE `owner_id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner'))));--> statement-breakpoint
+DELETE FROM `certificates` WHERE `manifest_id` IN (SELECT `id` FROM `manifests` WHERE `vehicle_id` IN (SELECT `id` FROM `vehicles` WHERE `owner_id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner')));--> statement-breakpoint
+DELETE FROM `payments` WHERE `manifest_id` IN (SELECT `id` FROM `manifests` WHERE `vehicle_id` IN (SELECT `id` FROM `vehicles` WHERE `owner_id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner')));--> statement-breakpoint
+DELETE FROM `manifest_taxes` WHERE `manifest_id` IN (SELECT `id` FROM `manifests` WHERE `vehicle_id` IN (SELECT `id` FROM `vehicles` WHERE `owner_id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner')));--> statement-breakpoint
+DELETE FROM `manifest_cargo_items` WHERE `manifest_id` IN (SELECT `id` FROM `manifests` WHERE `vehicle_id` IN (SELECT `id` FROM `vehicles` WHERE `owner_id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner')));--> statement-breakpoint
+DELETE FROM `manifests` WHERE `id` IN (SELECT `id` FROM `manifests` WHERE `vehicle_id` IN (SELECT `id` FROM `vehicles` WHERE `owner_id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner')));--> statement-breakpoint
 DELETE FROM `vehicles` WHERE `owner_id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner');--> statement-breakpoint
-DELETE FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner';--> statement-breakpoint
+DELETE FROM `users` WHERE `id` IN (SELECT `id` FROM `users` WHERE `is_demo` = 1 AND `role` = 'owner');--> statement-breakpoint
 CREATE TABLE `__new_manifest_taxes` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`manifest_id` integer NOT NULL,

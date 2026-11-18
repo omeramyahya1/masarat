@@ -20,12 +20,20 @@ export interface PaymentRecord {
   createdAt: number
 }
 
+// The documents issued once a bill is paid: the electronic payment receipt and the authorized
+// manifest (تصريح الحركة). Both carry the same verification QR code.
 export interface CertificateRecord {
+  // The receipt's number (MSR-yyyy-xxxxxx)
   certificateNo: string
+  // The manifest's number (MNF-yyyy-xxxxxx)
+  manifestNo: string
   issuedAt: number
   validUntil: number
-  // PNG data URL of the QR code
+  // PNG data URL of the verification QR code
   qrDataUrl: string
+  // SVG data URLs of each document's Code 128 barcode of its own number
+  receiptBarcode: string
+  manifestBarcode: string
 }
 
 export interface TripDetails {
@@ -35,8 +43,8 @@ export interface TripDetails {
   certificate: CertificateRecord | null
 }
 
-// What the certificate's QR code encodes. Later this becomes a URL to a page that shows the
+// What the documents' QR code encodes. Later this becomes a URL to a page that shows the
 // manifest's live status (looked up by the certificate's qr_token).
-export function buildQrPayload(billId: string, plateNumber: string): string {
-  return JSON.stringify({ esaliBillId: billId, status: 'paid', plate: plateNumber })
+export function buildQrPayload(billId: string, plateNumber: string, manifestNo: string): string {
+  return JSON.stringify({ esaliBillId: billId, status: 'paid', plate: plateNumber, manifestNo })
 }

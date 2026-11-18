@@ -401,7 +401,10 @@
       "distance": "Estimated distance",
       "moreActions": "More actions",
       "edit": "Edit trip",
-      "delete": "Delete"
+      "delete": "Delete",
+      "noTrailers": "None",
+      "carrier": "Carrier",
+      "carrierTin": "TIN: {{tin}}"
     },
     "backToTrip": "Back to trip",
     "items": {
@@ -448,6 +451,17 @@
     "draft": {
       "body": "Generate an E-Sali bill ID to pay this trip's taxes and fees. They're calculated at the current rates and fees when the bill is issued.",
       "generate": "Generate bill ID"
+    },
+    "missing": {
+      "title": "Complete the manifest before generating the bill ID:",
+      "driver": "Choose the driver",
+      "shipper": "Sender's name, address and phone",
+      "receiver": "Receiver's name, address and phone",
+      "packing": "Packing type and number of packages for every item",
+      "carrier_address": "Your company address (Profile)",
+      "carrier_tin": "Your company TIN (Profile)",
+      "editTrip": "Edit trip",
+      "openProfile": "Open profile"
     },
     "pending": {
       "label": "E-Sali bill ID",

@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  CircleAlert,
   CircleCheckBig,
   Copy,
   FileBadge,
@@ -14,11 +15,14 @@ import {
   Trash2
 } from 'lucide-react'
 import {
+  missingForBilling,
   tripCargoTypes,
   type FleetErrorCode,
+  type Party,
   type TripRecord,
   type TripReferenceData
 } from '../../../../shared/fleet'
+import type { AuthUser } from '../../../../shared/auth'
 import type { TripDetails as TripDetailsData } from '../../../../shared/billing'
 import { useFormat } from '../../lib/format'
 import { useMountedRef } from '../../lib/useMountedRef'
@@ -44,9 +48,28 @@ function Row({ label, children }: { label: string; children: ReactNode }): React
   )
 }
 
+// A sender or receiver: name, address and phone, or a dash while the draft leaves them out
+function PartyBlock({ title, party }: { title: string; party: Party }): React.JSX.Element {
+  return (
+    <div className="flex flex-col gap-1 rounded-lg border border-stone-200 p-3 text-sm">
+      <span className="text-xs font-medium text-stone-500">{title}</span>
+      <bdi className="font-medium text-stone-900">{party.name || '—'}</bdi>
+      {party.address && <bdi className="text-stone-600">{party.address}</bdi>}
+      {party.phone && (
+        <span dir="ltr" className="text-stone-600 tabular-nums rtl:text-right">
+          {party.phone}
+        </span>
+      )}
+    </div>
+  )
+}
+
 interface TripDetailsProps {
   tripId: number
   reference: TripReferenceData
+  // The signed-in owner, whose address and TIN the bill needs
+  owner: AuthUser
+  onGoToProfile: () => void
   onBack: () => void
   // Opens the form on this trip (drafts only)
   onEdit: (trip: TripRecord) => void
@@ -59,6 +82,8 @@ interface TripDetailsProps {
 function TripDetails({
   tripId,
   reference,
+  owner,
+  onGoToProfile,
   onBack,
   onEdit,
   onDeleted,
@@ -150,6 +175,10 @@ function TripDetails({
     reference.cities.find((c) => c.id === id)
   const spinner = (action: Action): ReactNode =>
     pending === action && <LoaderCircle size={16} className="animate-spin" />
+  // What the draft still needs before its bill can be generated
+  const missing = trip.status === 'draft' ? missingForBilling(trip, owner) : []
+  const missingProfile = missing.some((m) => m === 'carrier_address' || m === 'carrier_tin')
+  const missingTrip = missing.some((m) => m !== 'carrier_address' && m !== 'carrier_tin')
 
   return (
     <section className="flex flex-col gap-4">
@@ -230,6 +259,37 @@ function TripDetails({
             <Row label={t('trips.details.vehicleType')}>
               {t(`vehicleTypes.${trip.vehicleType}`)}
             </Row>
+            <Row label={t('fleet.fields.registrationNo')}>
+              {trip.registrationNo ? (
+                <bdi className="font-mono text-xs">{trip.registrationNo}</bdi>
+              ) : (
+                '—'
+              )}
+            </Row>
+            <Row label={t('trips.trailers.title')}>
+              {trip.trailers.length > 0 ? (
+                <span className="inline-flex flex-wrap justify-end gap-1.5">
+                  {trip.trailers.map((plate) => (
+                    <PlateBadge key={plate} plate={plate} />
+                  ))}
+                </span>
+              ) : (
+                t('trips.details.noTrailers')
+              )}
+            </Row>
+            <Row label={t('trips.fields.driver')}>
+              {trip.driverName ? (
+                <span className="inline-flex flex-col items-end">
+                  <bdi>{trip.driverName}</bdi>
+                  <span dir="ltr" className="text-xs font-normal text-stone-500 tabular-nums">
+                    {trip.driverPhone}
+                  </span>
+                </span>
+              ) : (
+                '—'
+              )}
+            </Row>
+            <Row label={t('trips.fields.tripKind')}>{t(`tripKinds.${trip.tripKind}`)}</Row>
             <Row label={t('trips.details.route')}>
               <span className="inline-flex items-center gap-1.5">
                 {format.city(cityById(trip.originCityId))}
@@ -252,6 +312,29 @@ function TripDetails({
           </dl>
 
           <h3 className="mt-6 mb-2 text-sm font-semibold text-stone-800">
+            {t('trips.form.partiesSection')}
+          </h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <PartyBlock title={t('trips.party.shipper')} party={trip.shipper} />
+            <PartyBlock title={t('trips.party.receiver')} party={trip.receiver} />
+          </div>
+          {trip.carrier && (
+            <div className="mt-3">
+              <PartyBlock
+                title={t('trips.details.carrier')}
+                party={{
+                  name: trip.carrier.name,
+                  address: trip.carrier.address,
+                  phone: ''
+                }}
+              />
+              <p className="mt-1 text-xs text-stone-500">
+                {t('trips.details.carrierTin', { tin: trip.carrier.tin })}
+              </p>
+            </div>
+          )}
+
+          <h3 className="mt-6 mb-2 text-sm font-semibold text-stone-800">
             {t('trips.items.title')}
           </h3>
           {trip.items.length > 0 ? (
@@ -261,6 +344,8 @@ function TripDetails({
                   <th className="w-8 py-2 text-start font-medium">#</th>
                   <th className="py-2 text-start font-medium">{t('trips.items.name')}</th>
                   <th className="py-2 text-start font-medium">{t('trips.items.type')}</th>
+                  <th className="py-2 text-start font-medium">{t('trips.items.packingType')}</th>
+                  <th className="py-2 text-end font-medium">{t('trips.items.packageCount')}</th>
                   <th className="py-2 text-end font-medium">{t('trips.items.quantity')}</th>
                 </tr>
               </thead>
@@ -270,8 +355,17 @@ function TripDetails({
                     <td className="py-2 text-stone-400 tabular-nums">{format.number(index + 1)}</td>
                     <td className="py-2 text-stone-900">
                       <bdi>{item.name}</bdi>
+                      {item.notes && (
+                        <bdi className="block text-xs text-stone-500">{item.notes}</bdi>
+                      )}
                     </td>
                     <td className="py-2 text-stone-600">{t(`cargoTypes.${item.cargoType}`)}</td>
+                    <td className="py-2 text-stone-600">
+                      {item.packingType ? <bdi>{item.packingType}</bdi> : '—'}
+                    </td>
+                    <td className="py-2 text-end tabular-nums">
+                      {item.packageCount !== null ? format.number(item.packageCount) : '—'}
+                    </td>
                     <td className="py-2 text-end whitespace-nowrap tabular-nums">
                       {format.quantity(item.quantity, item.unit)}
                     </td>
@@ -302,10 +396,35 @@ function TripDetails({
                   {format.currency(trip.taxAmount)}
                 </span>
               </div>
+              {missing.length > 0 && (
+                <div className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50/60 p-4 text-sm">
+                  <span className="flex items-center gap-2 font-medium text-amber-900">
+                    <CircleAlert size={16} className="shrink-0" />
+                    {t('billing.missing.title')}
+                  </span>
+                  <ul className="list-disc ps-6 text-amber-900">
+                    {missing.map((requirement) => (
+                      <li key={requirement}>{t(`billing.missing.${requirement}`)}</li>
+                    ))}
+                  </ul>
+                  <div className="flex flex-wrap gap-3">
+                    {missingTrip && (
+                      <button type="button" className="link text-sm" onClick={() => onEdit(trip)}>
+                        {t('billing.missing.editTrip')}
+                      </button>
+                    )}
+                    {missingProfile && (
+                      <button type="button" className="link text-sm" onClick={onGoToProfile}>
+                        {t('billing.missing.openProfile')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={pending !== null}
+                disabled={pending !== null || missing.length > 0}
                 onClick={() => run('generate')}
               >
                 {spinner('generate')}

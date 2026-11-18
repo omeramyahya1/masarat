@@ -43,7 +43,11 @@ function OwnerWorkspace({
         ) : section === 'profile' ? (
           <ProfilePanel user={user} onUserChange={onUserChange} />
         ) : (
-          <TripsPanel onGoToVehicles={() => setSection('vehicles')} />
+          <TripsPanel
+            owner={user}
+            onGoToVehicles={() => setSection('vehicles')}
+            onGoToProfile={() => setSection('profile')}
+          />
         )}
       </div>
     </div>

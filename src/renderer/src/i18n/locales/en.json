@@ -14,7 +14,7 @@
     "owner": {
       "tab": "Fleet Owner",
       "title": "Fleet Owner Portal",
-      "subtitle": "Register trips, pay transport tax and receive trip certificates."
+      "subtitle": "Register trips, pay transport tax and receive authorized manifests."
     },
     "govt": {
       "tab": "Government",
@@ -146,7 +146,7 @@
     "draft": "Draft",
     "billed": "Pending payment",
     "paid": "Paid",
-    "certified": "Certified",
+    "certified": "Authorized",
     "cancelled": "Cancelled"
   },
   "plates": {
@@ -474,22 +474,23 @@
     },
     "paid": {
       "title": "Tax paid",
-      "body": "E-Sali confirmed the payment and the electronic payment receipt has been issued.",
+      "body": "E-Sali confirmed the payment. The electronic payment receipt and the authorized manifest have been issued.",
       "billId": "E-Sali bill ID",
       "paidAt": "Paid on",
       "paymentRef": "Payment reference",
       "certificateNo": "Receipt no.",
       "validUntil": "Valid until",
-      "show": "Show / download receipt"
+      "show": "Show / download receipt and manifest",
+      "manifestNo": "Manifest no."
     },
     "payDemo": "Pay {{billId}}",
     "demo": "Demo"
   },
   "certificate": {
-    "dialogTitle": "Electronic payment receipt",
+    "dialogTitle": "Receipt and manifest",
     "download": "Download PDF",
     "close": "Close",
-    "saved": "Receipt saved.",
+    "saved": "Receipt and manifest saved.",
     "header": {
       "republic": "Republic of the Sudan",
       "ministry": "Ministry of Finance and Economic Planning",
@@ -530,11 +531,44 @@
     "cargo": {
       "title": "Cargo manifest",
       "item": "Item",
-      "quantity": "Quantity",
-      "unit": "Unit",
       "total": "Total load",
-      "footer": "This page is part of the receipt above and is only valid with it.",
-      "type": "Cargo type"
+      "packing": "Packing",
+      "packages": "Packages",
+      "weight": "Weight",
+      "notes": "Notes"
+    },
+    "manifest": {
+      "title": "Land Goods Movement Permit",
+      "headPlate": "Head plate",
+      "registrationNo": "Registration no.",
+      "trailers": "Trailers",
+      "noTrailers": "None",
+      "carrier": "Carrier",
+      "tin": "TIN",
+      "driver": "Driver",
+      "name": "Name",
+      "address": "Address",
+      "phone": "Phone",
+      "tripKind": "Trip type",
+      "loadingPoint": "Origin / loading point",
+      "unloadingPoint": "Destination / unloading point",
+      "shipper": "Sender (shipper)",
+      "receiver": "Receiver",
+      "financial": "Financial, customs and tax details",
+      "shippingCost": "Shipping cost",
+      "customsDeclarationNo": "Customs declaration no.",
+      "signatures": {
+        "carrier": "Transport office / carrier",
+        "driver": "Driver: received the goods",
+        "receiver": "Receiver: goods delivered",
+        "name": "Name",
+        "signature": "Signature",
+        "date": "Date",
+        "stamp": "Stamp"
+      },
+      "footer": "Issued electronically by the Masarat system after the fees were paid with receipt {{receiptNo}}. Valid only with that receipt.",
+      "vehicleAndTrip": "Vehicle and trip",
+      "parties": "Carrier, driver, sender and receiver"
     }
   },
   "govt": {
@@ -555,10 +589,10 @@
         "revenue": "Revenue collected",
         "vsPrevious": "vs previous period",
         "activeTrips": "Active trips",
-        "activeTripsHint": "Certified, certificate still valid",
+        "activeTripsHint": "Authorized, permit still valid",
         "pendingBills": "Pending bills",
         "pendingAmount": "{{amount}} awaiting payment",
-        "certificates": "Certificates issued",
+        "certificates": "Permits issued",
         "collectionRate": "Collection rate",
         "collectionRateHint": "Paid share of the amount billed in the period",
         "vehicles": "Registered vehicles",
@@ -583,7 +617,7 @@
         "title": "Trip progress",
         "registered": "Trips registered",
         "billed": "Bill issued",
-        "certified": "Paid & certified",
+        "certified": "Paid & authorized",
         "drafts": "{{value}} still drafts, without a bill"
       },
       "cargo": {
@@ -613,7 +647,7 @@
       "regenerate": {
         "action": "Regenerate demo data",
         "title": "Regenerate demo data?",
-        "body": "This deletes the demo fleet companies and all their vehicles, trips, bills and certificates, then creates them again with fresh dates. Anything added by hand to a demo company is deleted too; other companies' data is kept. Anyone signed in as a demo company is signed out.",
+        "body": "This deletes the demo fleet companies and all their vehicles, trips, bills, receipts and manifests, then creates them again with fresh dates. Anything added by hand to a demo company is deleted too; other companies' data is kept. Anyone signed in as a demo company is signed out.",
         "confirm": "Regenerate"
       }
     },

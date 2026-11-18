@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowRight, Calculator, Info, LoaderCircle, ScanText, Truck } from 'lucide-react'
 import {
@@ -112,7 +112,7 @@ function TripForm({
   const [documents, setDocuments] = useState<DocumentDraft[]>(() => trip?.documents ?? [])
   const [documentBusy, setDocumentBusy] = useState<DocumentType | null>(null)
   // The shipment the (simulated) scanner read first; later documents describe the same one
-  const [scenario, setScenario] = useState<number | null>(null)
+  const scenario = useRef<number | null>(null)
   // Parts of the form a scan filled in ('tripKind', 'shipper', 'receiver', 'item:<key>'),
   // highlighted until the owner edits them
   const [scanned, setScanned] = useState<ReadonlySet<string>>(new Set())
@@ -237,12 +237,12 @@ function TripForm({
         docType,
         source: document.id !== undefined ? { id: document.id } : { token: document.token ?? '' },
         unit: vehicle.capacityUnit,
-        scenario
+        scenario: scenario.current
       })
       if (!mounted.current) return
       if (!result.ok) return setError(result.error)
       const read = result.data
-      setScenario(read.scenario)
+      scenario.current = read.scenario
       const flags = new Set(scanned)
       if (read.tripKind) {
         setTripKind(read.tripKind)

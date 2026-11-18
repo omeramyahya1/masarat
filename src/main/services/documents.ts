@@ -4,7 +4,7 @@
 // don't pile up.
 import { app, dialog, shell, type BrowserWindow } from 'electron'
 import { randomBytes } from 'crypto'
-import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'fs'
 import { basename, extname, join } from 'path'
 import { and, eq } from 'drizzle-orm'
 import { getDb, manifests, tripDocuments, vehicles, type TripDocument } from '../db'
@@ -35,6 +35,24 @@ const staged = new Map<string, Staged>()
 export function clearStaging(): void {
   rmSync(stagingDir(), { recursive: true, force: true })
   staged.clear()
+}
+
+// Removes trip folders no attachment row points to any more: left behind when removing them
+// failed after their trip (or its attachments) was deleted. Runs on startup.
+export function removeOrphanFolders(): void {
+  if (!existsSync(documentsRoot())) return
+  const inUse = new Set(
+    getDb()
+      .selectDistinct({ manifestId: tripDocuments.manifestId })
+      .from(tripDocuments)
+      .all()
+      .map((d) => String(d.manifestId))
+  )
+  for (const entry of readdirSync(documentsRoot(), { withFileTypes: true })) {
+    if (entry.isDirectory() && /^\d+$/.test(entry.name) && !inUse.has(entry.name)) {
+      rmSync(join(documentsRoot(), entry.name), { recursive: true, force: true })
+    }
+  }
 }
 
 // Asks the owner for a file and copies it into staging. Null data means they cancelled.

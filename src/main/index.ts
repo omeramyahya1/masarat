@@ -9,7 +9,7 @@ import { initDb, closeDb } from './db'
 import { getSession, logIn, logOut, signUp, updateProfile } from './services/auth'
 import { addVehicle, deleteVehicle, listVehicles, updateVehicle } from './services/fleet'
 import { addDriver, deleteDriver, listDrivers, updateDriver } from './services/drivers'
-import { clearStaging, openDocument, pickDocument } from './services/documents'
+import { clearStaging, openDocument, pickDocument, removeOrphanFolders } from './services/documents'
 import { scanDocument } from './services/ocr'
 import type { ScanInput } from '../shared/ocr'
 import {
@@ -370,11 +370,13 @@ app.whenReady().then(async () => {
   registerGovtHandlers()
   registerAuthHandlers()
   configureAutoUpdater()
-  // Files picked for trips that were never saved
+  // Files picked for trips that were never saved, and folders of deleted trips that couldn't be
+  // removed at the time
   try {
     clearStaging()
+    removeOrphanFolders()
   } catch (err) {
-    log.error('Clearing staged documents failed:', err)
+    log.error('Cleaning up trip documents failed:', err)
   }
   // Before the window opens, so the first dashboard load already has data
   try {

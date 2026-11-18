@@ -173,7 +173,7 @@
   },
   "fleet": {
     "title": "Vehicles",
-    "subtitle": "Register the vehicles in your fleet, with their type and carrying capacity.",
+    "subtitle": "Register the vehicles in your fleet, with their registration number, type and carrying capacity.",
     "add": "Add vehicle",
     "edit": "Edit",
     "editPlate": "Edit vehicle {{plate}}",

@@ -68,7 +68,12 @@ function ProfilePanel({
         {saved && <FormAlert tone="success" message={t('profile.saved')} />}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <TextField label={t('auth.fields.fullName')} autoComplete="name" {...bind('fullName')} />
+          <TextField
+            label={t('auth.fields.fullName')}
+            autoComplete="name"
+            dir="auto"
+            {...bind('fullName')}
+          />
           <TextField
             label={t('auth.fields.phone')}
             type="tel"
@@ -86,12 +91,14 @@ function ProfilePanel({
           label={t('auth.fields.companyName')}
           hint={t('profile.companyHint')}
           autoComplete="organization"
+          dir="auto"
           {...bind('companyName')}
         />
         <TextField
           label={t('auth.fields.address')}
           maxLength={MAX_ADDRESS_LENGTH}
           autoComplete="street-address"
+          dir="auto"
           {...bind('address')}
         />
         <TextField

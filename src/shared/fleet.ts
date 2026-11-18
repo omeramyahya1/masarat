@@ -46,6 +46,9 @@ export const totalInVehicleUnit = (
   1000
 
 export const MAX_CARGO_ITEMS = 50
+// رقم الترخيص: free text, at most this long
+export const MAX_REGISTRATION_LENGTH = 30
+export const MAX_DRIVER_NAME_LENGTH = 80
 export const MAX_ITEM_NAME_LENGTH = 80
 
 // Tankers carry liquids by default; everything else is measured in tons
@@ -54,15 +57,35 @@ export const defaultUnitFor = (type: VehicleType): QuantityUnit =>
 
 export interface VehicleInput {
   plateNumber: string
+  registrationNo: string
   vehicleType: VehicleType
   capacity: number
   capacityUnit: QuantityUnit
 }
 
-export interface VehicleRecord extends VehicleInput {
+export interface VehicleRecord extends Omit<VehicleInput, 'registrationNo'> {
   id: number
+  // Null for vehicles added before registration numbers were recorded
+  registrationNo: string | null
   // Vehicles with trips can't be deleted (manifests reference them)
   tripCount: number
+  createdAt: number
+}
+
+// Phone numbers are stored without spaces or dashes: an optional "+" and 7 to 15 digits
+const PHONE_PATTERN = /^\+?[0-9]{7,15}$/
+export function normalizePhone(value: string): string | null {
+  const phone = value.replace(/[\s-]/g, '')
+  return PHONE_PATTERN.test(phone) ? phone : null
+}
+
+export interface DriverInput {
+  name: string
+  phone: string
+}
+
+export interface DriverRecord extends DriverInput {
+  id: number
   createdAt: number
 }
 
@@ -159,6 +182,10 @@ export type FleetErrorCode =
   | 'not_draft'
   | 'invalid_tax_rate'
   | 'invalid_fee'
+  | 'invalid_registration'
+  | 'invalid_phone'
+  | 'phone_taken'
+  | 'driver_not_found'
   | 'unknown'
 
 export type FleetResult<T> = { ok: true; data: T } | { ok: false; error: FleetErrorCode }

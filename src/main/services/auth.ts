@@ -3,11 +3,15 @@ import { promisify } from 'util'
 import { eq } from 'drizzle-orm'
 import { getDb, users, type User } from '../db'
 import {
+  MAX_ADDRESS_LENGTH,
+  MAX_TIN_LENGTH,
   PASSWORD_MIN_LENGTH,
   USERNAME_PATTERN,
+  type AuthErrorCode,
   type AuthResult,
   type AuthUser,
   type LogInInput,
+  type ProfileInput,
   type SignUpInput,
   type UserRole
 } from '../../shared/auth'
@@ -43,13 +47,22 @@ function toAuthUser(user: User): AuthUser {
     role: user.role,
     fullName: user.fullName,
     phone: user.phone,
-    companyName: user.companyName
+    companyName: user.companyName,
+    address: user.address,
+    tin: user.tin
   }
 }
 
 // IPC input comes from the renderer, so treat every field as untrusted
 const isRole = (value: unknown): value is UserRole => value === 'owner' || value === 'govt'
 const asText = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
+
+// A fleet owner's carrier details: both optional, but limited in length
+function checkCarrierDetails(address: string, tin: string): AuthErrorCode | null {
+  if (address.length > MAX_ADDRESS_LENGTH) return 'address_too_long'
+  if (tin.length > MAX_TIN_LENGTH) return 'invalid_tin'
+  return null
+}
 
 // One signed-in user per panel, kept here so later IPC handlers can authorize by role
 const sessions = new Map<UserRole, AuthUser>()
@@ -80,6 +93,11 @@ export async function signUp(input: SignUpInput): Promise<AuthResult> {
   }
   if (!USERNAME_PATTERN.test(username)) return { ok: false, error: 'invalid_username' }
   if (password.length < PASSWORD_MIN_LENGTH) return { ok: false, error: 'weak_password' }
+  const isOwner = input.role === 'owner'
+  const address = isOwner ? asText(input.address) : ''
+  const tin = isOwner ? asText(input.tin) : ''
+  const carrierError = checkCarrierDetails(address, tin)
+  if (carrierError) return { ok: false, error: carrierError }
 
   const generation = nextGeneration(input.role)
   const db = getDb()
@@ -94,7 +112,9 @@ export async function signUp(input: SignUpInput): Promise<AuthResult> {
       username,
       passwordHash: await hashPassword(password),
       phone: asText(input.phone) || null,
-      companyName: input.role === 'owner' ? asText(input.companyName) || null : null
+      companyName: isOwner ? asText(input.companyName) || null : null,
+      address: address || null,
+      tin: tin || null
     })
     .returning()
     .get()
@@ -126,6 +146,35 @@ export async function logIn(input: LogInInput): Promise<AuthResult> {
   if (found.role !== input.role) return { ok: false, error: 'wrong_panel' }
 
   return commitSession(generation, toAuthUser(found))
+}
+
+// The signed-in fleet owner edits their own details; the session is updated to match
+export function updateProfile(input: ProfileInput): AuthResult {
+  const owner = sessions.get('owner')
+  if (!owner) return { ok: false, error: 'not_signed_in' }
+  const fullName = asText(input?.fullName)
+  if (!fullName) return { ok: false, error: 'missing_fields' }
+  const address = asText(input?.address)
+  const tin = asText(input?.tin)
+  const carrierError = checkCarrierDetails(address, tin)
+  if (carrierError) return { ok: false, error: carrierError }
+
+  const updated = getDb()
+    .update(users)
+    .set({
+      fullName,
+      phone: asText(input.phone) || null,
+      companyName: asText(input.companyName) || null,
+      address: address || null,
+      tin: tin || null
+    })
+    .where(eq(users.id, owner.id))
+    .returning()
+    .get()
+  if (!updated) return { ok: false, error: 'not_signed_in' }
+  const user = toAuthUser(updated)
+  sessions.set('owner', user)
+  return { ok: true, user }
 }
 
 export function logOut(role: UserRole): void {

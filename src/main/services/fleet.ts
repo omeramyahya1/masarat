@@ -1,6 +1,7 @@
 import { and, count, eq, ne } from 'drizzle-orm'
 import { getDb, manifests, vehicles, type Vehicle } from '../db'
 import {
+  MAX_REGISTRATION_LENGTH,
   QUANTITY_UNITS,
   VEHICLE_TYPES,
   type FleetResult,
@@ -21,6 +22,7 @@ function toRecord(vehicle: Vehicle, tripCount: number): VehicleRecord {
   return {
     id: vehicle.id,
     plateNumber: vehicle.plateNumber,
+    registrationNo: vehicle.registrationNo,
     vehicleType: vehicle.vehicleType,
     capacity: vehicle.capacity,
     capacityUnit: vehicle.capacityUnit,
@@ -46,6 +48,10 @@ function validate(input: VehicleInput): FleetResult<VehicleInput> {
   const plateNumber =
     typeof input.plateNumber === 'string' ? normalizePlate(input.plateNumber) : null
   if (!plateNumber) return { ok: false, error: 'invalid_plate' }
+  const registrationNo = typeof input.registrationNo === 'string' ? input.registrationNo.trim() : ''
+  if (!registrationNo || registrationNo.length > MAX_REGISTRATION_LENGTH) {
+    return { ok: false, error: 'invalid_registration' }
+  }
   if (
     typeof input.capacity !== 'number' ||
     !Number.isFinite(input.capacity) ||
@@ -57,6 +63,7 @@ function validate(input: VehicleInput): FleetResult<VehicleInput> {
     ok: true,
     data: {
       plateNumber,
+      registrationNo,
       vehicleType: input.vehicleType,
       capacity: input.capacity,
       capacityUnit: input.capacityUnit

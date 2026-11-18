@@ -1,6 +1,15 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
-import type { AuthResult, AuthUser, LogInInput, SignUpInput, UserRole } from '../shared/auth'
 import type {
+  AuthResult,
+  AuthUser,
+  LogInInput,
+  ProfileInput,
+  SignUpInput,
+  UserRole
+} from '../shared/auth'
+import type {
+  DriverInput,
+  DriverRecord,
   FleetResult,
   TripInput,
   TripRecord,
@@ -43,6 +52,10 @@ export interface FleetAPI {
   addVehicle: (input: VehicleInput) => Promise<FleetResult<VehicleRecord>>
   updateVehicle: (id: number, input: VehicleInput) => Promise<FleetResult<VehicleRecord>>
   deleteVehicle: (id: number) => Promise<FleetResult<null>>
+  listDrivers: () => Promise<FleetResult<DriverRecord[]>>
+  addDriver: (input: DriverInput) => Promise<FleetResult<DriverRecord>>
+  updateDriver: (id: number, input: DriverInput) => Promise<FleetResult<DriverRecord>>
+  deleteDriver: (id: number) => Promise<FleetResult<null>>
 }
 
 export interface TripsAPI {
@@ -83,6 +96,8 @@ export interface AuthAPI {
   logIn: (input: LogInInput) => Promise<AuthResult>
   logOut: (role: UserRole) => Promise<void>
   getSession: (role: UserRole) => Promise<AuthUser | null>
+  // The signed-in fleet owner's own details (name, phone, company, address, TIN)
+  updateProfile: (input: ProfileInput) => Promise<AuthResult>
 }
 
 export interface CustomAPI {

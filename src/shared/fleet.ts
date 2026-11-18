@@ -333,6 +333,8 @@ export type FleetErrorCode =
   | 'incomplete_manifest'
   | 'invalid_document'
   | 'document_too_large'
+  | 'scan_conflict'
+  | 'zero_bill'
   | 'unknown'
 
 export type FleetResult<T> = { ok: true; data: T } | { ok: false; error: FleetErrorCode }

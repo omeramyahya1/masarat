@@ -488,9 +488,12 @@ function TripForm({
             busy={documentBusy}
             canScan={Boolean(vehicle)}
             onAttach={attachDocument}
-            onRemove={(docType) =>
-              setDocuments((current) => current.filter((d) => d.docType !== docType))
-            }
+            onRemove={(docType) => {
+              const remaining = documents.filter((d) => d.docType !== docType)
+              // With no documents left, the next scan may read a different shipment
+              if (remaining.length === 0) scenario.current = null
+              setDocuments(remaining)
+            }}
             onScan={scanDocument}
           />
         </fieldset>

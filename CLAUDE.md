@@ -51,6 +51,13 @@ It's an Electron desktop app with **two views the user can toggle between**:
   - The manifest keeps its own copy of the driver's name and phone (saved with the draft and refreshed when the bill is generated) and of the **carrier details** (the owner's company name, or full name if there is none, plus the address and TIN, copied when the bill is generated).
   - A driver on a draft can't be deleted (`driver_in_use`); deleting one used only by billed trips sets their `driver_id` to null.
   - `trips:suggestions` returns earlier senders, receivers and packing types for the form.
+- **Supporting documents** (`services/documents.ts`, `trip_documents`, UI in `trips/DocumentsField.tsx`): a trip can have one file per document type. The commercial invoice and packing list always apply, the certificate of origin for imports, and the import/export authorization for imports and exports (`documentTypesFor`). Files are PDF, JPG or PNG, up to 20 MB, and are optional.
+  - Picking a file (`documents:pick`) copies it into `<userData>/documents/staging/`, named by a random token kept in memory. Saving the trip moves it to `<userData>/documents/<manifest id>/` and adds the row. Staging is emptied on startup.
+  - Drafts can add, replace or remove attachments; documents of a type the trip no longer needs (after its type changed) are dropped on save. Deleting a draft, or regenerating demo data, removes the folder. `documents:open` opens a file with the system viewer.
+- **OCR is simulated** (`services/ocr.ts`): the `OcrService` interface is where a real OCR / document AI service plugs in. `MockOcrService` waits about 1.5 s and returns one of three Arabic sample shipments (import, export, domestic), with cargo for the vehicle's unit.
+  - The commercial invoice gives the sender, receiver and goods; the packing list gives the goods with packing and package counts; the certificate of origin sets the trip to Import (and the sender); the authorization sets import/export and both parties.
+  - The shipment is picked from the original file name and size, and the form sends it back with each later scan, so a trip's documents agree.
+  - The form merges what was read (`scannedItems.ts`: empty rows are replaced, rows with the same description get the packing, others are added) and highlights it until the owner edits it.
 - New trips are saved as `draft` manifests. Until their bill ID is generated, drafts can be edited in the same form (*Edit trip*, `updateTrip`) or **deleted** for good, with their items and tax lines (`deleteTrip`). Otherwise both return `not_draft`.
 
 ## Billing & certificates rules

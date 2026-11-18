@@ -12,6 +12,7 @@ import {
   manifestCargoItems,
   manifests,
   manifestTaxes,
+  manifestTrailers,
   payments,
   taxRates,
   users,
@@ -239,14 +240,84 @@ const RANDOM_ROUTE_WEIGHT = 12
 
 interface CityPoint {
   id: number
+  name: string
+  nameAr: string | null
   lat: number
   lng: number
 }
 
 interface SeedVehicle {
   id: number
+  ownerId: number
   vehicleType: VehicleType
   capacity: number
+}
+
+// Senders and receivers: traders, factories and agents. Each gets an address in the trip's
+// origin or destination city.
+const PARTY_NAMES = [
+  'شركة السلام للتجارة العامة',
+  'مصنع النيل للأسمنت',
+  'شركة الجزيرة للمطاحن',
+  'مؤسسة البركة للاستيراد والتصدير',
+  'شركة البحر الأحمر للتوكيلات',
+  'مجموعة الصافي التجارية',
+  'شركة كردفان للحبوب الزيتية',
+  'مصنع سنار للسكر',
+  'شركة الخرطوم للمواد الغذائية',
+  'وكالة الشرق للشحن',
+  'شركة دارفور للصمغ العربي',
+  'مخازن الأمل التجارية',
+  'شركة النهضة للمواد الإنشائية',
+  'مؤسسة الفجر للأدوية',
+  'شركة الواحة للمحروقات',
+  'محلات الإخلاص للأقمشة'
+]
+const DISTRICTS = [
+  'المنطقة الصناعية',
+  'السوق الكبير',
+  'حي المطار',
+  'الميناء',
+  'شارع النيل',
+  'السوق الشعبي',
+  'المنطقة الحرة'
+]
+
+// Packing for each cargo type, with the weight of one package in the item's unit family
+// (kg for tons, liters for tankers); bulk loads count as one package
+const PACKING: Record<CargoType, readonly { name: string; unitSize: number | null }[]> = {
+  fuel: [{ name: 'سائب', unitSize: null }],
+  liquids: [
+    { name: 'سائب', unitSize: null },
+    { name: 'براميل', unitSize: 200 }
+  ],
+  containers: [{ name: 'حاوية', unitSize: null }],
+  general_cargo: [
+    { name: 'شوالات', unitSize: 50 },
+    { name: 'كراتين', unitSize: 20 },
+    { name: 'طرود', unitSize: 25 },
+    { name: 'بالات', unitSize: 200 }
+  ]
+}
+const ITEM_NOTES = ['يُحفظ بعيدًا عن الرطوبة', 'قابل للكسر', 'تُفرَّغ بالرافعة', 'لا يُرصّ فوقه']
+const NOTES_SHARE = 0.1
+
+// Packing type, number of packages and (sometimes) notes for a split item
+function packed(rand: Random, item: CargoItem): CargoItem {
+  const option = pick(rand, PACKING[item.cargoType])
+  // The item's amount in kg or liters
+  const amount =
+    item.unit === 'ton'
+      ? item.quantity * 1000
+      : item.unit === 'm3'
+        ? item.quantity * 1000
+        : item.quantity
+  return {
+    ...item,
+    packingType: option.name,
+    packageCount: option.unitSize ? Math.max(1, Math.round(amount / option.unitSize)) : 1,
+    notes: rand() < NOTES_SHARE ? pick(rand, ITEM_NOTES) : null
+  }
 }
 
 // How likely a trip, by age in days, is still a draft or an unpaid bill
@@ -312,7 +383,13 @@ function seedTrips(ownerIds: number[]): void {
   const db = getDb()
   const rand = mulberry32(20261117)
   const cityRows = db
-    .select({ id: cities.id, name: cities.name, lat: cities.lat, lng: cities.lng })
+    .select({
+      id: cities.id,
+      name: cities.name,
+      nameAr: cities.nameAr,
+      lat: cities.lat,
+      lng: cities.lng
+    })
     .from(cities)
     .all()
   const cityByName = new Map(cityRows.map((c) => [c.name, c]))
@@ -395,25 +472,58 @@ function seedTrips(ownerIds: number[]): void {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  // Registration numbers and drivers come from their own stream, so adding them didn't change the
-  // trips the main stream generates
+  // Registration numbers, drivers and the manifest details (trip type, trailers, sender,
+  // receiver, packing) come from their own stream, so adding them didn't change the trips the
+  // main stream generates
   const extra = mulberry32(20261118)
+  const uniqueTrailerPlate = (): string => {
+    for (;;) {
+      const plate = formatPlate({
+        code: pick(extra, PLATE_CODES.slice(0, 6)),
+        series: between(extra, 1, 99),
+        number: between(extra, 1, 99999)
+      })
+      if (plates.has(plate)) continue
+      plates.add(plate)
+      return plate
+    }
+  }
+  const partyIn = (city: CityPoint): { name: string; address: string; phone: string } => ({
+    name: pick(extra, PARTY_NAMES),
+    address: `${city.nameAr ?? city.name}، ${pick(extra, DISTRICTS)}`,
+    phone: `09${digits(extra, 8)}`
+  })
+  // The carrier details billed trips were issued with
+  const owners = new Map(
+    db
+      .select()
+      .from(users)
+      .where(inArray(users.id, ownerIds))
+      .all()
+      .map((u) => [u.id, u])
+  )
 
   db.transaction((tx) => {
     const fleet: SeedVehicle[] = []
+    const driversOf = new Map<number, { id: number; name: string; phone: string }[]>()
     for (const ownerId of ownerIds) {
       const driverCount = between(extra, 5, 8)
       const phones = new Set<string>()
       while (phones.size < driverCount) phones.add(`09${digits(extra, 8)}`)
-      tx.insert(drivers)
-        .values(
-          [...phones].map((phone) => ({
-            ownerId,
-            name: `${pick(extra, DRIVER_FIRST_NAMES)} ${pick(extra, DRIVER_LAST_NAMES)}`,
-            phone
-          }))
-        )
-        .run()
+      driversOf.set(
+        ownerId,
+        tx
+          .insert(drivers)
+          .values(
+            [...phones].map((phone) => ({
+              ownerId,
+              name: `${pick(extra, DRIVER_FIRST_NAMES)} ${pick(extra, DRIVER_LAST_NAMES)}`,
+              phone
+            }))
+          )
+          .returning({ id: drivers.id, name: drivers.name, phone: drivers.phone })
+          .all()
+      )
 
       const count = between(rand, 8, 14)
       for (let i = 0; i < count; i++) {
@@ -435,7 +545,7 @@ function seedTrips(ownerIds: number[]): void {
           })
           .returning({ id: vehicles.id })
           .get()
-        fleet.push({ id, vehicleType, capacity })
+        fleet.push({ id, ownerId, vehicleType, capacity })
       }
     }
 
@@ -493,6 +603,26 @@ function seedTrips(ownerIds: number[]): void {
         const paidAt = new Date(billedAt.getTime() + between(rand, 10, 48 * 60) * 60_000)
         if (status === 'certified' && paidAt.getTime() > now) status = 'billed'
 
+        const borderRoute = origin.name === 'Port Sudan' || destination.name === 'Port Sudan'
+        const kindRoll = extra()
+        const tripKind = borderRoute
+          ? kindRoll < 0.45
+            ? 'import'
+            : kindRoll < 0.7
+              ? 'export'
+              : 'domestic'
+          : kindRoll < 0.08
+            ? 'export'
+            : 'domestic'
+        const trailerRoll = extra()
+        const trailerCount = bigTruck ? (trailerRoll < 0.1 ? 2 : trailerRoll < 0.4 ? 1 : 0) : 0
+        const driver = pick(extra, driversOf.get(vehicle.ownerId) ?? [])
+        const shipper = partyIn(origin)
+        let receiver = partyIn(destination)
+        while (receiver.name === shipper.name) receiver = partyIn(destination)
+        const owner = owners.get(vehicle.ownerId)
+        const billed = status !== 'draft'
+
         const { id: manifestId } = tx
           .insert(manifests)
           .values({
@@ -508,6 +638,19 @@ function seedTrips(ownerIds: number[]): void {
             tripCost,
             taxAmount,
             status,
+            tripKind,
+            driverId: driver?.id ?? null,
+            driverName: driver?.name ?? null,
+            driverPhone: driver?.phone ?? null,
+            shipperName: shipper.name,
+            shipperAddress: shipper.address,
+            shipperPhone: shipper.phone,
+            receiverName: receiver.name,
+            receiverAddress: receiver.address,
+            receiverPhone: receiver.phone,
+            carrierName: billed && owner ? owner.companyName || owner.fullName : null,
+            carrierAddress: billed ? (owner?.address ?? null) : null,
+            carrierTin: billed ? (owner?.tin ?? null) : null,
             createdAt,
             updatedAt: status === 'draft' ? createdAt : status === 'billed' ? billedAt : paidAt
           })
@@ -518,7 +661,7 @@ function seedTrips(ownerIds: number[]): void {
             items.map((item, position) => ({
               manifestId,
               position,
-              ...item,
+              ...packed(extra, item),
               ratePerKm: rates.get(item.cargoType)?.ratePerKm ?? 0,
               perQuantity: rates.get(item.cargoType)?.perQuantity ?? 1,
               cost: priced.costs[position],
@@ -527,6 +670,19 @@ function seedTrips(ownerIds: number[]): void {
             }))
           )
           .run()
+        if (trailerCount > 0) {
+          tx.insert(manifestTrailers)
+            .values(
+              Array.from({ length: trailerCount }, (_, position) => ({
+                manifestId,
+                position,
+                plateNumber: uniqueTrailerPlate(),
+                createdAt,
+                updatedAt: createdAt
+              }))
+            )
+            .run()
+        }
         tx.insert(manifestTaxes)
           .values(
             taxes.lines.map((line) => ({ manifestId, ...line, createdAt, updatedAt: createdAt }))
@@ -611,6 +767,7 @@ function deleteDemoOwners(): void {
     tx.delete(certificates).where(inArray(certificates.manifestId, demoManifests)).run()
     tx.delete(manifestCargoItems).where(inArray(manifestCargoItems.manifestId, demoManifests)).run()
     tx.delete(manifestTaxes).where(inArray(manifestTaxes.manifestId, demoManifests)).run()
+    tx.delete(manifestTrailers).where(inArray(manifestTrailers.manifestId, demoManifests)).run()
     tx.delete(payments).where(inArray(payments.manifestId, demoManifests)).run()
     tx.delete(manifests).where(inArray(manifests.vehicleId, demoVehicles)).run()
     tx.delete(vehicles).where(inArray(vehicles.ownerId, ownerIds)).run()

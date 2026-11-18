@@ -110,10 +110,15 @@ function findOwnedDocument(ownerId: number, documentId: unknown): TripDocument |
     .get()?.document
 }
 
-// The file of a saved attachment, for the scanner
-export function ownedDocumentPath(ownerId: number, documentId: unknown): string | undefined {
+// A saved attachment's file and original name, for the viewer and the scanner
+export function findOwnedDocumentFile(
+  ownerId: number,
+  documentId: unknown
+): { path: string; fileName: string } | undefined {
   const document = findOwnedDocument(ownerId, documentId)
-  return document ? storedPath(document.manifestId, document.storedName) : undefined
+  return document
+    ? { path: storedPath(document.manifestId, document.storedName), fileName: document.fileName }
+    : undefined
 }
 
 // Opens an attachment in the system's default viewer
@@ -121,7 +126,7 @@ export async function openDocument(
   ownerId: number,
   documentId: unknown
 ): Promise<FleetResult<null>> {
-  const path = ownedDocumentPath(ownerId, documentId)
+  const path = findOwnedDocumentFile(ownerId, documentId)?.path
   if (!path || !existsSync(path)) return { ok: false, error: 'invalid_document' }
   const error = await shell.openPath(path)
   return error ? { ok: false, error: 'unknown' } : { ok: true, data: null }

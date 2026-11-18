@@ -2,15 +2,15 @@
 // waits a moment and returns one of a few realistic shipments, so the demo shows the flow. A real
 // OCR / document AI service can replace it behind the OcrService interface.
 import { statSync } from 'fs'
-import { basename } from 'path'
 import type { DocumentType, FleetResult, Party, QuantityUnit } from '../../shared/fleet'
 import type { OcrItem, OcrResult, ScanInput } from '../../shared/ocr'
-import { findStaged, isDocumentType, ownedDocumentPath, stagedPath } from './documents'
+import { findOwnedDocumentFile, findStaged, isDocumentType, stagedPath } from './documents'
 
 export interface OcrService {
+  // fileName is the name the owner's file had (the stored copy is renamed)
   scan(
     docType: DocumentType,
-    filePath: string,
+    file: { path: string; fileName: string },
     options: { unit: QuantityUnit; scenario: number | null }
   ): Promise<OcrResult>
 }
@@ -160,7 +160,7 @@ const SCAN_DELAY_MS = 1500
 class MockOcrService implements OcrService {
   async scan(
     docType: DocumentType,
-    filePath: string,
+    file: { path: string; fileName: string },
     { unit, scenario }: { unit: QuantityUnit; scenario: number | null }
   ): Promise<OcrResult> {
     await new Promise((resolve) => setTimeout(resolve, SCAN_DELAY_MS))
@@ -168,7 +168,7 @@ class MockOcrService implements OcrService {
     const index =
       scenario !== null && scenario >= 0 && scenario < SHIPMENTS.length
         ? scenario
-        : fingerprint(filePath) % SHIPMENTS.length
+        : fingerprint(file) % SHIPMENTS.length
     const shipment = SHIPMENTS[index]
     const cargo = shipment.cargo[unit]
     switch (docType) {
@@ -182,12 +182,14 @@ class MockOcrService implements OcrService {
         }
       case 'packing_list':
         return { scenario: index, items: cargo }
+      // Only imports come with a certificate of origin
       case 'certificate_of_origin':
-        return { scenario: index, tripKind: shipment.tripKind, shipper: shipment.shipper }
+        return { scenario: index, tripKind: 'import', shipper: shipment.shipper }
+      // An authorization is for an import or an export; a domestic shipment's leaves the type alone
       case 'trade_authorization':
         return {
           scenario: index,
-          tripKind: shipment.tripKind,
+          ...(shipment.tripKind !== 'domestic' ? { tripKind: shipment.tripKind } : {}),
           shipper: shipment.shipper,
           receiver: shipment.receiver
         }
@@ -195,10 +197,10 @@ class MockOcrService implements OcrService {
   }
 }
 
-function fingerprint(filePath: string): number {
-  const name = basename(filePath)
-  let hash = statSync(filePath).size
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
+// The same file always reads as the same shipment
+function fingerprint({ path, fileName }: { path: string; fileName: string }): number {
+  let hash = statSync(path).size
+  for (let i = 0; i < fileName.length; i++) hash = (hash * 31 + fileName.charCodeAt(i)) >>> 0
   return hash
 }
 
@@ -212,17 +214,17 @@ export async function scanDocument(
   if (!input || !isDocumentType(input.docType)) return { ok: false, error: 'invalid_document' }
   if (input.unit !== 'ton' && input.unit !== 'liter') return { ok: false, error: 'missing_fields' }
   const source = input.source
-  let filePath: string | undefined
+  let file: { path: string; fileName: string } | undefined
   if (source && 'token' in source) {
     const staged = findStaged(source.token)
-    filePath = staged ? stagedPath(staged) : undefined
+    file = staged ? { path: stagedPath(staged), fileName: staged.fileName } : undefined
   } else if (source && 'id' in source) {
-    filePath = ownedDocumentPath(ownerId, source.id)
+    file = findOwnedDocumentFile(ownerId, source.id)
   }
-  if (!filePath) return { ok: false, error: 'invalid_document' }
+  if (!file) return { ok: false, error: 'invalid_document' }
   const scenario = typeof input.scenario === 'number' ? input.scenario : null
   return {
     ok: true,
-    data: await ocr.scan(input.docType, filePath, { unit: input.unit, scenario })
+    data: await ocr.scan(input.docType, file, { unit: input.unit, scenario })
   }
 }

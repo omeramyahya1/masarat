@@ -6,6 +6,7 @@ import {
   manifests,
   manifestTaxes,
   manifestTrailers,
+  tripDocuments,
   taxRates,
   taxSettings,
   vehicles
@@ -22,6 +23,7 @@ import {
   MAX_PARTY_NAME_LENGTH,
   MAX_TRAILERS,
   TRIP_KINDS,
+  documentTypesFor,
   itemUnitsFor,
   normalizePhone,
   totalInVehicleUnit,
@@ -37,6 +39,7 @@ import {
   type TripKind,
   type TripRecord,
   type TripReferenceData,
+  type TripDocumentRecord,
   type TripSuggestions
 } from '../../shared/fleet'
 import { normalizePlate } from '../../shared/plate'
@@ -50,6 +53,13 @@ import {
   type TaxLine,
   type TaxSetting
 } from '../../shared/tax'
+import {
+  findStaged,
+  isDocumentType,
+  moveStaged,
+  removeStoredFiles,
+  removeTripFolder
+} from './documents'
 import { findOwnedDriver } from './drivers'
 import { findOwnedVehicle } from './fleet'
 
@@ -150,7 +160,8 @@ export const tripColumns = {
   carrierTin: manifests.carrierTin
 }
 
-type NestedFields = 'items' | 'taxes' | 'trailers' | 'shipper' | 'receiver' | 'carrier'
+type NestedFields =
+  'items' | 'taxes' | 'trailers' | 'shipper' | 'receiver' | 'carrier' | 'documents'
 export type TripRow = Omit<TripRecord, 'tripDate' | 'createdAt' | NestedFields> & {
   tripDate: Date
   createdAt: Date
@@ -221,6 +232,24 @@ export function toTripRecords(rows: readonly TripRow[]): TripRecord[] {
       trailer.plateNumber
     ])
   }
+  const documents = new Map<number, TripDocumentRecord[]>()
+  for (const document of db
+    .select()
+    .from(tripDocuments)
+    .where(inArray(tripDocuments.manifestId, ids))
+    .orderBy(asc(tripDocuments.id))
+    .all()) {
+    documents.set(document.manifestId, [
+      ...(documents.get(document.manifestId) ?? []),
+      {
+        id: document.id,
+        docType: document.docType,
+        fileName: document.fileName,
+        size: document.size,
+        createdAt: document.createdAt.getTime()
+      }
+    ])
+  }
   return rows.map((row) => {
     const {
       shipperName,
@@ -241,6 +270,7 @@ export function toTripRecords(rows: readonly TripRow[]): TripRecord[] {
       items: items.get(row.id) ?? [],
       taxes: taxes.get(row.id) ?? [],
       trailers: trailers.get(row.id) ?? [],
+      documents: documents.get(row.id) ?? [],
       shipper: party(shipperName, shipperAddress, shipperPhone),
       receiver: party(receiverName, receiverAddress, receiverPhone),
       carrier:
@@ -323,16 +353,65 @@ function parseTrailers(value: unknown, headPlate: string): string[] | null {
   return unique.size === plates.length + 1 ? (plates as string[]) : null
 }
 
+type StagedFile = NonNullable<ReturnType<typeof findStaged>>
+
+// The trip's attachments after the save: saved ones it keeps (by id) and staged ones it adds
+interface DocumentChanges {
+  keep: number[]
+  add: StagedFile[]
+}
+
 interface BuiltTrip {
   manifest: Omit<typeof manifests.$inferInsert, 'status'>
   items: CargoItemRecord[]
   taxes: TaxLine[]
   trailers: string[]
+  documents: DocumentChanges
+}
+
+// Attachments from the renderer: at most one per type, each type applying to the trip's kind,
+// kept ones belonging to this trip and new ones still in staging
+function parseDocuments(
+  value: unknown,
+  tripKind: TripKind,
+  manifestId: number | null
+): DocumentChanges | null {
+  if (value === undefined) return { keep: [], add: [] }
+  if (!Array.isArray(value)) return null
+  const allowed = documentTypesFor(tripKind)
+  const saved =
+    manifestId === null
+      ? []
+      : getDb()
+          .select({ id: tripDocuments.id, docType: tripDocuments.docType })
+          .from(tripDocuments)
+          .where(eq(tripDocuments.manifestId, manifestId))
+          .all()
+  const seen = new Set<string>()
+  const changes: DocumentChanges = { keep: [], add: [] }
+  for (const raw of value) {
+    if (!isDocumentType(raw?.docType) || !allowed.includes(raw.docType)) return null
+    if (seen.has(raw.docType)) return null
+    seen.add(raw.docType)
+    if (typeof raw.id === 'number') {
+      if (!saved.some((d) => d.id === raw.id && d.docType === raw.docType)) return null
+      changes.keep.push(raw.id)
+    } else {
+      const file = findStaged(raw.token)
+      if (!file || file.docType !== raw.docType) return null
+      changes.add.push(file)
+    }
+  }
+  return changes
 }
 
 // Validates a trip and computes its cost and taxes from the DB; the renderer's preview is never
 // trusted
-function buildTrip(ownerId: number, input: TripInput): FleetResult<BuiltTrip> {
+function buildTrip(
+  ownerId: number,
+  input: TripInput,
+  manifestId: number | null = null
+): FleetResult<BuiltTrip> {
   if (!input) return { ok: false, error: 'missing_fields' }
 
   const vehicle = findOwnedVehicle(ownerId, input.vehicleId)
@@ -375,6 +454,8 @@ function buildTrip(ownerId: number, input: TripInput): FleetResult<BuiltTrip> {
   const driverId = input.driverId ?? null
   const driver = driverId === null ? null : findOwnedDriver(ownerId, driverId)
   if (driverId !== null && !driver) return { ok: false, error: 'driver_not_found' }
+  const documents = parseDocuments(input.documents, input.tripKind, manifestId)
+  if (!documents) return { ok: false, error: 'invalid_document' }
 
   const distanceKm = estimateRoadKm(origin, destination)
   const priced = calculateItemsCost(items, rates, distanceKm)
@@ -419,7 +500,8 @@ function buildTrip(ownerId: number, input: TripInput): FleetResult<BuiltTrip> {
         }
       }),
       taxes: taxes.lines,
-      trailers
+      trailers,
+      documents
     }
   }
 }
@@ -436,6 +518,21 @@ function writeTrailers(tx: Tx, manifestId: number, trailers: readonly string[]):
   if (trailers.length === 0) return
   tx.insert(manifestTrailers)
     .values(trailers.map((plateNumber, position) => ({ manifestId, position, plateNumber })))
+    .run()
+}
+
+function insertDocuments(tx: Tx, manifestId: number, files: readonly StagedFile[]): void {
+  if (files.length === 0) return
+  tx.insert(tripDocuments)
+    .values(
+      files.map((file) => ({
+        manifestId,
+        docType: file.docType,
+        fileName: file.fileName,
+        storedName: file.storedName,
+        size: file.size
+      }))
+    )
     .run()
 }
 
@@ -463,7 +560,7 @@ const failure = (error: FleetErrorCode): FleetResult<never> => ({ ok: false, err
 export function createTrip(ownerId: number, input: TripInput): FleetResult<TripRecord> {
   const built = buildTrip(ownerId, input)
   if (!built.ok) return built
-  const { manifest, items, taxes, trailers } = built.data
+  const { manifest, items, taxes, trailers, documents } = built.data
 
   const id = getDb().transaction((tx) => {
     const { id } = tx
@@ -474,8 +571,10 @@ export function createTrip(ownerId: number, input: TripInput): FleetResult<TripR
     writeItems(tx, id, items)
     writeTaxes(tx, id, taxes)
     writeTrailers(tx, id, trailers)
+    insertDocuments(tx, id, documents.add)
     return id
   })
+  moveStaged(id, documents.add)
   const row = findOwnedTripRow(ownerId, id)
   return row ? { ok: true, data: toTripRecord(row) } : failure('unknown')
 }
@@ -490,23 +589,46 @@ export function updateTrip(
   if (!existing) return failure('manifest_not_found')
   if (existing.status !== 'draft') return failure('not_draft')
 
-  const built = buildTrip(ownerId, input)
+  const built = buildTrip(ownerId, input, existing.id)
   if (!built.ok) return built
-  const { manifest, items, taxes, trailers } = built.data
+  const { manifest, items, taxes, trailers, documents } = built.data
 
-  getDb().transaction((tx) => {
+  // Attachments the trip no longer has; their files are removed once the rows are gone
+  const removed = getDb().transaction((tx) => {
     // Re-checked inside the transaction so a bill issued meanwhile can't be overwritten
     const current = tx
       .select({ status: manifests.status })
       .from(manifests)
       .where(eq(manifests.id, existing.id))
       .get()
-    if (current?.status !== 'draft') return
+    if (current?.status !== 'draft') return null
     tx.update(manifests).set(manifest).where(eq(manifests.id, existing.id)).run()
     writeItems(tx, existing.id, items)
     writeTaxes(tx, existing.id, taxes)
     writeTrailers(tx, existing.id, trailers)
+    const dropped = tx
+      .select({ id: tripDocuments.id, storedName: tripDocuments.storedName })
+      .from(tripDocuments)
+      .where(eq(tripDocuments.manifestId, existing.id))
+      .all()
+      .filter((d) => !documents.keep.includes(d.id))
+    if (dropped.length > 0) {
+      tx.delete(tripDocuments)
+        .where(
+          inArray(
+            tripDocuments.id,
+            dropped.map((d) => d.id)
+          )
+        )
+        .run()
+    }
+    insertDocuments(tx, existing.id, documents.add)
+    return dropped.map((d) => d.storedName)
   })
+  if (removed) {
+    removeStoredFiles(existing.id, removed)
+    moveStaged(existing.id, documents.add)
+  }
   const row = findOwnedTripRow(ownerId, existing.id)
   if (!row) return failure('manifest_not_found')
   if (row.status !== 'draft') return failure('not_draft')
@@ -530,10 +652,13 @@ export function deleteTrip(ownerId: number, manifestId: number): FleetResult<nul
     tx.delete(manifestCargoItems).where(eq(manifestCargoItems.manifestId, existing.id)).run()
     tx.delete(manifestTaxes).where(eq(manifestTaxes.manifestId, existing.id)).run()
     tx.delete(manifestTrailers).where(eq(manifestTrailers.manifestId, existing.id)).run()
+    tx.delete(tripDocuments).where(eq(tripDocuments.manifestId, existing.id)).run()
     tx.delete(manifests).where(eq(manifests.id, existing.id)).run()
     return true
   })
-  return deleted ? { ok: true, data: null } : failure('not_draft')
+  if (!deleted) return failure('not_draft')
+  removeTripFolder(existing.id)
+  return { ok: true, data: null }
 }
 
 const MAX_SUGGESTED_PARTIES = 50

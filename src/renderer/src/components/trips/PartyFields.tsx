@@ -12,6 +12,8 @@ interface PartyFieldsProps {
   value: Party
   // Senders and receivers from earlier trips; picking a name fills in its address and phone
   suggestions: readonly Party[]
+  // Filled in from a scanned document and not edited since
+  highlighted?: boolean
   onChange: (value: Party) => void
 }
 
@@ -20,6 +22,7 @@ function PartyFields({
   legend,
   value,
   suggestions,
+  highlighted,
   onChange
 }: PartyFieldsProps): React.JSX.Element {
   const { t } = useTranslation()
@@ -31,41 +34,45 @@ function PartyFields({
   }
 
   return (
-    <fieldset className="flex flex-col gap-3">
+    <fieldset>
       <legend className="mb-2 text-sm font-medium text-stone-700">{legend}</legend>
-      <datalist id={listId}>
-        {suggestions.map((party) => (
-          <option key={`${party.name}|${party.address}|${party.phone}`} value={party.name}>
-            {party.address}
-          </option>
-        ))}
-      </datalist>
-      <TextField
-        label={t('trips.party.name')}
-        list={listId}
-        dir="auto"
-        autoComplete="off"
-        maxLength={MAX_PARTY_NAME_LENGTH}
-        value={value.name}
-        onChange={(e) => handleNameChange(e.target.value)}
-      />
-      <TextField
-        label={t('trips.party.address')}
-        dir="auto"
-        autoComplete="off"
-        maxLength={MAX_PARTY_ADDRESS_LENGTH}
-        value={value.address}
-        onChange={(e) => onChange({ ...value, address: e.target.value })}
-      />
-      <TextField
-        label={t('trips.party.phone')}
-        type="tel"
-        autoComplete="off"
-        maxLength={20}
-        ltr
-        value={value.phone}
-        onChange={(e) => onChange({ ...value, phone: e.target.value })}
-      />
+      <div
+        className={`flex flex-col gap-3 rounded-lg ${highlighted ? 'bg-amber-50/70 p-3 ring-2 ring-amber-300' : ''}`}
+      >
+        <datalist id={listId}>
+          {suggestions.map((party) => (
+            <option key={`${party.name}|${party.address}|${party.phone}`} value={party.name}>
+              {party.address}
+            </option>
+          ))}
+        </datalist>
+        <TextField
+          label={t('trips.party.name')}
+          list={listId}
+          dir="auto"
+          autoComplete="off"
+          maxLength={MAX_PARTY_NAME_LENGTH}
+          value={value.name}
+          onChange={(e) => handleNameChange(e.target.value)}
+        />
+        <TextField
+          label={t('trips.party.address')}
+          dir="auto"
+          autoComplete="off"
+          maxLength={MAX_PARTY_ADDRESS_LENGTH}
+          value={value.address}
+          onChange={(e) => onChange({ ...value, address: e.target.value })}
+        />
+        <TextField
+          label={t('trips.party.phone')}
+          type="tel"
+          autoComplete="off"
+          maxLength={20}
+          ltr
+          value={value.phone}
+          onChange={(e) => onChange({ ...value, phone: e.target.value })}
+        />
+      </div>
     </fieldset>
   )
 }

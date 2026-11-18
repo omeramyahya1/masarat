@@ -7,7 +7,9 @@ import {
   CircleAlert,
   CircleCheckBig,
   Copy,
+  ExternalLink,
   FileBadge,
+  FileText,
   LoaderCircle,
   Pencil,
   ReceiptText,
@@ -135,6 +137,15 @@ function TripDetails({
       if (mounted.current) setError('unknown')
     } finally {
       if (mounted.current) setPending(null)
+    }
+  }
+
+  const openDocument = async (documentId: number): Promise<void> => {
+    try {
+      const result = await window.api.documents.open(documentId)
+      if (mounted.current && !result.ok) setError(result.error)
+    } catch {
+      if (mounted.current) setError('unknown')
     }
   }
 
@@ -332,6 +343,43 @@ function TripDetails({
                 {t('trips.details.carrierTin', { tin: trip.carrier.tin })}
               </p>
             </div>
+          )}
+
+          <h3 className="mt-6 mb-2 text-sm font-semibold text-stone-800">
+            {t('trips.documents.title')}
+          </h3>
+          {trip.documents.length > 0 ? (
+            <ul className="flex flex-col gap-2">
+              {trip.documents.map((document) => (
+                <li
+                  key={document.id}
+                  className="flex items-center gap-3 rounded-lg border border-stone-200 px-3 py-2 text-sm"
+                >
+                  <FileText size={16} className="shrink-0 text-stone-400" />
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="font-medium text-stone-800">
+                      {t(`documentTypes.${document.docType}`)}
+                    </span>
+                    <span className="truncate text-xs text-stone-500" dir="auto">
+                      {document.fileName} · {format.fileSize(document.size)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    aria-label={t('trips.documents.openOf', {
+                      name: t(`documentTypes.${document.docType}`)
+                    })}
+                    onClick={() => openDocument(document.id)}
+                  >
+                    <ExternalLink size={14} />
+                    {t('trips.documents.open')}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-stone-500">{t('trips.documents.empty')}</p>
           )}
 
           <h3 className="mt-6 mb-2 text-sm font-semibold text-stone-800">

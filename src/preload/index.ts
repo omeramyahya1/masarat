@@ -9,9 +9,11 @@ import type {
   UserRole
 } from '../shared/auth'
 import type {
+  DocumentType,
   DriverInput,
   DriverRecord,
   FleetResult,
+  StagedDocument,
   TripInput,
   TripRecord,
   TripReferenceData,
@@ -21,6 +23,7 @@ import type {
 } from '../shared/fleet'
 import type { TripDetails } from '../shared/billing'
 import type { DashboardData, DashboardPeriod } from '../shared/dashboard'
+import type { OcrResult, ScanInput } from '../shared/ocr'
 import type { TaxRatesInput, TaxSettingsView } from '../shared/tax'
 
 export interface UpdateStatus {
@@ -92,6 +95,14 @@ const api = {
       ipcRenderer.invoke('billing:refresh', manifestId),
     simulatePayment: (manifestId: number): Promise<FleetResult<null>> =>
       ipcRenderer.invoke('billing:simulate-payment', manifestId)
+  },
+  documents: {
+    pick: (docType: DocumentType): Promise<FleetResult<StagedDocument | null>> =>
+      ipcRenderer.invoke('documents:pick', docType),
+    open: (documentId: number): Promise<FleetResult<null>> =>
+      ipcRenderer.invoke('documents:open', documentId),
+    scan: (input: ScanInput): Promise<FleetResult<OcrResult>> =>
+      ipcRenderer.invoke('documents:scan', input)
   },
   certificates: {
     savePdf: (fileName: string): Promise<FleetResult<{ saved: boolean }>> =>

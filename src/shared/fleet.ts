@@ -18,6 +18,13 @@ export const MANIFEST_STATUSES = ['draft', 'billed', 'paid', 'certified', 'cance
 export const PAYMENT_STATUSES = ['pending', 'paid', 'expired', 'failed'] as const
 // Domestic, or crossing the border (imports need a certificate of origin and an authorization)
 export const TRIP_KINDS = ['domestic', 'import', 'export'] as const
+// Supporting documents a trip can have attached (and scanned to fill in the form)
+export const DOCUMENT_TYPES = [
+  'commercial_invoice',
+  'packing_list',
+  'certificate_of_origin',
+  'trade_authorization'
+] as const
 
 export type VehicleType = (typeof VEHICLE_TYPES)[number]
 export type QuantityUnit = (typeof QUANTITY_UNITS)[number]
@@ -25,6 +32,21 @@ export type CargoType = (typeof CARGO_TYPES)[number]
 export type ManifestStatus = (typeof MANIFEST_STATUSES)[number]
 export type ItemUnit = (typeof ITEM_UNITS)[number]
 export type TripKind = (typeof TRIP_KINDS)[number]
+export type DocumentType = (typeof DOCUMENT_TYPES)[number]
+
+// The documents that apply to a trip of this kind: the invoice and packing list always, the
+// certificate of origin for imports, and the import/export authorization for both
+export function documentTypesFor(kind: TripKind): DocumentType[] {
+  return DOCUMENT_TYPES.filter(
+    (type) =>
+      (type !== 'certificate_of_origin' || kind === 'import') &&
+      (type !== 'trade_authorization' || kind !== 'domestic')
+  )
+}
+
+// Attachments: PDF or images, up to 20 MB each
+export const DOCUMENT_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png'] as const
+export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
 
 const ITEM_UNITS_FOR: Record<QuantityUnit, readonly ItemUnit[]> = {
   ton: ['ton', 'kg'],
@@ -148,6 +170,26 @@ export interface CargoItem {
   notes: string | null
 }
 
+// A file attached to a saved trip
+export interface TripDocumentRecord {
+  id: number
+  docType: DocumentType
+  fileName: string
+  size: number
+  createdAt: number
+}
+
+// A file picked on the trip form but not saved with a trip yet; `token` names it in staging
+export interface StagedDocument {
+  token: string
+  docType: DocumentType
+  fileName: string
+  size: number
+}
+
+// A trip's attachments as the form sends them: kept ones by id, new ones by staging token
+export type TripDocumentInput = { docType: DocumentType } & ({ id: number } | { token: string })
+
 // A sender (shipper) or receiver. Empty strings while a draft leaves them out.
 export interface Party {
   name: string
@@ -183,6 +225,8 @@ export interface TripInput {
   driverId: number | null
   shipper: Party
   receiver: Party
+  // One per document type at most; omitted means none
+  documents?: TripDocumentInput[]
 }
 
 export interface TripRecord {
@@ -217,6 +261,7 @@ export interface TripRecord {
   receiver: Party
   // Set when the bill is generated
   carrier: CarrierDetails | null
+  documents: TripDocumentRecord[]
 }
 
 // Earlier senders and receivers and packing types, suggested on the trip form
@@ -286,6 +331,8 @@ export type FleetErrorCode =
   | 'invalid_trailer'
   | 'invalid_party'
   | 'incomplete_manifest'
+  | 'invalid_document'
+  | 'document_too_large'
   | 'unknown'
 
 export type FleetResult<T> = { ok: true; data: T } | { ok: false; error: FleetErrorCode }

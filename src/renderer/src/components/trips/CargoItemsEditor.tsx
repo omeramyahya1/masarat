@@ -27,6 +27,8 @@ interface CargoItemsEditorProps {
   capacity: number
   // Packing types the owner used before, suggested next to the common ones
   usedPackingTypes: readonly string[]
+  // Rows filled in from a scanned document and not edited since
+  highlighted?: ReadonlySet<number>
   onChange: (items: ItemDraft[]) => void
 }
 
@@ -42,6 +44,7 @@ function CargoItemsEditor({
   total,
   capacity,
   usedPackingTypes,
+  highlighted,
   onChange
 }: CargoItemsEditorProps): React.JSX.Element {
   const { t } = useTranslation()
@@ -81,7 +84,11 @@ function CargoItemsEditor({
           return (
             <li
               key={item.key}
-              className="flex flex-col gap-2 rounded-lg border border-stone-200 bg-stone-50/60 p-3"
+              className={`flex flex-col gap-2 rounded-lg border p-3 ${
+                highlighted?.has(item.key)
+                  ? 'border-amber-300 bg-amber-50/70 ring-1 ring-amber-300'
+                  : 'border-stone-200 bg-stone-50/60'
+              }`}
             >
               <div className={ROW}>
                 <select

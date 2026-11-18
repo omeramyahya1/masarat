@@ -9,6 +9,9 @@ import { initDb, closeDb } from './db'
 import { getSession, logIn, logOut, signUp, updateProfile } from './services/auth'
 import { addVehicle, deleteVehicle, listVehicles, updateVehicle } from './services/fleet'
 import { addDriver, deleteDriver, listDrivers, updateDriver } from './services/drivers'
+import { clearStaging, openDocument, pickDocument } from './services/documents'
+import { scanDocument } from './services/ocr'
+import type { ScanInput } from '../shared/ocr'
 import {
   createTrip,
   deleteTrip,
@@ -252,6 +255,17 @@ function registerFleetHandlers(): void {
     runFleet((ownerId) => simulatePayment(ownerId, manifestId))
   )
 
+  // Attachments: picking copies the file into staging until the trip is saved
+  ipcMain.handle('documents:pick', (event, docType: unknown) =>
+    runFleetAsync(() => pickDocument(BrowserWindow.fromWebContents(event.sender), docType))
+  )
+  ipcMain.handle('documents:scan', (_event, input: ScanInput) =>
+    runFleetAsync((ownerId) => scanDocument(ownerId, input))
+  )
+  ipcMain.handle('documents:open', (_event, documentId: unknown) =>
+    runFleetAsync((ownerId) => openDocument(ownerId, documentId))
+  )
+
   // Saves the page as a PDF; the certificate's print styles hide everything else
   ipcMain.handle('certificates:save-pdf', (event, fileName: unknown) =>
     runFleetAsync(async () => {
@@ -356,6 +370,12 @@ app.whenReady().then(async () => {
   registerGovtHandlers()
   registerAuthHandlers()
   configureAutoUpdater()
+  // Files picked for trips that were never saved
+  try {
+    clearStaging()
+  } catch (err) {
+    log.error('Clearing staged documents failed:', err)
+  }
   // Before the window opens, so the first dashboard load already has data
   try {
     await ensureDemoData()

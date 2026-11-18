@@ -111,7 +111,9 @@
       "kg": "Kilograms",
       "m3": "Cubic meters"
     },
-    "km": "{{value}} km"
+    "km": "{{value}} km",
+    "kb": "{{value}} KB",
+    "mb": "{{value}} MB"
   },
   "vehicleTypes": {
     "heavy_duty_truck": "Heavy-duty truck",
@@ -268,7 +270,9 @@
       "driver_in_use": "This driver is on a draft trip. Change the trip's driver or delete the trip first.",
       "invalid_trailer": "Enter valid trailer plates (up to 3), each different from the vehicle's own plate.",
       "invalid_party": "Check the sender and receiver: names up to 120 characters, addresses up to 200, and valid phone numbers.",
-      "incomplete_manifest": "The manifest isn't complete yet. Fill in the missing details before generating the bill ID."
+      "incomplete_manifest": "The manifest isn't complete yet. Fill in the missing details before generating the bill ID.",
+      "invalid_document": "Choose a PDF, JPG or PNG file for one of this trip's document types.",
+      "document_too_large": "The file is larger than 20 MB."
     }
   },
   "drivers": {
@@ -339,7 +343,8 @@
       "submit": "Save trip",
       "editTitle": "Edit trip #{{id}}",
       "editSubtitle": "Drafts can be changed until their bill ID is generated.",
-      "save": "Save changes"
+      "save": "Save changes",
+      "documentsSection": "Supporting documents"
     },
     "party": {
       "shipper": "Sender (shipper)",
@@ -443,7 +448,22 @@
       "confirm": "Delete trip"
     },
     "deleted": "Trip #{{id}} was deleted.",
-    "mixed": "Mixed cargo"
+    "mixed": "Mixed cargo",
+    "documents": {
+      "hint": "Attach the shipment's documents (PDF, JPG or PNG, up to 20 MB). Scan reads a document and fills in the form for you; you can always type the details instead. Scanning is simulated in this demo.",
+      "none": "Not attached",
+      "attach": "Attach",
+      "scan": "Scan",
+      "scanning": "Scanning…",
+      "remove": "Remove",
+      "removeOf": "Remove {{name}}",
+      "chooseVehicle": "Select the vehicle first",
+      "review": "Details read from your documents are highlighted. Check them before saving.",
+      "title": "Documents",
+      "open": "Open",
+      "openOf": "Open {{name}}",
+      "empty": "No documents attached."
+    }
   },
   "billing": {
     "title": "Tax payment",
@@ -702,5 +722,11 @@
     "business_profit": "Business profit tax",
     "locality": "Locality tax",
     "manifest_fee": "Manifest fee"
+  },
+  "documentTypes": {
+    "commercial_invoice": "Commercial invoice",
+    "packing_list": "Packing list",
+    "certificate_of_origin": "Certificate of origin",
+    "trade_authorization": "Import / export authorization"
   }
 }

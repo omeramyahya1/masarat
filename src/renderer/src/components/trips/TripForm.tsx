@@ -1,10 +1,12 @@
-import { useEffect, useId, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowRight, Calculator, Info, LoaderCircle, Truck } from 'lucide-react'
+import { ArrowRight, Calculator, Info, LoaderCircle, ScanText, Truck } from 'lucide-react'
 import {
   TRIP_KINDS,
+  documentTypesFor,
   totalInVehicleUnit,
   type CargoType,
+  type DocumentType,
   type DriverRecord,
   type FleetErrorCode,
   type Party,
@@ -27,13 +29,17 @@ import { useMountedRef } from '../../lib/useMountedRef'
 import { FieldLabel, FormAlert, SelectField, SubmitButton } from '../form/fields'
 import PlateBadge from '../fleet/PlateBadge'
 import CargoItemsEditor from './CargoItemsEditor'
+import DocumentsField, { type DocumentDraft } from './DocumentsField'
 import DriverField from './DriverField'
+import { mergeScannedItems } from './scannedItems'
 import PartyFields from './PartyFields'
 import TrailersField from './TrailersField'
 import { fitItemsTo, newItemDraft, type ItemDraft } from './itemDrafts'
 import TaxBreakdown from './TaxBreakdown'
 
 const EMPTY_PARTY: Party = { name: '', address: '', phone: '' }
+// Marks what a scanned document filled in
+const SCANNED_RING = 'ring-2 ring-amber-300 ring-offset-2'
 
 // A stored plate as the plate input edits it
 function toPlateValue(plate: string): PlateValue {
@@ -103,6 +109,13 @@ function TripForm({
     parties: [],
     packingTypes: []
   })
+  const [documents, setDocuments] = useState<DocumentDraft[]>(() => trip?.documents ?? [])
+  const [documentBusy, setDocumentBusy] = useState<DocumentType | null>(null)
+  // The shipment the (simulated) scanner read first; later documents describe the same one
+  const scenario = useRef<number | null>(null)
+  // Parts of the form a scan filled in ('tripKind', 'shipper', 'receiver', 'item:<key>'),
+  // highlighted until the owner edits them
+  const [scanned, setScanned] = useState<ReadonlySet<string>>(new Set())
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [pending, setPending] = useState(false)
   const mounted = useMountedRef()
@@ -181,6 +194,81 @@ function TripForm({
     setItems((current) => fitItemsTo(current, next.capacityUnit, cargoTypesFor(next)))
   }
 
+  const unflag = (key: string): void =>
+    setScanned((current) => {
+      if (!current.has(key)) return current
+      const next = new Set(current)
+      next.delete(key)
+      return next
+    })
+
+  const handleItemsChange = (next: ItemDraft[]): void => {
+    // A row the owner edited is no longer "as scanned"
+    for (const item of next) {
+      if (!items.includes(item)) unflag(`item:${item.key}`)
+    }
+    setItems(next)
+  }
+
+  const attachDocument = async (docType: DocumentType): Promise<void> => {
+    setDocumentBusy(docType)
+    setError(null)
+    try {
+      const result = await window.api.documents.pick(docType)
+      if (!mounted.current) return
+      if (!result.ok) return setError(result.error)
+      const picked = result.data
+      if (picked)
+        setDocuments((current) => [...current.filter((d) => d.docType !== docType), picked])
+    } catch {
+      if (mounted.current) setError('unknown')
+    } finally {
+      if (mounted.current) setDocumentBusy(null)
+    }
+  }
+
+  const scanDocument = async (docType: DocumentType): Promise<void> => {
+    const document = documents.find((d) => d.docType === docType)
+    if (!document || !vehicle) return
+    setDocumentBusy(docType)
+    setError(null)
+    try {
+      const result = await window.api.documents.scan({
+        docType,
+        source: document.id !== undefined ? { id: document.id } : { token: document.token ?? '' },
+        unit: vehicle.capacityUnit,
+        scenario: scenario.current
+      })
+      if (!mounted.current) return
+      if (!result.ok) return setError(result.error)
+      const read = result.data
+      scenario.current = read.scenario
+      const flags = new Set(scanned)
+      if (read.tripKind) {
+        setTripKind(read.tripKind)
+        flags.add('tripKind')
+      }
+      if (read.shipper) {
+        setShipper(read.shipper)
+        flags.add('shipper')
+      }
+      if (read.receiver) {
+        setReceiver(read.receiver)
+        flags.add('receiver')
+      }
+      if (read.items) {
+        const merged = mergeScannedItems(items, read.items, vehicle.capacityUnit)
+        setItems(merged.items)
+        for (const key of merged.touched) flags.add(`item:${key}`)
+      }
+      setScanned(flags)
+    } catch {
+      if (mounted.current) setError('unknown')
+    } finally {
+      if (mounted.current) setDocumentBusy(null)
+    }
+  }
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
     if (!vehicle || !origin || !destination || !tripDate) {
@@ -212,7 +300,15 @@ function TripForm({
         trailers: trailerPlates as string[],
         driverId: driverId ? Number(driverId) : null,
         shipper,
-        receiver
+        receiver,
+        // Documents of types the trip no longer needs (its type changed) are dropped
+        documents: documents
+          .filter((d) => documentTypesFor(tripKind).includes(d.docType))
+          .map((d) =>
+            d.id !== undefined
+              ? { docType: d.docType, id: d.id }
+              : { docType: d.docType, token: d.token ?? '' }
+          )
       }
       const result = trip
         ? await window.api.trips.update(trip.id, input)
@@ -268,6 +364,12 @@ function TripForm({
     >
       <div className="card flex flex-col gap-5 p-6">
         {error && <FormAlert message={t(`fleet.errors.${error}`)} />}
+        {scanned.size > 0 && (
+          <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+            <ScanText size={16} className="mt-0.5 shrink-0" />
+            <span>{t('trips.documents.review')}</span>
+          </div>
+        )}
 
         <fieldset className="flex flex-col gap-4">
           <legend className="mb-3 text-sm font-semibold text-stone-800">
@@ -321,7 +423,7 @@ function TripForm({
             <div
               role="radiogroup"
               aria-labelledby={kindId}
-              className="flex w-fit gap-1 rounded-lg border border-stone-200 bg-stone-100 p-1"
+              className={`flex w-fit gap-1 rounded-lg border border-stone-200 bg-stone-100 p-1 ${scanned.has('tripKind') ? SCANNED_RING : ''}`}
             >
               {TRIP_KINDS.map((kind) => (
                 <button
@@ -334,7 +436,10 @@ function TripForm({
                       ? 'bg-white text-brand-800 shadow-sm ring-1 ring-stone-200'
                       : 'text-stone-600 hover:text-stone-900'
                   }`}
-                  onClick={() => setTripKind(kind)}
+                  onClick={() => {
+                    setTripKind(kind)
+                    unflag('tripKind')
+                  }}
                 >
                   {t(`tripKinds.${kind}`)}
                 </button>
@@ -372,6 +477,24 @@ function TripForm({
           </div>
         </fieldset>
 
+        <fieldset className="flex flex-col gap-3 border-t border-stone-200 pt-5">
+          <legend className="mb-3 text-sm font-semibold text-stone-800">
+            {t('trips.form.documentsSection')}
+          </legend>
+          <p className="text-xs text-stone-500">{t('trips.documents.hint')}</p>
+          <DocumentsField
+            tripKind={tripKind}
+            value={documents}
+            busy={documentBusy}
+            canScan={Boolean(vehicle)}
+            onAttach={attachDocument}
+            onRemove={(docType) =>
+              setDocuments((current) => current.filter((d) => d.docType !== docType))
+            }
+            onScan={scanDocument}
+          />
+        </fieldset>
+
         <fieldset className="flex flex-col gap-4 border-t border-stone-200 pt-5">
           <legend className="mb-3 text-sm font-semibold text-stone-800">
             {t('trips.form.partiesSection')}
@@ -381,13 +504,21 @@ function TripForm({
               legend={t('trips.party.shipper')}
               value={shipper}
               suggestions={suggestions.parties}
-              onChange={setShipper}
+              highlighted={scanned.has('shipper')}
+              onChange={(value) => {
+                setShipper(value)
+                unflag('shipper')
+              }}
             />
             <PartyFields
               legend={t('trips.party.receiver')}
               value={receiver}
               suggestions={suggestions.parties}
-              onChange={setReceiver}
+              highlighted={scanned.has('receiver')}
+              onChange={(value) => {
+                setReceiver(value)
+                unflag('receiver')
+              }}
             />
           </div>
         </fieldset>
@@ -406,7 +537,10 @@ function TripForm({
                 total={quantityValue}
                 capacity={vehicle.capacity}
                 usedPackingTypes={suggestions.packingTypes}
-                onChange={setItems}
+                highlighted={
+                  new Set(items.filter((i) => scanned.has(`item:${i.key}`)).map((i) => i.key))
+                }
+                onChange={handleItemsChange}
               />
             ) : (
               <p className="text-sm text-stone-500">{t('trips.items.chooseVehicle')}</p>

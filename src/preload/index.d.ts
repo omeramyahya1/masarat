@@ -8,9 +8,11 @@ import type {
   UserRole
 } from '../shared/auth'
 import type {
+  DocumentType,
   DriverInput,
   DriverRecord,
   FleetResult,
+  StagedDocument,
   TripInput,
   TripRecord,
   TripReferenceData,
@@ -20,6 +22,7 @@ import type {
 } from '../shared/fleet'
 import type { TripDetails } from '../shared/billing'
 import type { DashboardData, DashboardPeriod } from '../shared/dashboard'
+import type { OcrResult, ScanInput } from '../shared/ocr'
 import type { TaxRatesInput, TaxSettingsView } from '../shared/tax'
 
 export interface UpdateStatus {
@@ -80,6 +83,15 @@ export interface BillingAPI {
   simulatePayment: (manifestId: number) => Promise<FleetResult<null>>
 }
 
+export interface DocumentsAPI {
+  // Opens a file picker and stages the file until the trip is saved; null data if cancelled
+  pick: (docType: DocumentType) => Promise<FleetResult<StagedDocument | null>>
+  // Opens a saved attachment in the system viewer
+  open: (documentId: number) => Promise<FleetResult<null>>
+  // Simulated OCR: reads a staged or saved attachment to fill in the trip form
+  scan: (input: ScanInput) => Promise<FleetResult<OcrResult>>
+}
+
 export interface CertificatesAPI {
   // Prints the current page (certificate print styles) to a PDF the user saves
   savePdf: (fileName: string) => Promise<FleetResult<{ saved: boolean }>>
@@ -109,6 +121,7 @@ export interface CustomAPI {
   fleet: FleetAPI
   trips: TripsAPI
   billing: BillingAPI
+  documents: DocumentsAPI
   certificates: CertificatesAPI
   govt: GovtAPI
   updater: UpdaterAPI

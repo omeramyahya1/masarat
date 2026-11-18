@@ -32,7 +32,10 @@ function PartyFields({
   // happens to match one (on the way to a longer name) only changes the name
   const handleNameChange = (event: ChangeEvent<HTMLInputElement>): void => {
     const name = event.target.value
-    const picked = (event.nativeEvent as InputEvent).inputType === 'insertReplacementText'
+    // Chromium reports a picked suggestion as insertReplacementText (or, in some versions, an
+    // input event without a type); typing always has one (insertText, deleteContentBackward, …)
+    const { inputType } = event.nativeEvent as InputEvent
+    const picked = !inputType || inputType === 'insertReplacementText'
     const known = picked ? suggestions.find((party) => party.name === name) : undefined
     onChange(known ? { ...known } : { ...value, name })
   }

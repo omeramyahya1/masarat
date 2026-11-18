@@ -40,6 +40,8 @@ export interface Formatters {
   // A bill line's label: "VAT (17%)", or just the name for a fixed fee
   taxLine: (line: Pick<TaxLine, 'code' | 'rateBps'>) => string
   quantity: (value: number, unit: QuantityUnit | ItemUnit) => string
+  // An attachment's size: "240 KB", "3.5 MB"
+  fileSize: (bytes: number) => string
   // "A, B and C" / "أ وب وج"
   list: (values: string[]) => string
   date: (ms: number) => string
@@ -92,6 +94,10 @@ export function createFormatters(isArabic: boolean, t: TFunction): Formatters {
           }),
     list: (values) => listFormat.format(values),
     quantity: (value, unit) => t(`units.short.${unit}`, { value: number(value) }),
+    fileSize: (bytes) =>
+      bytes < 1024 * 1024
+        ? t('units.kb', { value: number(Math.max(1, Math.round(bytes / 1024))) })
+        : t('units.mb', { value: number(Math.round((bytes / (1024 * 1024)) * 10) / 10) }),
     date: (ms) => dateFormat.format(ms),
     dateTime: (ms) => dateTimeFormat.format(ms),
     plate: (plate) => {

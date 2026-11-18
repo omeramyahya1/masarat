@@ -162,12 +162,14 @@
     "editPlate": "Edit vehicle {{plate}}",
     "delete": "Delete",
     "deletePlate": "Delete vehicle {{plate}}",
+    "missingRegistration": "Missing. Edit to add it",
     "empty": {
       "title": "No vehicles yet",
       "body": "Add your first vehicle to start registering trips and paying transport tax."
     },
     "columns": {
       "plate": "Plate number",
+      "registrationNo": "Registration no.",
       "type": "Type",
       "capacity": "Capacity",
       "trips": "Trips"
@@ -175,7 +177,7 @@
     "dialog": {
       "addTitle": "Add a vehicle",
       "editTitle": "Edit vehicle",
-      "subtitle": "Plate, type and carrying capacity.",
+      "subtitle": "Plate, registration number, type and carrying capacity.",
       "add": "Add vehicle",
       "save": "Save changes"
     },
@@ -193,6 +195,8 @@
       "plateNumberPlaceholder": "1 – 99999",
       "platePreview": "Preview:",
       "plateHint": "Choose the state letters, then enter the series (1–99) and the number (1–99999).",
+      "registrationNo": "Registration number",
+      "registrationNoHint": "As written on the vehicle's registration (licence) document.",
       "vehicleType": "Vehicle type",
       "vehicleTypePlaceholder": "Select a type",
       "capacity": "Carrying capacity",
@@ -224,7 +228,11 @@
       "invalid_items": "Every cargo item needs a name and a quantity greater than zero.",
       "not_draft": "This trip's bill ID has been generated, so it can no longer be edited.",
       "invalid_tax_rate": "Enter a percentage from 0 to 100, with up to two decimals.",
-      "invalid_fee": "Enter a whole amount from 0 to 1,000,000 SDG."
+      "invalid_fee": "Enter a whole amount from 0 to 1,000,000 SDG.",
+      "invalid_registration": "Enter the vehicle's registration number (up to 30 characters).",
+      "invalid_phone": "Enter a valid phone number: 7 to 15 digits, optionally starting with +.",
+      "phone_taken": "You already have a driver with this phone number.",
+      "driver_not_found": "This driver could not be found."
     }
   },
   "trips": {

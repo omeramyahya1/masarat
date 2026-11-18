@@ -1,6 +1,12 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { PASSWORD_MIN_LENGTH, type AuthUser, type UserRole } from '../../../../shared/auth'
+import {
+  MAX_ADDRESS_LENGTH,
+  MAX_TIN_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  type AuthUser,
+  type UserRole
+} from '../../../../shared/auth'
 import { FormError, PasswordField, SubmitButton, TextField } from './fields'
 import { useAuthSubmit } from './useAuthSubmit'
 
@@ -14,6 +20,8 @@ const EMPTY_FORM = {
   username: '',
   phone: '',
   companyName: '',
+  address: '',
+  tin: '',
   password: '',
   confirmPassword: ''
 }
@@ -42,8 +50,19 @@ function SignUpForm({ role, onAuthenticated }: SignUpFormProps): React.JSX.Eleme
       setError('password_mismatch')
       return
     }
-    const { fullName, username, phone, companyName, password } = form
-    submit(() => window.api.auth.signUp({ role, fullName, username, phone, companyName, password }))
+    const { fullName, username, phone, companyName, address, tin, password } = form
+    submit(() =>
+      window.api.auth.signUp({
+        role,
+        fullName,
+        username,
+        phone,
+        companyName,
+        address,
+        tin,
+        password
+      })
+    )
   }
 
   return (
@@ -80,6 +99,25 @@ function SignUpForm({ role, onAuthenticated }: SignUpFormProps): React.JSX.Eleme
           />
         )}
       </div>
+      {role === 'owner' && (
+        <div className="grid grid-cols-2 gap-4">
+          <TextField
+            label={t('auth.fields.address')}
+            maxLength={MAX_ADDRESS_LENGTH}
+            autoComplete="street-address"
+            optional
+            {...bind('address')}
+          />
+          <TextField
+            label={t('auth.fields.tin')}
+            maxLength={MAX_TIN_LENGTH}
+            autoComplete="off"
+            ltr
+            optional
+            {...bind('tin')}
+          />
+        </div>
+      )}
       <PasswordField
         label={t('auth.fields.password')}
         hint={t('auth.fields.passwordHint', { min: PASSWORD_MIN_LENGTH })}

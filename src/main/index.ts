@@ -10,6 +10,8 @@ import { getSession, logIn, logOut, signUp, updateProfile } from './services/aut
 import { addVehicle, deleteVehicle, listVehicles, updateVehicle } from './services/fleet'
 import { addDriver, deleteDriver, listDrivers, updateDriver } from './services/drivers'
 import { clearStaging, openDocument, pickDocument } from './services/documents'
+import { scanDocument } from './services/ocr'
+import type { ScanInput } from '../shared/ocr'
 import {
   createTrip,
   deleteTrip,
@@ -256,6 +258,9 @@ function registerFleetHandlers(): void {
   // Attachments: picking copies the file into staging until the trip is saved
   ipcMain.handle('documents:pick', (event, docType: unknown) =>
     runFleetAsync(() => pickDocument(BrowserWindow.fromWebContents(event.sender), docType))
+  )
+  ipcMain.handle('documents:scan', (_event, input: ScanInput) =>
+    runFleetAsync((ownerId) => scanDocument(ownerId, input))
   )
   ipcMain.handle('documents:open', (_event, documentId: unknown) =>
     runFleetAsync((ownerId) => openDocument(ownerId, documentId))

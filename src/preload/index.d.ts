@@ -22,6 +22,7 @@ import type {
 } from '../shared/fleet'
 import type { TripDetails } from '../shared/billing'
 import type { DashboardData, DashboardPeriod } from '../shared/dashboard'
+import type { OcrResult, ScanInput } from '../shared/ocr'
 import type { TaxRatesInput, TaxSettingsView } from '../shared/tax'
 
 export interface UpdateStatus {
@@ -87,6 +88,8 @@ export interface DocumentsAPI {
   pick: (docType: DocumentType) => Promise<FleetResult<StagedDocument | null>>
   // Opens a saved attachment in the system viewer
   open: (documentId: number) => Promise<FleetResult<null>>
+  // Simulated OCR: reads a staged or saved attachment to fill in the trip form
+  scan: (input: ScanInput) => Promise<FleetResult<OcrResult>>
 }
 
 export interface CertificatesAPI {

@@ -152,6 +152,7 @@
   "owner": {
     "sections": "Fleet owner sections",
     "vehicles": "Vehicles",
+    "drivers": "Drivers",
     "trips": "Trips"
   },
   "fleet": {
@@ -233,6 +234,39 @@
       "invalid_phone": "Enter a valid phone number: 7 to 15 digits, optionally starting with +.",
       "phone_taken": "You already have a driver with this phone number.",
       "driver_not_found": "This driver could not be found."
+    }
+  },
+  "drivers": {
+    "title": "Drivers",
+    "subtitle": "The drivers who drive your vehicles. Each trip names one, and their name and phone are printed on its manifest.",
+    "add": "Add driver",
+    "edit": "Edit",
+    "editName": "Edit driver {{name}}",
+    "delete": "Delete",
+    "deleteName": "Delete driver {{name}}",
+    "empty": {
+      "title": "No drivers yet",
+      "body": "Add your drivers so you can pick one when you register a trip."
+    },
+    "columns": {
+      "name": "Name",
+      "phone": "Phone number"
+    },
+    "dialog": {
+      "addTitle": "Add a driver",
+      "editTitle": "Edit driver",
+      "subtitle": "Name and phone number.",
+      "add": "Add driver",
+      "save": "Save changes"
+    },
+    "deleteDialog": {
+      "title": "Delete this driver?",
+      "body": "The driver will be removed from your list. Manifests already issued keep their name and phone."
+    },
+    "fields": {
+      "name": "Driver name",
+      "phone": "Phone number",
+      "phoneHint": "e.g. 0912345678. It can start with +249."
     }
   },
   "trips": {

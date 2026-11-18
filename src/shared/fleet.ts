@@ -52,6 +52,25 @@ export const MAX_CARGO_ITEMS = 50
 // رقم الترخيص: free text, at most this long
 export const MAX_REGISTRATION_LENGTH = 30
 export const MAX_DRIVER_NAME_LENGTH = 80
+export const MAX_TRAILERS = 3
+export const MAX_PARTY_NAME_LENGTH = 120
+export const MAX_PARTY_ADDRESS_LENGTH = 200
+export const MAX_PACKING_LENGTH = 40
+export const MAX_NOTES_LENGTH = 200
+export const MAX_PACKAGE_COUNT = 1_000_000
+
+// Common packing types, offered as suggestions (labels in packingTypes.*). The field is free text:
+// what's stored is the text the owner picked or typed.
+export const PACKING_SUGGESTIONS = [
+  'barrels',
+  'sacks',
+  'packages',
+  'cartons',
+  'boxes',
+  'pallets',
+  'bales',
+  'bulk'
+] as const
 export const MAX_ITEM_NAME_LENGTH = 80
 
 // Tankers carry liquids by default; everything else is measured in tons
@@ -118,10 +137,29 @@ export interface TripReferenceData {
 
 export interface CargoItem {
   name: string
+  // The weight (or volume) in `unit`; drives the cost and the capacity check
   quantity: number
   unit: ItemUnit
   // Picks the item's rate; its unit has to match the vehicle's
   cargoType: CargoType
+  // How it's packed and how many packages; drafts may leave them empty, a bill needs them
+  packingType: string | null
+  packageCount: number | null
+  notes: string | null
+}
+
+// A sender (shipper) or receiver. Empty strings while a draft leaves them out.
+export interface Party {
+  name: string
+  address: string
+  phone: string
+}
+
+// The fleet owner as carrier, copied onto the manifest when its bill is generated
+export interface CarrierDetails {
+  name: string
+  address: string
+  tin: string
 }
 
 // A saved item, with the rate it was priced at and its share of the trip cost
@@ -138,6 +176,13 @@ export interface TripInput {
   items: CargoItem[]
   // Local calendar date, YYYY-MM-DD
   tripDate: string
+  tripKind: TripKind
+  // Trailer plates, as stored ("KH 12/34567"), in order
+  trailers: string[]
+  // One of the owner's drivers; drafts may leave it empty
+  driverId: number | null
+  shipper: Party
+  receiver: Party
 }
 
 export interface TripRecord {
@@ -145,6 +190,7 @@ export interface TripRecord {
   vehicleId: number
   plateNumber: string
   vehicleType: VehicleType
+  registrationNo: string | null
   originCityId: number
   destinationCityId: number
   cargoType: CargoType
@@ -161,6 +207,53 @@ export interface TripRecord {
   items: CargoItemRecord[]
   status: ManifestStatus
   createdAt: number
+  tripKind: TripKind
+  trailers: string[]
+  driverId: number | null
+  // The driver's name and phone as the manifest prints them
+  driverName: string | null
+  driverPhone: string | null
+  shipper: Party
+  receiver: Party
+  // Set when the bill is generated
+  carrier: CarrierDetails | null
+}
+
+// Earlier senders and receivers and packing types, suggested on the trip form
+export interface TripSuggestions {
+  parties: Party[]
+  packingTypes: string[]
+}
+
+// What a draft still needs before its bill can be generated
+export const BILLING_REQUIREMENTS = [
+  'driver',
+  'shipper',
+  'receiver',
+  'packing',
+  'carrier_address',
+  'carrier_tin'
+] as const
+export type BillingRequirement = (typeof BILLING_REQUIREMENTS)[number]
+
+const isComplete = (party: Party): boolean =>
+  Boolean(party.name.trim() && party.address.trim() && party.phone.trim())
+
+export function missingForBilling(
+  trip: Pick<TripRecord, 'driverId' | 'shipper' | 'receiver' | 'items'>,
+  owner: { address: string | null; tin: string | null }
+): BillingRequirement[] {
+  const met: Record<BillingRequirement, boolean> = {
+    driver: trip.driverId !== null,
+    shipper: isComplete(trip.shipper),
+    receiver: isComplete(trip.receiver),
+    packing:
+      trip.items.length > 0 &&
+      trip.items.every((item) => Boolean(item.packingType?.trim()) && item.packageCount !== null),
+    carrier_address: Boolean(owner.address?.trim()),
+    carrier_tin: Boolean(owner.tin?.trim())
+  }
+  return BILLING_REQUIREMENTS.filter((requirement) => !met[requirement])
 }
 
 export type FleetErrorCode =
@@ -189,6 +282,10 @@ export type FleetErrorCode =
   | 'invalid_phone'
   | 'phone_taken'
   | 'driver_not_found'
+  | 'driver_in_use'
+  | 'invalid_trailer'
+  | 'invalid_party'
+  | 'incomplete_manifest'
   | 'unknown'
 
 export type FleetResult<T> = { ok: true; data: T } | { ok: false; error: FleetErrorCode }

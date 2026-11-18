@@ -1,8 +1,8 @@
 import { randomBytes } from 'crypto'
 import { and, eq } from 'drizzle-orm'
 import QRCode from 'qrcode'
-import { certificates, getDb, manifests, payments, vehicles, type Payment } from '../db'
-import type { FleetResult } from '../../shared/fleet'
+import { certificates, getDb, manifests, payments, users, vehicles, type Payment } from '../db'
+import { missingForBilling, type FleetResult } from '../../shared/fleet'
 import { calculateTaxes } from '../../shared/tax'
 import {
   CERTIFICATE_VALID_DAYS,
@@ -11,6 +11,7 @@ import {
   type PaymentRecord,
   type TripDetails
 } from '../../shared/billing'
+import { findOwnedDriver } from './drivers'
 import { esali } from './esali'
 import {
   getFeeSettings,
@@ -113,16 +114,31 @@ export async function generateBill(
   if (paymentOf(trip.id)) return getTripDetails(ownerId, trip.id)
   if (trip.status !== 'draft') return { ok: false, error: 'already_billed' }
 
-  // Billed at today's tax percentages and fees (they may have changed since the draft was
-  // saved); the lines are frozen from here on
+  // The manifest has to be complete, including the owner's carrier details
   const db = getDb()
+  const owner = db.select().from(users).where(eq(users.id, ownerId)).get()
+  const driver = trip.driverId === null ? undefined : findOwnedDriver(ownerId, trip.driverId)
+  if (!owner || !driver || missingForBilling(toTripRecord(trip), owner).length > 0) {
+    return { ok: false, error: 'incomplete_manifest' }
+  }
+
+  // Billed at today's tax percentages and fees (they may have changed since the draft was
+  // saved); the lines are frozen from here on, and so are the carrier and driver details
   const taxes = calculateTaxes(trip.tripCost, getTaxSettings(db), getFeeSettings(db))
   const { billId } = esali.createBill({ amount: taxes.total })
   db.transaction((tx) => {
     writeTaxes(tx, trip.id, taxes.lines)
     tx.insert(payments).values({ manifestId: trip.id, billId, amount: taxes.total }).run()
     tx.update(manifests)
-      .set({ status: 'billed', taxAmount: taxes.total })
+      .set({
+        status: 'billed',
+        taxAmount: taxes.total,
+        carrierName: owner.companyName || owner.fullName,
+        carrierAddress: owner.address,
+        carrierTin: owner.tin,
+        driverName: driver.name,
+        driverPhone: driver.phone
+      })
       .where(eq(manifests.id, trip.id))
       .run()
   })

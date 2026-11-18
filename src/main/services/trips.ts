@@ -1,10 +1,11 @@
-import { and, asc, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull } from 'drizzle-orm'
 import {
   cities,
   getDb,
   manifestCargoItems,
   manifests,
   manifestTaxes,
+  manifestTrailers,
   taxRates,
   taxSettings,
   vehicles
@@ -14,7 +15,15 @@ import {
   ITEM_UNITS,
   MAX_CARGO_ITEMS,
   MAX_ITEM_NAME_LENGTH,
+  MAX_NOTES_LENGTH,
+  MAX_PACKAGE_COUNT,
+  MAX_PACKING_LENGTH,
+  MAX_PARTY_ADDRESS_LENGTH,
+  MAX_PARTY_NAME_LENGTH,
+  MAX_TRAILERS,
+  TRIP_KINDS,
   itemUnitsFor,
+  normalizePhone,
   totalInVehicleUnit,
   type CargoItem,
   type CargoItemRecord,
@@ -22,11 +31,15 @@ import {
   type FleetErrorCode,
   type FleetResult,
   type ItemUnit,
+  type Party,
   type QuantityUnit,
   type TripInput,
+  type TripKind,
   type TripRecord,
-  type TripReferenceData
+  type TripReferenceData,
+  type TripSuggestions
 } from '../../shared/fleet'
+import { normalizePlate } from '../../shared/plate'
 import {
   calculateItemsCost,
   calculateTaxes,
@@ -37,12 +50,16 @@ import {
   type TaxLine,
   type TaxSetting
 } from '../../shared/tax'
+import { findOwnedDriver } from './drivers'
 import { findOwnedVehicle } from './fleet'
 
 const isCargoType = (value: unknown): value is CargoType =>
   (CARGO_TYPES as readonly unknown[]).includes(value)
 const isItemUnit = (value: unknown): value is ItemUnit =>
   (ITEM_UNITS as readonly unknown[]).includes(value)
+const isTripKind = (value: unknown): value is TripKind =>
+  (TRIP_KINDS as readonly unknown[]).includes(value)
+const asText = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 
 // "YYYY-MM-DD" as local midnight, or null if it isn't a real calendar date
 function parseTripDate(value: unknown): Date | null {
@@ -105,6 +122,7 @@ export const tripColumns = {
   vehicleId: manifests.vehicleId,
   plateNumber: vehicles.plateNumber,
   vehicleType: vehicles.vehicleType,
+  registrationNo: vehicles.registrationNo,
   originCityId: manifests.originCityId,
   destinationCityId: manifests.destinationCityId,
   cargoType: manifests.cargoType,
@@ -116,15 +134,44 @@ export const tripColumns = {
   tripCost: manifests.tripCost,
   taxAmount: manifests.taxAmount,
   status: manifests.status,
-  createdAt: manifests.createdAt
+  createdAt: manifests.createdAt,
+  tripKind: manifests.tripKind,
+  driverId: manifests.driverId,
+  driverName: manifests.driverName,
+  driverPhone: manifests.driverPhone,
+  shipperName: manifests.shipperName,
+  shipperAddress: manifests.shipperAddress,
+  shipperPhone: manifests.shipperPhone,
+  receiverName: manifests.receiverName,
+  receiverAddress: manifests.receiverAddress,
+  receiverPhone: manifests.receiverPhone,
+  carrierName: manifests.carrierName,
+  carrierAddress: manifests.carrierAddress,
+  carrierTin: manifests.carrierTin
 }
 
-export type TripRow = Omit<TripRecord, 'tripDate' | 'createdAt' | 'items' | 'taxes'> & {
+type NestedFields = 'items' | 'taxes' | 'trailers' | 'shipper' | 'receiver' | 'carrier'
+export type TripRow = Omit<TripRecord, 'tripDate' | 'createdAt' | NestedFields> & {
   tripDate: Date
   createdAt: Date
+  shipperName: string | null
+  shipperAddress: string | null
+  shipperPhone: string | null
+  receiverName: string | null
+  receiverAddress: string | null
+  receiverPhone: string | null
+  carrierName: string | null
+  carrierAddress: string | null
+  carrierTin: string | null
 }
 
-// Adds the cargo items and tax lines to manifest rows, with one query per table
+const party = (name: string | null, address: string | null, phone: string | null): Party => ({
+  name: name ?? '',
+  address: address ?? '',
+  phone: phone ?? ''
+})
+
+// Adds the cargo items, tax lines and trailers to manifest rows, with one query per table
 export function toTripRecords(rows: readonly TripRow[]): TripRecord[] {
   if (rows.length === 0) return []
   const db = getDb()
@@ -144,7 +191,10 @@ export function toTripRecords(rows: readonly TripRow[]): TripRecord[] {
       cargoType: item.cargoType,
       ratePerKm: item.ratePerKm,
       perQuantity: item.perQuantity,
-      cost: item.cost
+      cost: item.cost,
+      packingType: item.packingType,
+      packageCount: item.packageCount,
+      notes: item.notes
     })
     items.set(item.manifestId, list)
   }
@@ -159,13 +209,46 @@ export function toTripRecords(rows: readonly TripRow[]): TripRecord[] {
     list.push({ code: line.code, rateBps: line.rateBps, amount: line.amount })
     taxes.set(line.manifestId, list)
   }
-  return rows.map((row) => ({
-    ...row,
-    tripDate: row.tripDate.getTime(),
-    createdAt: row.createdAt.getTime(),
-    items: items.get(row.id) ?? [],
-    taxes: taxes.get(row.id) ?? []
-  }))
+  const trailers = new Map<number, string[]>()
+  for (const trailer of db
+    .select()
+    .from(manifestTrailers)
+    .where(inArray(manifestTrailers.manifestId, ids))
+    .orderBy(asc(manifestTrailers.position))
+    .all()) {
+    trailers.set(trailer.manifestId, [
+      ...(trailers.get(trailer.manifestId) ?? []),
+      trailer.plateNumber
+    ])
+  }
+  return rows.map((row) => {
+    const {
+      shipperName,
+      shipperAddress,
+      shipperPhone,
+      receiverName,
+      receiverAddress,
+      receiverPhone,
+      carrierName,
+      carrierAddress,
+      carrierTin,
+      ...rest
+    } = row
+    return {
+      ...rest,
+      tripDate: row.tripDate.getTime(),
+      createdAt: row.createdAt.getTime(),
+      items: items.get(row.id) ?? [],
+      taxes: taxes.get(row.id) ?? [],
+      trailers: trailers.get(row.id) ?? [],
+      shipper: party(shipperName, shipperAddress, shipperPhone),
+      receiver: party(receiverName, receiverAddress, receiverPhone),
+      carrier:
+        carrierName !== null
+          ? { name: carrierName, address: carrierAddress ?? '', tin: carrierTin ?? '' }
+          : null
+    }
+  })
 }
 
 export const toTripRecord = (row: TripRow): TripRecord => toTripRecords([row])[0]
@@ -182,27 +265,69 @@ export function listTrips(ownerId: number): TripRecord[] {
   )
 }
 
-// Items from the renderer, trimmed and checked; null if any of them is invalid
+// Items from the renderer, trimmed and checked; null if any of them is invalid. The packing type
+// and package count may be empty on a draft.
 function parseItems(value: unknown, vehicleUnit: QuantityUnit): CargoItem[] | null {
   if (!Array.isArray(value) || value.length === 0 || value.length > MAX_CARGO_ITEMS) return null
   const allowed = itemUnitsFor(vehicleUnit)
   const items: CargoItem[] = []
   for (const raw of value) {
-    const name = typeof raw?.name === 'string' ? raw.name.trim() : ''
+    const name = asText(raw?.name)
     const quantity = raw?.quantity
     if (!name || name.length > MAX_ITEM_NAME_LENGTH) return null
     if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity <= 0) return null
     if (!isItemUnit(raw?.unit) || !allowed.includes(raw.unit)) return null
     if (!isCargoType(raw?.cargoType)) return null
-    items.push({ name, quantity, unit: raw.unit, cargoType: raw.cargoType })
+    const packingType = asText(raw?.packingType)
+    const notes = asText(raw?.notes)
+    if (packingType.length > MAX_PACKING_LENGTH || notes.length > MAX_NOTES_LENGTH) return null
+    const packageCount = raw?.packageCount ?? null
+    if (
+      packageCount !== null &&
+      (!Number.isInteger(packageCount) || packageCount <= 0 || packageCount > MAX_PACKAGE_COUNT)
+    ) {
+      return null
+    }
+    items.push({
+      name,
+      quantity,
+      unit: raw.unit,
+      cargoType: raw.cargoType,
+      packingType: packingType || null,
+      packageCount,
+      notes: notes || null
+    })
   }
   return items
+}
+
+// A sender or receiver: every field may be empty on a draft, but a phone has to be valid
+function parseParty(value: unknown): Party | null {
+  const raw = value as Partial<Party> | null | undefined
+  const name = asText(raw?.name)
+  const address = asText(raw?.address)
+  const rawPhone = asText(raw?.phone)
+  if (name.length > MAX_PARTY_NAME_LENGTH || address.length > MAX_PARTY_ADDRESS_LENGTH) return null
+  const phone = rawPhone ? normalizePhone(rawPhone) : ''
+  if (phone === null) return null
+  return { name, address, phone }
+}
+
+// Trailer plates: valid, at most MAX_TRAILERS, all different and not the vehicle's own plate
+function parseTrailers(value: unknown, headPlate: string): string[] | null {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > MAX_TRAILERS) return null
+  const plates = value.map((plate) => (typeof plate === 'string' ? normalizePlate(plate) : null))
+  if (plates.some((plate) => plate === null)) return null
+  const unique = new Set([headPlate, ...(plates as string[])])
+  return unique.size === plates.length + 1 ? (plates as string[]) : null
 }
 
 interface BuiltTrip {
   manifest: Omit<typeof manifests.$inferInsert, 'status'>
   items: CargoItemRecord[]
   taxes: TaxLine[]
+  trailers: string[]
 }
 
 // Validates a trip and computes its cost and taxes from the DB; the renderer's preview is never
@@ -240,6 +365,17 @@ function buildTrip(ownerId: number, input: TripInput): FleetResult<BuiltTrip> {
   const tripDate = parseTripDate(input.tripDate)
   if (!tripDate) return { ok: false, error: 'invalid_date' }
 
+  if (!isTripKind(input.tripKind)) return { ok: false, error: 'missing_fields' }
+  const trailers = parseTrailers(input.trailers, vehicle.plateNumber)
+  if (!trailers) return { ok: false, error: 'invalid_trailer' }
+  const shipper = parseParty(input.shipper)
+  const receiver = parseParty(input.receiver)
+  if (!shipper || !receiver) return { ok: false, error: 'invalid_party' }
+  // The manifest keeps a copy of the driver's name and phone
+  const driverId = input.driverId ?? null
+  const driver = driverId === null ? null : findOwnedDriver(ownerId, driverId)
+  if (driverId !== null && !driver) return { ok: false, error: 'driver_not_found' }
+
   const distanceKm = estimateRoadKm(origin, destination)
   const priced = calculateItemsCost(items, rates, distanceKm)
   if (!priced || !priced.mainType) return { ok: false, error: 'unknown' }
@@ -261,7 +397,17 @@ function buildTrip(ownerId: number, input: TripInput): FleetResult<BuiltTrip> {
         distanceKm,
         ratePerKm: mainRate.ratePerKm,
         tripCost,
-        taxAmount: taxes.total
+        taxAmount: taxes.total,
+        tripKind: input.tripKind,
+        driverId: driver?.id ?? null,
+        driverName: driver?.name ?? null,
+        driverPhone: driver?.phone ?? null,
+        shipperName: shipper.name || null,
+        shipperAddress: shipper.address || null,
+        shipperPhone: shipper.phone || null,
+        receiverName: receiver.name || null,
+        receiverAddress: receiver.address || null,
+        receiverPhone: receiver.phone || null
       },
       items: items.map((item, index) => {
         const rate = rates.find((r) => r.cargoType === item.cargoType)
@@ -272,7 +418,8 @@ function buildTrip(ownerId: number, input: TripInput): FleetResult<BuiltTrip> {
           cost: priced.costs[index]
         }
       }),
-      taxes: taxes.lines
+      taxes: taxes.lines,
+      trailers
     }
   }
 }
@@ -281,6 +428,14 @@ function writeItems(tx: Tx, manifestId: number, items: readonly CargoItemRecord[
   tx.delete(manifestCargoItems).where(eq(manifestCargoItems.manifestId, manifestId)).run()
   tx.insert(manifestCargoItems)
     .values(items.map((item, position) => ({ manifestId, position, ...item })))
+    .run()
+}
+
+function writeTrailers(tx: Tx, manifestId: number, trailers: readonly string[]): void {
+  tx.delete(manifestTrailers).where(eq(manifestTrailers.manifestId, manifestId)).run()
+  if (trailers.length === 0) return
+  tx.insert(manifestTrailers)
+    .values(trailers.map((plateNumber, position) => ({ manifestId, position, plateNumber })))
     .run()
 }
 
@@ -308,7 +463,7 @@ const failure = (error: FleetErrorCode): FleetResult<never> => ({ ok: false, err
 export function createTrip(ownerId: number, input: TripInput): FleetResult<TripRecord> {
   const built = buildTrip(ownerId, input)
   if (!built.ok) return built
-  const { manifest, items, taxes } = built.data
+  const { manifest, items, taxes, trailers } = built.data
 
   const id = getDb().transaction((tx) => {
     const { id } = tx
@@ -318,6 +473,7 @@ export function createTrip(ownerId: number, input: TripInput): FleetResult<TripR
       .get()
     writeItems(tx, id, items)
     writeTaxes(tx, id, taxes)
+    writeTrailers(tx, id, trailers)
     return id
   })
   const row = findOwnedTripRow(ownerId, id)
@@ -336,7 +492,7 @@ export function updateTrip(
 
   const built = buildTrip(ownerId, input)
   if (!built.ok) return built
-  const { manifest, items, taxes } = built.data
+  const { manifest, items, taxes, trailers } = built.data
 
   getDb().transaction((tx) => {
     // Re-checked inside the transaction so a bill issued meanwhile can't be overwritten
@@ -349,6 +505,7 @@ export function updateTrip(
     tx.update(manifests).set(manifest).where(eq(manifests.id, existing.id)).run()
     writeItems(tx, existing.id, items)
     writeTaxes(tx, existing.id, taxes)
+    writeTrailers(tx, existing.id, trailers)
   })
   const row = findOwnedTripRow(ownerId, existing.id)
   if (!row) return failure('manifest_not_found')
@@ -372,8 +529,52 @@ export function deleteTrip(ownerId: number, manifestId: number): FleetResult<nul
     if (current?.status !== 'draft') return false
     tx.delete(manifestCargoItems).where(eq(manifestCargoItems.manifestId, existing.id)).run()
     tx.delete(manifestTaxes).where(eq(manifestTaxes.manifestId, existing.id)).run()
+    tx.delete(manifestTrailers).where(eq(manifestTrailers.manifestId, existing.id)).run()
     tx.delete(manifests).where(eq(manifests.id, existing.id)).run()
     return true
   })
   return deleted ? { ok: true, data: null } : failure('not_draft')
+}
+
+const MAX_SUGGESTED_PARTIES = 50
+
+// Senders and receivers from the owner's earlier trips (newest first, each once), and the packing
+// types they used, for the trip form's suggestions
+export function listSuggestions(ownerId: number): TripSuggestions {
+  const db = getDb()
+  const rows = db
+    .select({
+      shipperName: manifests.shipperName,
+      shipperAddress: manifests.shipperAddress,
+      shipperPhone: manifests.shipperPhone,
+      receiverName: manifests.receiverName,
+      receiverAddress: manifests.receiverAddress,
+      receiverPhone: manifests.receiverPhone
+    })
+    .from(manifests)
+    .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
+    .where(eq(vehicles.ownerId, ownerId))
+    .orderBy(desc(manifests.createdAt), desc(manifests.id))
+    .all()
+  const parties = new Map<string, Party>()
+  for (const row of rows) {
+    for (const found of [
+      party(row.shipperName, row.shipperAddress, row.shipperPhone),
+      party(row.receiverName, row.receiverAddress, row.receiverPhone)
+    ]) {
+      const key = `${found.name}\n${found.address}\n${found.phone}`
+      if (found.name && !parties.has(key)) parties.set(key, found)
+    }
+    if (parties.size >= MAX_SUGGESTED_PARTIES) break
+  }
+
+  const packingTypes = db
+    .selectDistinct({ packingType: manifestCargoItems.packingType })
+    .from(manifestCargoItems)
+    .innerJoin(manifests, eq(manifestCargoItems.manifestId, manifests.id))
+    .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
+    .where(and(eq(vehicles.ownerId, ownerId), isNotNull(manifestCargoItems.packingType)))
+    .all()
+    .flatMap((row) => (row.packingType ? [row.packingType] : []))
+  return { parties: [...parties.values()].slice(0, MAX_SUGGESTED_PARTIES), packingTypes }
 }

@@ -9,7 +9,14 @@ import { initDb, closeDb } from './db'
 import { getSession, logIn, logOut, signUp, updateProfile } from './services/auth'
 import { addVehicle, deleteVehicle, listVehicles, updateVehicle } from './services/fleet'
 import { addDriver, deleteDriver, listDrivers, updateDriver } from './services/drivers'
-import { createTrip, deleteTrip, getReferenceData, listTrips, updateTrip } from './services/trips'
+import {
+  createTrip,
+  deleteTrip,
+  getReferenceData,
+  listSuggestions,
+  listTrips,
+  updateTrip
+} from './services/trips'
 import {
   generateBill,
   getTripDetails,
@@ -218,6 +225,9 @@ function registerFleetHandlers(): void {
   )
   ipcMain.handle('trips:list', () =>
     runFleet((ownerId) => ({ ok: true, data: listTrips(ownerId) }))
+  )
+  ipcMain.handle('trips:suggestions', () =>
+    runFleet((ownerId) => ({ ok: true, data: listSuggestions(ownerId) }))
   )
   ipcMain.handle('trips:create', (_event, input: TripInput) =>
     runFleet((ownerId) => createTrip(ownerId, input))

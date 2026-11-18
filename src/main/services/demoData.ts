@@ -172,6 +172,9 @@ const DRIVER_LAST_NAMES = [
 const DEFAULT_TAX_SETTINGS = TAX_CODES.map((code) => ({ code, rateBps: DEFAULT_TAX_BPS[code] }))
 const DEFAULT_FEE_SETTINGS = FEE_CODES.map((code) => ({ code, amount: DEFAULT_FEES[code] }))
 
+// Packing details are filled in after the load is split
+const UNPACKED = { packingType: null, packageCount: null, notes: null }
+
 // Splits a load (in the vehicle's unit) into 1-4 named items, rounded down so the total never
 // grows past the load
 function cargoItems(
@@ -195,14 +198,20 @@ function cargoItems(
       if (liters <= 0) return
       items.push(
         liters % 1000 === 0 && rand() < 0.35
-          ? { name: names[i], quantity: liters / 1000, unit: 'm3', cargoType }
-          : { name: names[i], quantity: liters, unit: 'liter', cargoType }
+          ? { ...UNPACKED, name: names[i], quantity: liters / 1000, unit: 'm3', cargoType }
+          : { ...UNPACKED, name: names[i], quantity: liters, unit: 'liter', cargoType }
       )
     } else if (part >= 1 && rand() < 0.65) {
-      items.push({ name: names[i], quantity: Math.floor(part), unit: 'ton', cargoType })
+      items.push({
+        ...UNPACKED,
+        name: names[i],
+        quantity: Math.floor(part),
+        unit: 'ton',
+        cargoType
+      })
     } else {
       const kg = Math.floor((part * 1000) / 50) * 50
-      if (kg > 0) items.push({ name: names[i], quantity: kg, unit: 'kg', cargoType })
+      if (kg > 0) items.push({ ...UNPACKED, name: names[i], quantity: kg, unit: 'kg', cargoType })
     }
   })
   return items

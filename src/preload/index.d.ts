@@ -14,6 +14,7 @@ import type {
   TripInput,
   TripRecord,
   TripReferenceData,
+  TripSuggestions,
   VehicleInput,
   VehicleRecord
 } from '../shared/fleet'
@@ -61,6 +62,8 @@ export interface FleetAPI {
 export interface TripsAPI {
   getReferenceData: () => Promise<FleetResult<TripReferenceData>>
   list: () => Promise<FleetResult<TripRecord[]>>
+  // Earlier senders, receivers and packing types, for the trip form
+  suggestions: () => Promise<FleetResult<TripSuggestions>>
   create: (input: TripInput) => Promise<FleetResult<TripRecord>>
   // Drafts only
   update: (id: number, input: TripInput) => Promise<FleetResult<TripRecord>>
@@ -70,6 +73,7 @@ export interface TripsAPI {
 
 export interface BillingAPI {
   getTrip: (manifestId: number) => Promise<FleetResult<TripDetails>>
+  // incomplete_manifest until missingForBilling is empty
   generate: (manifestId: number) => Promise<FleetResult<TripDetails>>
   refresh: (manifestId: number) => Promise<FleetResult<TripDetails>>
   // Demo only: pays the bill at the simulated E-Sali

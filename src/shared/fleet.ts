@@ -16,12 +16,15 @@ export const CARGO_TYPES = ['fuel', 'liquids', 'containers', 'general_cargo'] as
 export const ITEM_UNITS = ['kg', 'ton', 'liter', 'm3'] as const
 export const MANIFEST_STATUSES = ['draft', 'billed', 'paid', 'certified', 'cancelled'] as const
 export const PAYMENT_STATUSES = ['pending', 'paid', 'expired', 'failed'] as const
+// Domestic, or crossing the border (imports need a certificate of origin and an authorization)
+export const TRIP_KINDS = ['domestic', 'import', 'export'] as const
 
 export type VehicleType = (typeof VEHICLE_TYPES)[number]
 export type QuantityUnit = (typeof QUANTITY_UNITS)[number]
 export type CargoType = (typeof CARGO_TYPES)[number]
 export type ManifestStatus = (typeof MANIFEST_STATUSES)[number]
 export type ItemUnit = (typeof ITEM_UNITS)[number]
+export type TripKind = (typeof TRIP_KINDS)[number]
 
 const ITEM_UNITS_FOR: Record<QuantityUnit, readonly ItemUnit[]> = {
   ton: ['ton', 'kg'],

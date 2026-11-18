@@ -15,7 +15,8 @@ import {
   ITEM_UNITS,
   MANIFEST_STATUSES,
   PAYMENT_STATUSES,
-  TRIP_KINDS
+  TRIP_KINDS,
+  DOCUMENT_TYPES
 } from '../../shared/fleet'
 import { FEE_CODES, LINE_CODES, MAX_FEE, TAX_CODES } from '../../shared/tax'
 
@@ -249,6 +250,28 @@ export const manifestTrailers = sqliteTable(
   (t) => [index('manifest_trailers_manifest_id_idx').on(t.manifestId)]
 )
 
+// Supporting documents attached to a trip (invoice, packing list, …). The files live in the app's
+// data folder under documents/<manifest id>/<stored name>.
+export const tripDocuments = sqliteTable(
+  'trip_documents',
+  {
+    id,
+    manifestId: integer('manifest_id')
+      .notNull()
+      .references(() => manifests.id, { onDelete: 'restrict' }),
+    docType: text('doc_type', { enum: DOCUMENT_TYPES }).notNull(),
+    // The name the owner's file had, shown in the app
+    fileName: text('file_name').notNull(),
+    storedName: text('stored_name').notNull(),
+    size: integer('size').notNull(),
+    ...timestamps
+  },
+  (t) => [
+    uniqueIndex('trip_documents_manifest_type_idx').on(t.manifestId, t.docType),
+    check('trip_documents_type_check', sql`${t.docType} IN (${inList(DOCUMENT_TYPES)})`)
+  ]
+)
+
 // Current tax percentages, in basis points (1700 = 17%), and fixed fees, in whole SDG. A tax row
 // has rate_bps, a fee row has amount. Editable by government users.
 export const taxSettings = sqliteTable(
@@ -372,6 +395,7 @@ export type City = typeof cities.$inferSelect
 export type Vehicle = typeof vehicles.$inferSelect
 export type NewVehicle = typeof vehicles.$inferInsert
 export type Driver = typeof drivers.$inferSelect
+export type TripDocument = typeof tripDocuments.$inferSelect
 export type TaxRate = typeof taxRates.$inferSelect
 export type Manifest = typeof manifests.$inferSelect
 export type ManifestCargoItem = typeof manifestCargoItems.$inferSelect

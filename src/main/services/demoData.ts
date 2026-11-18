@@ -13,6 +13,7 @@ import {
   manifests,
   manifestTaxes,
   manifestTrailers,
+  tripDocuments,
   payments,
   taxRates,
   users,
@@ -38,6 +39,7 @@ import {
 } from '../../shared/tax'
 import { dropSessionsOf, hashPassword } from './auth'
 import { certificateNoFor, manifestNoFor, validUntilFor } from './billing'
+import { removeTripFolder } from './documents'
 import { newBillId } from './esali'
 
 const DAY_MS = 86_400_000
@@ -769,6 +771,14 @@ function deleteDemoOwners(): void {
     tx.delete(manifestCargoItems).where(inArray(manifestCargoItems.manifestId, demoManifests)).run()
     tx.delete(manifestTaxes).where(inArray(manifestTaxes.manifestId, demoManifests)).run()
     tx.delete(manifestTrailers).where(inArray(manifestTrailers.manifestId, demoManifests)).run()
+    // Files attached by hand to a demo company's trips go too
+    const attached = tx
+      .selectDistinct({ manifestId: tripDocuments.manifestId })
+      .from(tripDocuments)
+      .where(inArray(tripDocuments.manifestId, demoManifests))
+      .all()
+    tx.delete(tripDocuments).where(inArray(tripDocuments.manifestId, demoManifests)).run()
+    for (const { manifestId } of attached) removeTripFolder(manifestId)
     tx.delete(payments).where(inArray(payments.manifestId, demoManifests)).run()
     tx.delete(manifests).where(inArray(manifests.vehicleId, demoVehicles)).run()
     tx.delete(vehicles).where(inArray(vehicles.ownerId, ownerIds)).run()

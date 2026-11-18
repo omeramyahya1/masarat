@@ -9,9 +9,11 @@ import type {
   UserRole
 } from '../shared/auth'
 import type {
+  DocumentType,
   DriverInput,
   DriverRecord,
   FleetResult,
+  StagedDocument,
   TripInput,
   TripRecord,
   TripReferenceData,
@@ -92,6 +94,12 @@ const api = {
       ipcRenderer.invoke('billing:refresh', manifestId),
     simulatePayment: (manifestId: number): Promise<FleetResult<null>> =>
       ipcRenderer.invoke('billing:simulate-payment', manifestId)
+  },
+  documents: {
+    pick: (docType: DocumentType): Promise<FleetResult<StagedDocument | null>> =>
+      ipcRenderer.invoke('documents:pick', docType),
+    open: (documentId: number): Promise<FleetResult<null>> =>
+      ipcRenderer.invoke('documents:open', documentId)
   },
   certificates: {
     savePdf: (fileName: string): Promise<FleetResult<{ saved: boolean }>> =>

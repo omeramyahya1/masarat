@@ -28,8 +28,8 @@ function DriverDialog({ driver, onClose, onSaved }: DriverDialogProps): React.JS
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
-    // The dialog can open inside the trip form (no portal), and React would bubble this submit up
-    // to it and save the trip too
+    // The trip form opens this dialog through a portal, and React still bubbles events through
+    // portals: without this the trip form would submit (and save the trip) too
     event.stopPropagation()
     if (!name.trim() || !phone.trim()) {
       setError('missing_fields')

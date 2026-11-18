@@ -149,6 +149,8 @@ export async function generateBill(
   // Billed at today's tax percentages and fees (they may have changed since the draft was
   // saved); the lines are frozen from here on, and so are the carrier and driver details
   const taxes = calculateTaxes(trip.tripCost, getTaxSettings(db), getFeeSettings(db))
+  // With every rate and fee at 0 there is nothing to pay; E-Sali isn't asked for a bill
+  if (taxes.total <= 0) return { ok: false, error: 'zero_bill' }
   const { billId } = esali.createBill({ amount: taxes.total })
   db.transaction((tx) => {
     writeTaxes(tx, trip.id, taxes.lines)

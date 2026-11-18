@@ -12,7 +12,14 @@ import {
   type TripDetails
 } from '../../shared/billing'
 import { esali } from './esali'
-import { getTaxSettings, toTripRecord, tripColumns, writeTaxes, type TripRow } from './trips'
+import {
+  getFeeSettings,
+  getTaxSettings,
+  toTripRecord,
+  tripColumns,
+  writeTaxes,
+  type TripRow
+} from './trips'
 
 const ownedTripColumns = { ...tripColumns, vehicleCapacity: vehicles.capacity }
 type OwnedTrip = TripRow & { vehicleCapacity: number }
@@ -95,7 +102,7 @@ export async function getTripDetails(
   }
 }
 
-// Asks E-Sali for a bill ID for the trip's taxes and moves the manifest to `billed`
+// Asks E-Sali for a bill ID for the trip's taxes and fees, and moves the manifest to `billed`
 export async function generateBill(
   ownerId: number,
   manifestId: number
@@ -106,10 +113,10 @@ export async function generateBill(
   if (paymentOf(trip.id)) return getTripDetails(ownerId, trip.id)
   if (trip.status !== 'draft') return { ok: false, error: 'already_billed' }
 
-  // Billed at today's tax percentages (they may have changed since the draft was saved); the
-  // lines are frozen from here on
+  // Billed at today's tax percentages and fees (they may have changed since the draft was
+  // saved); the lines are frozen from here on
   const db = getDb()
-  const taxes = calculateTaxes(trip.tripCost, getTaxSettings(db))
+  const taxes = calculateTaxes(trip.tripCost, getTaxSettings(db), getFeeSettings(db))
   const { billId } = esali.createBill({ amount: taxes.total })
   db.transaction((tx) => {
     writeTaxes(tx, trip.id, taxes.lines)

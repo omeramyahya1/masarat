@@ -223,7 +223,8 @@
       "unknown": "Something went wrong. Please try again.",
       "invalid_items": "Every cargo item needs a name and a quantity greater than zero.",
       "not_draft": "This trip's bill ID has been generated, so it can no longer be edited.",
-      "invalid_tax_rate": "Enter a percentage from 0 to 100, with up to two decimals."
+      "invalid_tax_rate": "Enter a percentage from 0 to 100, with up to two decimals.",
+      "invalid_fee": "Enter a whole amount from 0 to 1,000,000 SDG."
     }
   },
   "trips": {
@@ -231,7 +232,7 @@
     "subtitle": "Register trips and see the transport tax due on each one.",
     "new": "New trip",
     "backToList": "Back to trips",
-    "created": "Trip for {{plate}} saved as a draft. Tax due: {{amount}}.",
+    "created": "Trip for {{plate}} saved as a draft. Amount due: {{amount}}.",
     "empty": {
       "title": "No trips yet",
       "body": "Create a trip to calculate its transport tax."
@@ -272,7 +273,7 @@
       "cargoTypePlaceholder": "Select cargo"
     },
     "tax": {
-      "title": "Trip cost and taxes",
+      "title": "Trip cost, taxes and fees",
       "route": "Route",
       "distance": "Estimated distance",
       "rateValue": {
@@ -284,8 +285,8 @@
         "liter": "{{rate}} per km per liter"
       },
       "quantity": "Quantity",
-      "total": "Total taxes due",
-      "distanceNote": "Distance is estimated from city coordinates (straight line × {{factor}} road factor). Trip cost = rate × distance × quantity; the taxes are percentages of it.",
+      "total": "Total due",
+      "distanceNote": "Distance is estimated from city coordinates (straight line × {{factor}} road factor). Trip cost = rate × distance × quantity; the taxes are percentages of it, and the fees are fixed amounts.",
       "tripCost": "Trip cost",
       "line": "{{name}} ({{rate}})"
     },
@@ -338,7 +339,7 @@
     "title": "Tax payment",
     "amountDue": "Amount due",
     "draft": {
-      "body": "Generate an E-Sali bill ID to pay this trip's taxes. They're calculated at the current tax rates when the bill is issued.",
+      "body": "Generate an E-Sali bill ID to pay this trip's taxes and fees. They're calculated at the current rates and fees when the bill is issued.",
       "generate": "Generate bill ID"
     },
     "pending": {
@@ -352,34 +353,34 @@
     },
     "paid": {
       "title": "Tax paid",
-      "body": "E-Sali confirmed the payment and the trip certificate has been issued.",
+      "body": "E-Sali confirmed the payment and the electronic payment receipt has been issued.",
       "billId": "E-Sali bill ID",
       "paidAt": "Paid on",
       "paymentRef": "Payment reference",
-      "certificateNo": "Certificate no.",
+      "certificateNo": "Receipt no.",
       "validUntil": "Valid until",
-      "show": "Show / download certificate"
+      "show": "Show / download receipt"
     },
     "payDemo": "Pay {{billId}}",
     "demo": "Demo"
   },
   "certificate": {
-    "dialogTitle": "Trip certificate",
+    "dialogTitle": "Electronic payment receipt",
     "download": "Download PDF",
     "close": "Close",
-    "saved": "Certificate saved.",
+    "saved": "Receipt saved.",
     "header": {
       "republic": "Republic of the Sudan",
       "ministry": "Ministry of Finance and Economic Planning",
-      "authority": "Tax Collection Authority",
+      "authority": "Taxation Chamber",
       "department": "Transport Tax Department",
-      "title": "Road Transport Tax Payment Certificate"
+      "title": "Electronic Payment Receipt"
     },
     "sections": {
       "vehicle": "Vehicle details",
       "trip": "Trip and manifest details",
-      "tax": "Tax and payment",
-      "certificate": "Certificate details"
+      "tax": "Taxes, fees and payment",
+      "certificate": "Receipt details"
     },
     "fields": {
       "plate": "Plate number",
@@ -392,26 +393,26 @@
       "cargoType": "Cargo type",
       "quantity": "Quantity",
       "tripDate": "Trip date",
-      "taxAmount": "Total taxes paid",
+      "taxAmount": "Total paid",
       "billId": "E-Sali bill ID",
       "paymentStatus": "Payment status",
       "paidAt": "Paid on",
       "paymentRef": "Payment reference",
-      "certificateNo": "Certificate no.",
+      "certificateNo": "Receipt no.",
       "issuedAt": "Issued on",
       "validUntil": "Valid until",
       "tripCost": "Trip cost"
     },
     "paid": "Paid",
     "scanToVerify": "Scan the code to verify",
-    "footer": "This certificate was issued electronically by the Masarat system and needs no signature or stamp.",
+    "footer": "This receipt was issued electronically by the Masarat system and needs no signature or stamp.",
     "cargo": {
       "title": "Cargo manifest",
       "item": "Item",
       "quantity": "Quantity",
       "unit": "Unit",
       "total": "Total load",
-      "footer": "This page is part of the certificate above and is only valid with it.",
+      "footer": "This page is part of the receipt above and is only valid with it.",
       "type": "Cargo type"
     }
   },
@@ -468,7 +469,7 @@
         "title": "Revenue by cargo type"
       },
       "tax": {
-        "title": "Revenue by tax"
+        "title": "Revenue by tax and fee"
       },
       "breakdown": {
         "label": "Breakdown",
@@ -498,22 +499,25 @@
     "sections": "Government sections",
     "overview": "Overview",
     "taxes": {
-      "tab": "Tax rates",
-      "title": "Tax rates",
-      "subtitle": "The taxes charged on each trip, as a percentage of its trip cost.",
-      "saved": "Tax rates saved.",
+      "tab": "Taxes and fees",
+      "title": "Taxes and fees",
+      "subtitle": "The taxes charged on each trip, as a percentage of its trip cost, and the fixed fees added to every bill.",
+      "saved": "Tax rates and fees saved.",
+      "feeUnit": "SDG",
+      "feeHint": "A fixed amount added to every bill. It isn't taxed.",
+      "feeWas": "Currently {{amount}}",
       "was": "Currently {{rate}}",
       "totalRate": "Total tax rate",
-      "example": "On a trip cost of {{cost}}, the fleet owner pays {{amount}} in taxes.",
+      "example": "On a trip cost of {{cost}}, the fleet owner pays {{amount}} in taxes and fees.",
       "appliesTo": "New rates apply to bills issued from now on. Bills already issued keep the rates they were issued with.",
       "reset": "Discard changes",
-      "save": "Save rates",
+      "save": "Save changes",
       "history": {
         "title": "Change history",
         "empty": "No changes yet.",
         "date": "Date",
         "user": "Changed by",
-        "tax": "Tax",
+        "tax": "Tax or fee",
         "change": "Change"
       }
     }
@@ -541,6 +545,7 @@
   "taxes": {
     "vat": "Value added tax",
     "business_profit": "Business profit tax",
-    "locality": "Locality tax"
+    "locality": "Locality tax",
+    "manifest_fee": "Manifest fee"
   }
 }

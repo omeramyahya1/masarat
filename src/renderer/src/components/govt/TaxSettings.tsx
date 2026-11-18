@@ -3,10 +3,14 @@ import { useTranslation } from 'react-i18next'
 import { ArrowRight, Info, LoaderCircle } from 'lucide-react'
 import type { FleetErrorCode } from '../../../../shared/fleet'
 import {
+  FEE_CODES,
+  LINE_CODES,
+  MAX_FEE,
   MAX_TAX_BPS,
   TAX_CODES,
   calculateTaxes,
-  type TaxCode,
+  isFeeCode,
+  type LineCode,
   type TaxRatesInput,
   type TaxSettingsView
 } from '../../../../shared/tax'
@@ -15,7 +19,7 @@ import { useMountedRef } from '../../lib/useMountedRef'
 import { FormAlert, NumberField, SubmitButton } from '../form/fields'
 import { Card } from './parts'
 
-type Drafts = Record<TaxCode, string>
+type Drafts = Record<LineCode, string>
 
 // Trip cost used for the "what the owner pays" example
 const EXAMPLE_TRIP_COST = 1_000_000
@@ -27,16 +31,30 @@ const toBps = (text: string): number | null => {
   const bps = Math.round(Number(text) * 100)
   return Number.isFinite(bps) && bps >= 0 && bps <= MAX_TAX_BPS ? bps : null
 }
+// A fee is typed in whole SDG
+const toFee = (text: string): number | null => {
+  if (text === '') return null
+  const amount = Number(text)
+  return Number.isInteger(amount) && amount >= 0 && amount <= MAX_FEE ? amount : null
+}
+const parseDraft = (code: LineCode, text: string): number | null =>
+  isFeeCode(code) ? toFee(text) : toBps(text)
+
+// Stored value: basis points for a tax, SDG for a fee
+const currentValue = (view: TaxSettingsView, code: LineCode): number =>
+  (isFeeCode(code)
+    ? view.fees.find((f) => f.code === code)?.amount
+    : view.rates.find((r) => r.code === code)?.rateBps) ?? 0
 
 const draftsFrom = (view: TaxSettingsView): Drafts =>
   Object.fromEntries(
-    TAX_CODES.map((code) => [
-      code,
-      toPercentText(view.rates.find((r) => r.code === code)?.rateBps ?? 0)
-    ])
+    LINE_CODES.map((code) => {
+      const value = currentValue(view, code)
+      return [code, isFeeCode(code) ? String(value) : toPercentText(value)]
+    })
   ) as Drafts
 
-// Government users set the tax percentages; every change is logged with who made it
+// Government users set the tax percentages and fees; every change is logged with who made it
 function TaxSettings(): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
@@ -69,19 +87,24 @@ function TaxSettings(): React.JSX.Element {
     )
   }
 
-  const bps = Object.fromEntries(TAX_CODES.map((code) => [code, toBps(drafts[code])])) as Record<
-    TaxCode,
-    number | null
-  >
-  const invalid = TAX_CODES.filter((code) => bps[code] === null)
-  const current = (code: TaxCode): number => view.rates.find((r) => r.code === code)?.rateBps ?? 0
-  const changed = TAX_CODES.filter((code) => bps[code] !== null && bps[code] !== current(code))
+  const values = Object.fromEntries(
+    LINE_CODES.map((code) => [code, parseDraft(code, drafts[code])])
+  ) as Record<LineCode, number | null>
+  const invalid = LINE_CODES.filter((code) => values[code] === null)
+  const current = (code: LineCode): number => currentValue(view, code)
+  const changed = LINE_CODES.filter(
+    (code) => values[code] !== null && values[code] !== current(code)
+  )
   const example = calculateTaxes(
     EXAMPLE_TRIP_COST,
-    TAX_CODES.map((code) => ({ code, rateBps: bps[code] ?? 0 }))
+    TAX_CODES.map((code) => ({ code, rateBps: values[code] ?? 0 })),
+    FEE_CODES.map((code) => ({ code, amount: values[code] ?? 0 }))
   )
+  // Shown as the stored value: a percentage for a tax, an amount for a fee
+  const formatValue = (code: LineCode, value: number): string =>
+    isFeeCode(code) ? format.currency(value) : format.taxRate(value)
 
-  const edit = (code: TaxCode, value: string): void => {
+  const edit = (code: LineCode, value: string): void => {
     setSaved(false)
     setError(null)
     setDrafts({ ...drafts, [code]: value })
@@ -89,9 +112,10 @@ function TaxSettings(): React.JSX.Element {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
-    if (invalid.length > 0) return setError('invalid_tax_rate')
+    if (invalid.length > 0)
+      return setError(isFeeCode(invalid[0]) ? 'invalid_fee' : 'invalid_tax_rate')
     if (changed.length === 0) return
-    const input: TaxRatesInput = Object.fromEntries(changed.map((code) => [code, bps[code]]))
+    const input: TaxRatesInput = Object.fromEntries(changed.map((code) => [code, values[code]]))
     setPending(true)
     setError(null)
     try {
@@ -128,13 +152,32 @@ function TaxSettings(): React.JSX.Element {
               allowDecimal
               maxDigits={5}
               suffix="%"
-              invalid={bps[code] === null}
+              invalid={values[code] === null}
               hint={
-                bps[code] === null
+                values[code] === null
                   ? t('fleet.errors.invalid_tax_rate')
-                  : bps[code] !== current(code)
+                  : values[code] !== current(code)
                     ? t('govt.taxes.was', { rate: format.taxRate(current(code)) })
                     : undefined
+              }
+              onValueChange={(value) => edit(code, value)}
+            />
+          ))}
+
+          {FEE_CODES.map((code) => (
+            <NumberField
+              key={code}
+              label={t(`taxes.${code}`)}
+              value={drafts[code]}
+              maxDigits={7}
+              suffix={t('govt.taxes.feeUnit')}
+              invalid={values[code] === null}
+              hint={
+                values[code] === null
+                  ? t('fleet.errors.invalid_fee')
+                  : values[code] !== current(code)
+                    ? t('govt.taxes.feeWas', { amount: format.currency(current(code)) })
+                    : t('govt.taxes.feeHint')
               }
               onValueChange={(value) => edit(code, value)}
             />
@@ -144,7 +187,7 @@ function TaxSettings(): React.JSX.Element {
             <div className="flex items-baseline justify-between gap-4 font-medium">
               <span>{t('govt.taxes.totalRate')}</span>
               <span className="tabular-nums">
-                {format.taxRate(TAX_CODES.reduce((sum, code) => sum + (bps[code] ?? 0), 0))}
+                {format.taxRate(TAX_CODES.reduce((sum, code) => sum + (values[code] ?? 0), 0))}
               </span>
             </div>
             <p className="mt-1 text-xs text-brand-800">
@@ -202,10 +245,10 @@ function TaxSettings(): React.JSX.Element {
                       <td>{t(`taxes.${change.code}`)}</td>
                       <td className="whitespace-nowrap tabular-nums">
                         <span className="inline-flex items-center gap-1.5">
-                          {format.taxRate(change.oldBps)}
+                          {formatValue(change.code, change.oldValue)}
                           <ArrowRight size={14} className="text-stone-400 rtl:-scale-x-100" />
                           <span className="font-medium text-stone-900">
-                            {format.taxRate(change.newBps)}
+                            {formatValue(change.code, change.newValue)}
                           </span>
                         </span>
                       </td>

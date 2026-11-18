@@ -16,7 +16,7 @@ import {
   MANIFEST_STATUSES,
   PAYMENT_STATUSES
 } from '../../shared/fleet'
-import { TAX_CODES } from '../../shared/tax'
+import { FEE_CODES, LINE_CODES, MAX_FEE, TAX_CODES } from '../../shared/tax'
 
 // Enum values live in src/shared so the renderer can use them too
 export const USER_ROLES = ['owner', 'govt'] as const
@@ -27,7 +27,9 @@ export {
   ITEM_UNITS,
   MANIFEST_STATUSES,
   PAYMENT_STATUSES,
-  TAX_CODES
+  TAX_CODES,
+  FEE_CODES,
+  LINE_CODES
 }
 
 // SQLite does not enforce text enums, so each one is backed by a CHECK constraint
@@ -182,27 +184,33 @@ export const manifestCargoItems = sqliteTable(
   ]
 )
 
-// Current tax percentages, in basis points (1700 = 17%). Editable by government users.
+// Current tax percentages, in basis points (1700 = 17%), and fixed fees, in whole SDG. A tax row
+// has rate_bps, a fee row has amount. Editable by government users.
 export const taxSettings = sqliteTable(
   'tax_settings',
   {
     id,
-    code: text('code', { enum: TAX_CODES }).notNull().unique(),
-    rateBps: integer('rate_bps').notNull(),
+    code: text('code', { enum: LINE_CODES }).notNull().unique(),
+    rateBps: integer('rate_bps'),
+    amount: integer('amount'),
     ...timestamps
   },
   (t) => [
-    check('tax_settings_code_check', sql`${t.code} IN (${inList(TAX_CODES)})`),
-    check('tax_settings_rate_check', sql`${t.rateBps} BETWEEN 0 AND 10000`)
+    check('tax_settings_code_check', sql`${t.code} IN (${inList(LINE_CODES)})`),
+    check(
+      'tax_settings_value_check',
+      sql`(${t.code} IN (${inList(TAX_CODES)}) AND ${t.rateBps} BETWEEN 0 AND 10000 AND ${t.amount} IS NULL)
+        OR (${t.code} IN (${inList(FEE_CODES)}) AND ${t.amount} BETWEEN 0 AND ${sql.raw(String(MAX_FEE))} AND ${t.rateBps} IS NULL)`
+    )
   ]
 )
 
-// Audit log of tax percentage changes
+// Audit log of tax percentage and fee changes. Values are basis points for a tax, SDG for a fee.
 export const taxSettingChanges = sqliteTable('tax_setting_changes', {
   id,
-  code: text('code', { enum: TAX_CODES }).notNull(),
-  oldBps: integer('old_bps').notNull(),
-  newBps: integer('new_bps').notNull(),
+  code: text('code', { enum: LINE_CODES }).notNull(),
+  oldValue: integer('old_value').notNull(),
+  newValue: integer('new_value').notNull(),
   changedBy: integer('changed_by')
     .notNull()
     .references(() => users.id, { onDelete: 'restrict' }),
@@ -211,7 +219,8 @@ export const taxSettingChanges = sqliteTable('tax_setting_changes', {
     .default(sql`(unixepoch())`)
 })
 
-// The taxes applied to a manifest, frozen when its bill is issued
+// The taxes and fees applied to a manifest, frozen when its bill is issued. rate_bps is null for
+// a fee.
 export const manifestTaxes = sqliteTable(
   'manifest_taxes',
   {
@@ -219,14 +228,14 @@ export const manifestTaxes = sqliteTable(
     manifestId: integer('manifest_id')
       .notNull()
       .references(() => manifests.id, { onDelete: 'restrict' }),
-    code: text('code', { enum: TAX_CODES }).notNull(),
-    rateBps: integer('rate_bps').notNull(),
+    code: text('code', { enum: LINE_CODES }).notNull(),
+    rateBps: integer('rate_bps'),
     amount: integer('amount').notNull(),
     ...timestamps
   },
   (t) => [
     uniqueIndex('manifest_taxes_manifest_code_idx').on(t.manifestId, t.code),
-    check('manifest_taxes_code_check', sql`${t.code} IN (${inList(TAX_CODES)})`)
+    check('manifest_taxes_code_check', sql`${t.code} IN (${inList(LINE_CODES)})`)
   ]
 )
 

@@ -209,14 +209,7 @@ function CertificateModal({
                   {fa.currency(trip.tripCost)}
                 </Field>
                 {trip.taxes.map((line) => (
-                  <Field
-                    key={line.code}
-                    wide
-                    label={ar('trips.tax.line', {
-                      name: ar(`taxes.${line.code}`),
-                      rate: fa.taxRate(line.rateBps)
-                    })}
-                  >
+                  <Field key={line.code} wide label={fa.taxLine(line)}>
                     {fa.currency(line.amount)}
                   </Field>
                 ))}

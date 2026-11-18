@@ -31,6 +31,9 @@ import {
   calculateItemsCost,
   calculateTaxes,
   estimateRoadKm,
+  isFeeCode,
+  isTaxCode,
+  type FeeSetting,
   type TaxLine,
   type TaxSetting
 } from '../../shared/tax'
@@ -54,8 +57,18 @@ function parseTripDate(value: unknown): Date | null {
 type Db = ReturnType<typeof getDb>
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0]
 
+const settingRows = (db: Db | Tx): (typeof taxSettings.$inferSelect)[] =>
+  db.select().from(taxSettings).all()
+
 export const getTaxSettings = (db: Db | Tx = getDb()): TaxSetting[] =>
-  db.select({ code: taxSettings.code, rateBps: taxSettings.rateBps }).from(taxSettings).all()
+  settingRows(db).flatMap(({ code, rateBps }) =>
+    isTaxCode(code) && rateBps !== null ? [{ code, rateBps }] : []
+  )
+
+export const getFeeSettings = (db: Db | Tx = getDb()): FeeSetting[] =>
+  settingRows(db).flatMap(({ code, amount }) =>
+    isFeeCode(code) && amount !== null ? [{ code, amount }] : []
+  )
 
 export function getReferenceData(): TripReferenceData {
   const db = getDb()
@@ -81,7 +94,8 @@ export function getReferenceData(): TripReferenceData {
       })
       .from(taxRates)
       .all(),
-    taxSettings: getTaxSettings(db)
+    taxSettings: getTaxSettings(db),
+    feeSettings: getFeeSettings(db)
   }
 }
 
@@ -232,7 +246,7 @@ function buildTrip(ownerId: number, input: TripInput): FleetResult<BuiltTrip> {
   const mainRate = rates.find((r) => r.cargoType === priced.mainType)
   if (!mainRate) return { ok: false, error: 'unknown' }
   const tripCost = priced.total
-  const taxes = calculateTaxes(tripCost, getTaxSettings(db))
+  const taxes = calculateTaxes(tripCost, getTaxSettings(db), getFeeSettings(db))
   return {
     ok: true,
     data: {

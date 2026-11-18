@@ -57,6 +57,13 @@
       "when": 1794991200368,
       "tag": "0007_manifest_fee",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794991955436,
+      "tag": "0008_carrier_profile",
+      "breakpoints": true
     }
   ]
 }

@@ -39,9 +39,16 @@ function findOwnedTrip(ownerId: number, manifestId: unknown): OwnedTrip | undefi
 const paymentOf = (manifestId: number): Payment | undefined =>
   getDb().select().from(payments).where(eq(payments.manifestId, manifestId)).get()
 
-// e.g. MSR-2026-000042
+const documentNo = (prefix: string, manifestId: number, issuedAt: Date): string =>
+  `${prefix}-${issuedAt.getFullYear()}-${String(manifestId).padStart(6, '0')}`
+
+// The electronic payment receipt's number, e.g. MSR-2026-000042
 export const certificateNoFor = (manifestId: number, issuedAt: Date): string =>
-  `MSR-${issuedAt.getFullYear()}-${String(manifestId).padStart(6, '0')}`
+  documentNo('MSR', manifestId, issuedAt)
+
+// The authorized manifest's number, e.g. MNF-2026-000042
+export const manifestNoFor = (manifestId: number, issuedAt: Date): string =>
+  documentNo('MNF', manifestId, issuedAt)
 
 // End of the day CERTIFICATE_VALID_DAYS after the trip date
 export function validUntilFor(tripDate: Date): Date {
@@ -145,7 +152,8 @@ export async function generateBill(
   return getTripDetails(ownerId, trip.id)
 }
 
-// Checks the bill with E-Sali; once paid, records the payment and issues the certificate
+// Checks the bill with E-Sali; once paid, records the payment and issues the receipt and the
+// authorized manifest
 export async function refreshBillStatus(
   ownerId: number,
   manifestId: number
@@ -174,6 +182,7 @@ export async function refreshBillStatus(
           .values({
             manifestId: trip.id,
             certificateNo: certificateNoFor(trip.id, issuedAt),
+            manifestNo: manifestNoFor(trip.id, issuedAt),
             qrToken: randomBytes(16).toString('hex'),
             issuedAt,
             validUntil: validUntilFor(trip.tripDate)

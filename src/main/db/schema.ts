@@ -328,13 +328,18 @@ export const payments = sqliteTable(
   ]
 )
 
+// Issued once a manifest's bill is paid: the payment receipt and the authorized manifest
+// (تصريح الحركة)
 export const certificates = sqliteTable('certificates', {
   id,
   manifestId: integer('manifest_id')
     .notNull()
     .unique()
     .references(() => manifests.id, { onDelete: 'restrict' }),
+  // The electronic payment receipt's number (MSR-yyyy-xxxxxx)
   certificateNo: text('certificate_no').notNull().unique(),
+  // The authorized manifest's number (MNF-yyyy-xxxxxx), issued with the receipt
+  manifestNo: text('manifest_no').notNull().unique(),
   // Random, unguessable value encoded in the QR; looked up by the public verify screen
   qrToken: text('qr_token').notNull().unique(),
   issuedAt: integer('issued_at', { mode: 'timestamp' })

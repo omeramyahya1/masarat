@@ -37,7 +37,7 @@ import {
   estimateRoadKm
 } from '../../shared/tax'
 import { dropSessionsOf, hashPassword } from './auth'
-import { certificateNoFor, validUntilFor } from './billing'
+import { certificateNoFor, manifestNoFor, validUntilFor } from './billing'
 import { newBillId } from './esali'
 
 const DAY_MS = 86_400_000
@@ -723,6 +723,7 @@ function seedTrips(ownerIds: number[]): void {
           .values({
             manifestId,
             certificateNo: certificateNoFor(manifestId, paidAt),
+            manifestNo: manifestNoFor(manifestId, paidAt),
             qrToken: randomBytes(16).toString('hex'),
             issuedAt: paidAt,
             validUntil: validUntilFor(tripDate),

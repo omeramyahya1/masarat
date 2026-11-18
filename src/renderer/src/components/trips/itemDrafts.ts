@@ -7,13 +7,17 @@ import {
   type QuantityUnit
 } from '../../../../shared/fleet'
 
-// An item row as typed; the quantity stays a string until the form is submitted
+// An item row as typed; numbers stay strings until the form is submitted
 export interface ItemDraft {
   key: number
   cargoType: CargoType | ''
   name: string
+  // The weight (or volume) in `unit`
   quantity: string
   unit: ItemUnit
+  packingType: string
+  packageCount: string
+  notes: string
 }
 
 let nextKey = 0
@@ -26,7 +30,10 @@ export const newItemDraft = (
   cargoType: item?.cargoType ?? cargoType,
   name: item?.name ?? '',
   quantity: item ? String(item.quantity) : '',
-  unit: item?.unit ?? unit
+  unit: item?.unit ?? unit,
+  packingType: item?.packingType ?? '',
+  packageCount: item?.packageCount ? String(item.packageCount) : '',
+  notes: item?.notes ?? ''
 })
 
 // Keeps the rows valid for another vehicle: units of the other family (tons <-> liters) switch

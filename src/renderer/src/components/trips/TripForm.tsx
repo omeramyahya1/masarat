@@ -2,13 +2,19 @@ import { useEffect, useId, useMemo, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowRight, Calculator, Info, LoaderCircle, Truck } from 'lucide-react'
 import {
+  TRIP_KINDS,
   totalInVehicleUnit,
   type CargoType,
+  type DriverRecord,
   type FleetErrorCode,
+  type Party,
+  type TripKind,
   type TripRecord,
   type TripReferenceData,
+  type TripSuggestions,
   type VehicleRecord
 } from '../../../../shared/fleet'
+import { parsePlate } from '../../../../shared/plate'
 import {
   ROAD_FACTOR,
   calculateItemsCost,
@@ -16,12 +22,26 @@ import {
   estimateRoadKm
 } from '../../../../shared/tax'
 import { todayIso, useFormat } from '../../lib/format'
+import { plateValueToString, type PlateValue } from '../../lib/plateValue'
 import { useMountedRef } from '../../lib/useMountedRef'
 import { FieldLabel, FormAlert, SelectField, SubmitButton } from '../form/fields'
 import PlateBadge from '../fleet/PlateBadge'
 import CargoItemsEditor from './CargoItemsEditor'
+import DriverField from './DriverField'
+import PartyFields from './PartyFields'
+import TrailersField from './TrailersField'
 import { fitItemsTo, newItemDraft, type ItemDraft } from './itemDrafts'
 import TaxBreakdown from './TaxBreakdown'
+
+const EMPTY_PARTY: Party = { name: '', address: '', phone: '' }
+
+// A stored plate as the plate input edits it
+function toPlateValue(plate: string): PlateValue {
+  const parts = parsePlate(plate)
+  return parts
+    ? { code: parts.code, series: String(parts.series), number: String(parts.number) }
+    : { code: '', series: '', number: '' }
+}
 
 // A stored trip date (local midnight) as YYYY-MM-DD for the date input
 function isoDate(ms: number): string {
@@ -49,6 +69,7 @@ function TripForm({
   const { t } = useTranslation()
   const format = useFormat()
   const dateId = useId()
+  const kindId = useId()
   const [vehicles, setVehicles] = useState<VehicleRecord[] | null>(null)
   const [vehicleId, setVehicleId] = useState(trip ? String(trip.vehicleId) : '')
   const [originId, setOriginId] = useState(trip ? String(trip.originCityId) : '')
@@ -62,21 +83,41 @@ function TripForm({
         name: '',
         quantity: trip.cargoQuantity,
         unit: trip.cargoUnit,
-        cargoType: trip.cargoType
+        cargoType: trip.cargoType,
+        packingType: null,
+        packageCount: null,
+        notes: null
       })
     ]
   })
   const [tripDate, setTripDate] = useState(() => (trip ? isoDate(trip.tripDate) : todayIso()))
+  const [tripKind, setTripKind] = useState<TripKind>(trip?.tripKind ?? 'domestic')
+  const [trailers, setTrailers] = useState<PlateValue[]>(() =>
+    (trip?.trailers ?? []).map(toPlateValue)
+  )
+  const [drivers, setDrivers] = useState<DriverRecord[]>([])
+  const [driverId, setDriverId] = useState(trip?.driverId ? String(trip.driverId) : '')
+  const [shipper, setShipper] = useState<Party>(trip?.shipper ?? EMPTY_PARTY)
+  const [receiver, setReceiver] = useState<Party>(trip?.receiver ?? EMPTY_PARTY)
+  const [suggestions, setSuggestions] = useState<TripSuggestions>({
+    parties: [],
+    packingTypes: []
+  })
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [pending, setPending] = useState(false)
   const mounted = useMountedRef()
 
   useEffect(() => {
-    window.api.fleet
-      .listVehicles()
-      .then((result) => {
-        if (result.ok) setVehicles(result.data)
-        else setError(result.error)
+    Promise.all([
+      window.api.fleet.listVehicles(),
+      window.api.fleet.listDrivers(),
+      window.api.trips.suggestions()
+    ])
+      .then(([vehicleList, driverList, suggested]) => {
+        if (driverList.ok) setDrivers(driverList.data)
+        if (suggested.ok) setSuggestions(suggested.data)
+        if (vehicleList.ok) setVehicles(vehicleList.data)
+        else setError(vehicleList.error)
       })
       .catch(() => setError('unknown'))
   }, [])
@@ -91,7 +132,10 @@ function TripForm({
     name: item.name.trim(),
     quantity: Number(item.quantity),
     unit: item.unit,
-    cargoType: item.cargoType
+    cargoType: item.cargoType,
+    packingType: item.packingType.trim() || null,
+    packageCount: item.packageCount === '' ? null : Number(item.packageCount),
+    notes: item.notes.trim() || null
   }))
   const countedItems = parsedItems.filter(
     (item): item is typeof item & { cargoType: CargoType } =>
@@ -148,6 +192,12 @@ function TripForm({
       return setError('invalid_items')
     }
     if (overCapacity) return setError('over_capacity')
+    // Trailer rows left completely empty are dropped; any other row has to be a valid plate
+    const trailerPlates = trailers
+      .filter((p) => p.code || p.series || p.number)
+      .map(plateValueToString)
+    if (trailerPlates.some((plate) => plate === null)) return setError('invalid_trailer')
+    if (parsedItems.some((item) => item.packageCount === 0)) return setError('invalid_items')
 
     setError(null)
     setPending(true)
@@ -157,7 +207,12 @@ function TripForm({
         originCityId: origin.id,
         destinationCityId: destination.id,
         items: countedItems,
-        tripDate
+        tripDate,
+        tripKind,
+        trailers: trailerPlates as string[],
+        driverId: driverId ? Number(driverId) : null,
+        shipper,
+        receiver
       }
       const result = trip
         ? await window.api.trips.update(trip.id, input)
@@ -238,12 +293,54 @@ function TripForm({
               </span>
             </div>
           )}
+          <div className="flex flex-col gap-2">
+            <span className="label">{t('trips.trailers.title')}</span>
+            <TrailersField value={trailers} onChange={setTrailers} />
+          </div>
+          <DriverField
+            drivers={drivers}
+            value={driverId}
+            onChange={setDriverId}
+            onAdded={(driver) => {
+              setDrivers((current) =>
+                [...current, driver].sort((a, b) => a.name.localeCompare(b.name))
+              )
+              setDriverId(String(driver.id))
+            }}
+          />
         </fieldset>
 
         <fieldset className="flex flex-col gap-4 border-t border-stone-200 pt-5">
           <legend className="mb-3 text-sm font-semibold text-stone-800">
             {t('trips.form.routeSection')}
           </legend>
+          <div className="flex flex-col gap-1.5">
+            <span className="label" id={kindId}>
+              {t('trips.fields.tripKind')}
+            </span>
+            <div
+              role="radiogroup"
+              aria-labelledby={kindId}
+              className="flex w-fit gap-1 rounded-lg border border-stone-200 bg-stone-100 p-1"
+            >
+              {TRIP_KINDS.map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  role="radio"
+                  aria-checked={tripKind === kind}
+                  className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
+                    tripKind === kind
+                      ? 'bg-white text-brand-800 shadow-sm ring-1 ring-stone-200'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                  onClick={() => setTripKind(kind)}
+                >
+                  {t(`tripKinds.${kind}`)}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-4">
             <SelectField
               label={t('trips.fields.origin')}
@@ -277,6 +374,26 @@ function TripForm({
 
         <fieldset className="flex flex-col gap-4 border-t border-stone-200 pt-5">
           <legend className="mb-3 text-sm font-semibold text-stone-800">
+            {t('trips.form.partiesSection')}
+          </legend>
+          <div className="grid gap-6 sm:grid-cols-2">
+            <PartyFields
+              legend={t('trips.party.shipper')}
+              value={shipper}
+              suggestions={suggestions.parties}
+              onChange={setShipper}
+            />
+            <PartyFields
+              legend={t('trips.party.receiver')}
+              value={receiver}
+              suggestions={suggestions.parties}
+              onChange={setReceiver}
+            />
+          </div>
+        </fieldset>
+
+        <fieldset className="flex flex-col gap-4 border-t border-stone-200 pt-5">
+          <legend className="mb-3 text-sm font-semibold text-stone-800">
             {t('trips.form.cargoSection')}
           </legend>
           <div className="flex flex-col gap-2">
@@ -288,6 +405,7 @@ function TripForm({
                 cargoTypes={cargoTypesFor(vehicle)}
                 total={quantityValue}
                 capacity={vehicle.capacity}
+                usedPackingTypes={suggestions.packingTypes}
                 onChange={setItems}
               />
             ) : (

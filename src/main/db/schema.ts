@@ -14,7 +14,8 @@ import {
   CARGO_TYPES,
   ITEM_UNITS,
   MANIFEST_STATUSES,
-  PAYMENT_STATUSES
+  PAYMENT_STATUSES,
+  TRIP_KINDS
 } from '../../shared/fleet'
 import { FEE_CODES, LINE_CODES, MAX_FEE, TAX_CODES } from '../../shared/tax'
 
@@ -27,6 +28,7 @@ export {
   ITEM_UNITS,
   MANIFEST_STATUSES,
   PAYMENT_STATUSES,
+  TRIP_KINDS,
   TAX_CODES,
   FEE_CODES,
   LINE_CODES
@@ -163,10 +165,28 @@ export const manifests = sqliteTable(
     // Sum of the trip's manifest_taxes lines: the amount billed
     taxAmount: integer('tax_amount').notNull(),
     status: text('status', { enum: MANIFEST_STATUSES }).notNull().default('draft'),
+    tripKind: text('trip_kind', { enum: TRIP_KINDS }).notNull().default('domestic'),
+    // The driver picked for the trip, and a copy of their name and phone: the copy is what the
+    // manifest prints, so editing or deleting the driver later doesn't change it
+    driverId: integer('driver_id').references(() => drivers.id, { onDelete: 'set null' }),
+    driverName: text('driver_name'),
+    driverPhone: text('driver_phone'),
+    // Sender (shipper) and receiver. Drafts may leave them empty; a bill needs all of them.
+    shipperName: text('shipper_name'),
+    shipperAddress: text('shipper_address'),
+    shipperPhone: text('shipper_phone'),
+    receiverName: text('receiver_name'),
+    receiverAddress: text('receiver_address'),
+    receiverPhone: text('receiver_phone'),
+    // The owner's carrier details, copied when the bill is generated
+    carrierName: text('carrier_name'),
+    carrierAddress: text('carrier_address'),
+    carrierTin: text('carrier_tin'),
     ...timestamps
   },
   (t) => [
     index('manifests_vehicle_id_idx').on(t.vehicleId),
+    check('manifests_trip_kind_check', sql`${t.tripKind} IN (${inList(TRIP_KINDS)})`),
     index('manifests_status_idx').on(t.status),
     check('manifests_route_check', sql`${t.originCityId} <> ${t.destinationCityId}`),
     check('manifests_cargo_type_check', sql`${t.cargoType} IN (${inList(CARGO_TYPES)})`),
@@ -187,6 +207,7 @@ export const manifestCargoItems = sqliteTable(
       .references(() => manifests.id, { onDelete: 'restrict' }),
     position: integer('position').notNull(),
     name: text('name').notNull(),
+    // The weight (or volume): drives the trip cost and the capacity check
     quantity: real('quantity').notNull(),
     unit: text('unit', { enum: ITEM_UNITS }).notNull(),
     cargoType: text('cargo_type', { enum: CARGO_TYPES }).notNull(),
@@ -194,14 +215,38 @@ export const manifestCargoItems = sqliteTable(
     ratePerKm: integer('rate_per_km').notNull(),
     perQuantity: integer('per_quantity').notNull(),
     cost: integer('cost').notNull(),
+    // How it's packed (براميل، شوال، …), how many packages, and free notes. Drafts may leave the
+    // packing and count empty; a bill needs them.
+    packingType: text('packing_type'),
+    packageCount: integer('package_count'),
+    notes: text('notes'),
     ...timestamps
   },
   (t) => [
     index('manifest_cargo_items_manifest_id_idx').on(t.manifestId),
     check('manifest_cargo_items_cargo_type_check', sql`${t.cargoType} IN (${inList(CARGO_TYPES)})`),
     check('manifest_cargo_items_unit_check', sql`${t.unit} IN (${inList(ITEM_UNITS)})`),
+    check(
+      'manifest_cargo_items_package_count_check',
+      sql`${t.packageCount} IS NULL OR ${t.packageCount} > 0`
+    ),
     check('manifest_cargo_items_quantity_check', sql`${t.quantity} > 0`)
   ]
+)
+
+// Trailer plates pulled by the vehicle on a trip, in order
+export const manifestTrailers = sqliteTable(
+  'manifest_trailers',
+  {
+    id,
+    manifestId: integer('manifest_id')
+      .notNull()
+      .references(() => manifests.id, { onDelete: 'restrict' }),
+    position: integer('position').notNull(),
+    plateNumber: text('plate_number').notNull(),
+    ...timestamps
+  },
+  (t) => [index('manifest_trailers_manifest_id_idx').on(t.manifestId)]
 )
 
 // Current tax percentages, in basis points (1700 = 17%), and fixed fees, in whole SDG. A tax row

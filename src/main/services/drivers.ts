@@ -1,7 +1,7 @@
 // A fleet owner's drivers. Trips pick one; the manifest keeps its own copy of the name and phone,
 // so editing a driver later doesn't change manifests already issued.
 import { and, asc, eq, ne } from 'drizzle-orm'
-import { drivers, getDb, type Driver } from '../db'
+import { drivers, getDb, manifests, type Driver } from '../db'
 import {
   MAX_DRIVER_NAME_LENGTH,
   normalizePhone,
@@ -96,6 +96,13 @@ export function updateDriver(
 export function deleteDriver(ownerId: number, driverId: number): FleetResult<null> {
   const existing = findOwnedDriver(ownerId, driverId)
   if (!existing) return { ok: false, error: 'driver_not_found' }
+  // A draft still needs its driver; billed manifests keep their own copy of the name and phone
+  const draft = getDb()
+    .select({ id: manifests.id })
+    .from(manifests)
+    .where(and(eq(manifests.driverId, existing.id), eq(manifests.status, 'draft')))
+    .get()
+  if (draft) return { ok: false, error: 'driver_in_use' }
   getDb().delete(drivers).where(eq(drivers.id, existing.id)).run()
   return { ok: true, data: null }
 }

@@ -15,6 +15,7 @@ import type {
   TripInput,
   TripRecord,
   TripReferenceData,
+  TripSuggestions,
   VehicleInput,
   VehicleRecord
 } from '../shared/fleet'
@@ -74,6 +75,8 @@ const api = {
     getReferenceData: (): Promise<FleetResult<TripReferenceData>> =>
       ipcRenderer.invoke('trips:get-reference-data'),
     list: (): Promise<FleetResult<TripRecord[]>> => ipcRenderer.invoke('trips:list'),
+    suggestions: (): Promise<FleetResult<TripSuggestions>> =>
+      ipcRenderer.invoke('trips:suggestions'),
     create: (input: TripInput): Promise<FleetResult<TripRecord>> =>
       ipcRenderer.invoke('trips:create', input),
     update: (id: number, input: TripInput): Promise<FleetResult<TripRecord>> =>

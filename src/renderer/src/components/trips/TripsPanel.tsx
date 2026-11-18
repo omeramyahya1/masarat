@@ -7,6 +7,7 @@ import {
   type TripRecord,
   type TripReferenceData
 } from '../../../../shared/fleet'
+import type { AuthUser } from '../../../../shared/auth'
 import { useFormat } from '../../lib/format'
 import { FormAlert } from '../form/fields'
 import PlateBadge from '../fleet/PlateBadge'
@@ -14,7 +15,16 @@ import TripDetails from './TripDetails'
 import TripForm from './TripForm'
 import { STATUS_STYLES } from './statusStyles'
 
-function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.JSX.Element {
+function TripsPanel({
+  owner,
+  onGoToVehicles,
+  onGoToProfile
+}: {
+  // The signed-in owner: their address and TIN are needed before a bill can be generated
+  owner: AuthUser
+  onGoToVehicles: () => void
+  onGoToProfile: () => void
+}): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
   const [mode, setMode] = useState<'list' | 'new' | { tripId: number } | { editing: TripRecord }>(
@@ -59,6 +69,8 @@ function TripsPanel({ onGoToVehicles }: { onGoToVehicles: () => void }): React.J
         key={mode.tripId}
         tripId={mode.tripId}
         reference={reference}
+        owner={owner}
+        onGoToProfile={onGoToProfile}
         onBack={() => setMode('list')}
         onEdit={(trip) => setMode({ editing: trip })}
         onDeleted={() => {

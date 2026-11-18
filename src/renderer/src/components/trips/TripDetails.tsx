@@ -507,6 +507,11 @@ function TripDetails({
                     {certificate.certificateNo}
                   </span>
                 </Row>
+                <Row label={t('billing.paid.manifestNo')}>
+                  <span dir="ltr" className="font-mono text-xs">
+                    {certificate.manifestNo}
+                  </span>
+                </Row>
                 <Row label={t('billing.paid.validUntil')}>
                   {format.date(certificate.validUntil)}
                 </Row>

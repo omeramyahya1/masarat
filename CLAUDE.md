@@ -21,7 +21,7 @@ It's an Electron desktop app with **two views the user can toggle between**:
 4. **Bill generation**: the app simulates an **E-Sali (Esali) API** call that returns a **bill ID**.
 5. **Payment**: the user pays that bill ID through **Bankak** or another bank. The MVP simulates this.
 6. **Payment confirmation**: once the system confirms payment, it moves on to the next step.
-7. **Certificate issuance**: the app issues a trip/tax **certificate with a QR code** that traffic/checkpoint **officers can scan to verify it quickly**.
+7. **Documents**: the app issues the **electronic payment receipt** and the **authorized manifest** (تصريح الحركة), each with a barcode of its number and a **QR code** that traffic/checkpoint **officers can scan to verify it quickly**.
 
 ## Fleet & trips rules
 
@@ -55,20 +55,21 @@ It's an Electron desktop app with **two views the user can toggle between**:
 
 ## Billing & certificates rules
 
-- **Flow** (`src/main/services/billing.ts`, UI in `components/trips/TripDetails.tsx`): `draft` → *Generate bill ID* → `billed` (shown as "Pending payment") → the user pays the bill ID from any banking app → *Refresh status* → once E-Sali reports it paid, the payment is recorded, the certificate is issued and the manifest becomes `certified`. Our `payments` row only changes on refresh.
+- **Flow** (`src/main/services/billing.ts`, UI in `components/trips/TripDetails.tsx`): `draft` → *Generate bill ID* → `billed` (shown as "Pending payment") → the user pays the bill ID from any banking app → *Refresh status* → once E-Sali reports it paid, the payment is recorded, the receipt and the authorized manifest are issued (one `certificates` row) and the manifest becomes `certified` (shown as "Authorized"). Our `payments` row only changes on refresh.
 - **E-Sali bill ID** (`src/shared/billing.ts`): `yyyy` `mm` `0dd` (day as 3 digits) + 13 random digits = 22 digits, e.g. `2026110170000123456789`. One bill per manifest; generating again returns the existing bill.
 - **E-Sali is simulated** behind the `EsaliGateway` interface in `src/main/services/esali.ts`. The mock keeps E-Sali's side in the `esali_sim_bills` table (simulation only; drop it with the real API). The hidden "⋯ → Pay <billId>" menu on a pending trip marks the bill paid at E-Sali.
-- **Certificate** (shown to users as the **electronic payment receipt**, إيصال سداد إلكتروني, issued by ديوان الضرائب): number `MSR-<yyyy>-<manifestId 6 digits>`, valid until the end of trip date + 30 days. Always rendered in Arabic (`i18n.getFixedT('ar')` + `createFormatters`), with the Sudan emblem (`assets/sudan-emblem.svg`, Wikimedia Commons). *Download PDF* uses `webContents.printToPDF`; the `@media print` rules in `main.css` print only `.print-certificate`.
-  - **Page 1** is the receipt, with the trip cost and each tax and fee line.
-  - **Page 2** and on (`.print-page-break`) is the cargo manifest table. Its header row repeats on each printed page, and the total is a normal last row, because a `<tfoot>` would repeat on every page.
-  - Trips from before cargo items existed show their cargo type as a single row.
-- **QR payload** (`buildQrPayload`): JSON `{"esaliBillId","status":"paid","plate"}`. Later it should become a URL to a page showing the manifest's status (looked up by `certificates.qr_token`).
+- **Documents** (`certificates` table, `components/trips/CertificateModal.tsx`): issued together once the bill is paid, valid until the end of trip date + 30 days. Always rendered in Arabic (`i18n.getFixedT('ar')` + `createFormatters`), issued by ديوان الضرائب with the Sudan emblem (`assets/sudan-emblem.svg`, Wikimedia Commons). *Download PDF* uses `webContents.printToPDF`; the `@media print` rules in `main.css` print only `.print-certificate`.
+  - **Page 1** (`ReceiptPage.tsx`) is the **electronic payment receipt** (إيصال سداد إلكتروني), number `MSR-<yyyy>-<manifestId 6 digits>` (`certificate_no`), with the trip cost and each tax and fee line. It fits one page.
+  - **Page 2** and on (`ManifestPage.tsx`, `.print-page-break`) is the **authorized manifest** (تصريح حركة بضائع بري), number `MNF-<yyyy>-<manifestId 6 digits>` (`manifest_no`). It lists the vehicle, trailers, registration no., route and trip type; a table of the carrier, driver, sender and receiver; the cargo (description, packing, packages, weight, notes); the financial and customs section (قيمة الترحيل = the trip cost, رقم الإقرار الجمركي left blank); and name / signature / date / stamp blocks for the carrier, the driver (received the goods) and the receiver (on delivery). Customs, Zakat and others stamp the printed copy; that's out of scope. A typical trip fits one A4 page.
+  - The cargo table's header row repeats on each printed page, and the total is a normal last row, because a `<tfoot>` would repeat on every page.
+  - Each document's header (`documentParts.tsx`) shows a **Code 128 barcode** of its own number (`bwip-js`, imported as `bwip-js/node`, rendered as SVG in the main process) beside the verification QR.
+- **QR payload** (`buildQrPayload`): JSON `{"esaliBillId","status":"paid","plate","manifestNo"}`, the same on both documents. Later it should become a URL to a page showing the manifest's status (looked up by `certificates.qr_token`).
 
 ## Government dashboard & demo data
 
 - **Dashboard** (`src/main/services/dashboard.ts`, UI in `components/govt/`): the Government panel opens on an overview across all fleet owners, for the last 30 days, 90 days or 12 months. Handlers go through `runGovt` (government session required).
   - *Revenue collected*: paid payments (the taxes) by `paid_at` in the period, with the % change vs the previous period of the same length (hidden when the records don't reach back that far).
-  - *Active trips*: certified trips whose certificate is still valid (`valid_until ≥ now`). *Pending bills*: all unpaid bills. Neither is period-filtered.
+  - *Active trips*: authorized (certified) trips whose permit is still valid (`valid_until ≥ now`). *Pending bills*: all unpaid bills. Neither is period-filtered.
   - *Collection rate*: paid ÷ billed amount for bills issued in the period.
   - Revenue chart buckets: day / week (starting Sunday) / month. The current bucket is drawn dashed because it is incomplete. Breakdowns (cargo, tax, routes, origin state) count revenue by when it was paid.
   - *Revenue by cargo type* splits each trip's taxes across its items in proportion to their cost.

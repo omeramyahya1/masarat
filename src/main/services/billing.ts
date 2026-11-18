@@ -1,5 +1,7 @@
 import { randomBytes } from 'crypto'
 import { and, eq } from 'drizzle-orm'
+// The Node build: the package's root export has no condition TypeScript's bundler resolution picks
+import bwipjs from 'bwip-js/node'
 import QRCode from 'qrcode'
 import { certificates, getDb, manifests, payments, users, vehicles, type Payment } from '../db'
 import { missingForBilling, type FleetResult } from '../../shared/fleet'
@@ -39,9 +41,29 @@ function findOwnedTrip(ownerId: number, manifestId: unknown): OwnedTrip | undefi
 const paymentOf = (manifestId: number): Payment | undefined =>
   getDb().select().from(payments).where(eq(payments.manifestId, manifestId)).get()
 
-// e.g. MSR-2026-000042
+const documentNo = (prefix: string, manifestId: number, issuedAt: Date): string =>
+  `${prefix}-${issuedAt.getFullYear()}-${String(manifestId).padStart(6, '0')}`
+
+// The electronic payment receipt's number, e.g. MSR-2026-000042
 export const certificateNoFor = (manifestId: number, issuedAt: Date): string =>
-  `MSR-${issuedAt.getFullYear()}-${String(manifestId).padStart(6, '0')}`
+  documentNo('MSR', manifestId, issuedAt)
+
+// The authorized manifest's number, e.g. MNF-2026-000042
+export const manifestNoFor = (manifestId: number, issuedAt: Date): string =>
+  documentNo('MNF', manifestId, issuedAt)
+
+// A Code 128 barcode of a document number, with the number printed under it, as an SVG data URL
+function barcodeDataUrl(text: string): string {
+  const svg = bwipjs.toSVG({
+    bcid: 'code128',
+    text,
+    height: 10,
+    includetext: true,
+    textxalign: 'center',
+    textsize: 9
+  })
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
+}
 
 // End of the day CERTIFICATE_VALID_DAYS after the trip date
 export function validUntilFor(tripDate: Date): Date {
@@ -82,13 +104,15 @@ export async function getTripDetails(
     certificate && payment
       ? {
           certificateNo: certificate.certificateNo,
+          manifestNo: certificate.manifestNo,
           issuedAt: certificate.issuedAt.getTime(),
           validUntil: certificate.validUntil.getTime(),
-          qrDataUrl: await QRCode.toDataURL(buildQrPayload(payment.billId, trip.plateNumber), {
-            errorCorrectionLevel: 'M',
-            margin: 1,
-            width: 320
-          })
+          qrDataUrl: await QRCode.toDataURL(
+            buildQrPayload(payment.billId, trip.plateNumber, certificate.manifestNo),
+            { errorCorrectionLevel: 'M', margin: 1, width: 320 }
+          ),
+          receiptBarcode: barcodeDataUrl(certificate.certificateNo),
+          manifestBarcode: barcodeDataUrl(certificate.manifestNo)
         }
       : null
 
@@ -145,7 +169,8 @@ export async function generateBill(
   return getTripDetails(ownerId, trip.id)
 }
 
-// Checks the bill with E-Sali; once paid, records the payment and issues the certificate
+// Checks the bill with E-Sali; once paid, records the payment and issues the receipt and the
+// authorized manifest
 export async function refreshBillStatus(
   ownerId: number,
   manifestId: number
@@ -174,6 +199,7 @@ export async function refreshBillStatus(
           .values({
             manifestId: trip.id,
             certificateNo: certificateNoFor(trip.id, issuedAt),
+            manifestNo: manifestNoFor(trip.id, issuedAt),
             qrToken: randomBytes(16).toString('hex'),
             issuedAt,
             validUntil: validUntilFor(trip.tripDate)

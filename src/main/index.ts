@@ -35,6 +35,8 @@ import type { DriverInput, FleetResult, TripInput, VehicleInput } from '../share
 import { isAnalyticsFilters, isDashboardView } from '../shared/analytics'
 import { listOwners } from './services/analyticsQuery'
 import { searchTrips } from './services/govtTrips'
+import { exportData } from './services/exports'
+import { isExportOptions, type ExportInput } from '../shared/exports'
 import type { GovtSearchInput } from '../shared/billing'
 
 // Configure updater logging
@@ -345,6 +347,18 @@ function registerGovtHandlers(): void {
         ? getTripDetails(null, manifestId)
         : { ok: false, error: 'manifest_not_found' }
     )
+  )
+  // Raw data as Excel or CSV
+  ipcMain.handle('govt:export-data', (event, input: ExportInput) =>
+    runGovt(() =>
+      input && isAnalyticsFilters(input.filters) && isExportOptions(input)
+        ? exportData(BrowserWindow.fromWebContents(event.sender), input)
+        : { ok: false, error: 'missing_fields' }
+    )
+  )
+  // The dashboard report; the report's print styles decide what's on the pages
+  ipcMain.handle('govt:save-report-pdf', (event, fileName: unknown) =>
+    runGovt(() => savePagePdf(event.sender, fileName, 'masarat-report'))
   )
   ipcMain.handle('govt:open-document', (_event, documentId: unknown) =>
     runGovt(() => openDocument(null, documentId))

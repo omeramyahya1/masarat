@@ -24,6 +24,7 @@ import type {
 import type { GovtSearchInput, GovtSearchResult, TripDetails } from '../shared/billing'
 import type { DashboardData } from '../shared/dashboard'
 import type { AnalyticsFilters, DashboardView, OwnerOption } from '../shared/analytics'
+import type { ExportInput, ExportResult } from '../shared/exports'
 import type { OcrResult, ScanInput } from '../shared/ocr'
 import type { TaxRatesInput, TaxSettingsView } from '../shared/tax'
 
@@ -126,6 +127,10 @@ const api = {
       ipcRenderer.invoke('govt:get-trip', manifestId),
     openDocument: (documentId: number): Promise<FleetResult<null>> =>
       ipcRenderer.invoke('govt:open-document', documentId),
+    saveReportPdf: (fileName: string): Promise<FleetResult<{ saved: boolean }>> =>
+      ipcRenderer.invoke('govt:save-report-pdf', fileName),
+    exportData: (input: ExportInput): Promise<FleetResult<ExportResult>> =>
+      ipcRenderer.invoke('govt:export-data', input),
     getTaxSettings: (): Promise<FleetResult<TaxSettingsView>> =>
       ipcRenderer.invoke('govt:get-tax-settings'),
     updateTaxRates: (input: TaxRatesInput): Promise<FleetResult<TaxSettingsView>> =>

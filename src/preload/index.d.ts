@@ -23,6 +23,7 @@ import type {
 import type { GovtSearchInput, GovtSearchResult, TripDetails } from '../shared/billing'
 import type { DashboardData } from '../shared/dashboard'
 import type { AnalyticsFilters, DashboardView, OwnerOption } from '../shared/analytics'
+import type { ExportInput, ExportResult } from '../shared/exports'
 import type { OcrResult, ScanInput } from '../shared/ocr'
 import type { TaxRatesInput, TaxSettingsView } from '../shared/tax'
 
@@ -107,6 +108,10 @@ export interface GovtAPI {
   // Any owner's trip, read-only
   getTrip: (manifestId: number) => Promise<FleetResult<TripDetails>>
   openDocument: (documentId: number) => Promise<FleetResult<null>>
+  // Prints the open report (its print styles) to a PDF the user saves
+  saveReportPdf: (fileName: string) => Promise<FleetResult<{ saved: boolean }>>
+  // Raw data (trips, bills, cargo items, tax lines) as an Excel workbook or CSV files
+  exportData: (input: ExportInput) => Promise<FleetResult<ExportResult>>
   getTaxSettings: () => Promise<FleetResult<TaxSettingsView>>
   // Basis points per tax; each change is logged under the signed-in government user
   updateTaxRates: (input: TaxRatesInput) => Promise<FleetResult<TaxSettingsView>>

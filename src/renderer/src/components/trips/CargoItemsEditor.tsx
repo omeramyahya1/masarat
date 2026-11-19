@@ -32,6 +32,26 @@ interface CargoItemsEditorProps {
   onChange: (items: ItemDraft[]) => void
 }
 
+// A small label directly above one of an item's inputs
+function Labeled({
+  htmlFor,
+  text,
+  children
+}: {
+  htmlFor: string
+  text: string
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <label htmlFor={htmlFor} className="text-xs font-medium text-stone-500">
+        {text}
+      </label>
+      {children}
+    </div>
+  )
+}
+
 const ROW = 'grid grid-cols-[9.5rem_minmax(0,1fr)_7rem_6.5rem_2.25rem] items-start gap-2'
 const DETAILS_ROW = 'grid grid-cols-[9.5rem_7rem_minmax(0,1fr)_2.25rem] items-start gap-2'
 
@@ -50,6 +70,9 @@ function CargoItemsEditor({
   const { t } = useTranslation()
   const format = useFormat()
   const packingListId = useId()
+  // Each input's id: <base>-<item key>-<field>, so every label points at its own input
+  const baseId = useId()
+  const idOf = (key: number, field: string): string => `${baseId}-${key}-${field}`
   const packingOptions = [
     ...new Set([...PACKING_SUGGESTIONS.map((p) => t(`packingTypes.${p}`)), ...usedPackingTypes])
   ]
@@ -65,22 +88,10 @@ function CargoItemsEditor({
           <option key={option} value={option} />
         ))}
       </datalist>
-      <div className="flex flex-col gap-1 px-3 text-xs font-medium text-stone-500">
-        <div className={ROW}>
-          <span>{t('trips.items.type')}</span>
-          <span>{t('trips.items.name')}</span>
-          <span>{t('trips.items.quantity')}</span>
-          <span>{t('trips.items.unit')}</span>
-        </div>
-        <div className={DETAILS_ROW}>
-          <span>{t('trips.items.packingType')}</span>
-          <span>{t('trips.items.packageCount')}</span>
-          <span>{t('trips.items.notes')}</span>
-        </div>
-      </div>
       <ul className="flex flex-col gap-2">
         {items.map((item, index) => {
           const n = format.number(index + 1)
+          const id = (field: string): string => idOf(item.key, field)
           return (
             <li
               key={item.key}
@@ -91,51 +102,64 @@ function CargoItemsEditor({
               }`}
             >
               <div className={ROW}>
-                <select
-                  className="input"
-                  aria-label={t('trips.items.typeOf', { n })}
-                  value={item.cargoType}
-                  onChange={(e) => update(item.key, { cargoType: e.target.value as CargoType })}
-                >
-                  <option value="" disabled>
-                    {t('trips.fields.cargoTypePlaceholder')}
-                  </option>
-                  {cargoTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {t(`cargoTypes.${type}`)}
+                <Labeled htmlFor={id('type')} text={t('trips.items.type')}>
+                  <select
+                    id={id('type')}
+                    className="input"
+                    aria-label={t('trips.items.typeOf', { n })}
+                    value={item.cargoType}
+                    onChange={(e) => update(item.key, { cargoType: e.target.value as CargoType })}
+                  >
+                    <option value="" disabled>
+                      {t('trips.fields.cargoTypePlaceholder')}
                     </option>
-                  ))}
-                </select>
-                <input
-                  className="input"
-                  aria-label={t('trips.items.nameOf', { n })}
-                  placeholder={t(`trips.items.namePlaceholder.${unit}`)}
-                  maxLength={MAX_ITEM_NAME_LENGTH}
-                  value={item.name}
-                  onChange={(e) => update(item.key, { name: e.target.value })}
-                />
-                <NumberField
-                  ariaLabel={t('trips.items.quantityOf', { n })}
-                  value={item.quantity}
-                  allowDecimal
-                  maxDigits={9}
-                  onValueChange={(quantity) => update(item.key, { quantity })}
-                />
-                <select
-                  className="input"
-                  aria-label={t('trips.items.unitOf', { n })}
-                  value={item.unit}
-                  onChange={(e) => update(item.key, { unit: e.target.value as ItemUnit })}
-                >
-                  {units.map((u) => (
-                    <option key={u} value={u}>
-                      {t(`units.name.${u}`)}
-                    </option>
-                  ))}
-                </select>
+                    {cargoTypes.map((type) => (
+                      <option key={type} value={type}>
+                        {t(`cargoTypes.${type}`)}
+                      </option>
+                    ))}
+                  </select>
+                </Labeled>
+                <Labeled htmlFor={id('name')} text={t('trips.items.name')}>
+                  <input
+                    id={id('name')}
+                    className="input"
+                    aria-label={t('trips.items.nameOf', { n })}
+                    placeholder={t(`trips.items.namePlaceholder.${unit}`)}
+                    maxLength={MAX_ITEM_NAME_LENGTH}
+                    value={item.name}
+                    onChange={(e) => update(item.key, { name: e.target.value })}
+                  />
+                </Labeled>
+                <Labeled htmlFor={id('quantity')} text={t('trips.items.quantity')}>
+                  <NumberField
+                    id={id('quantity')}
+                    ariaLabel={t('trips.items.quantityOf', { n })}
+                    value={item.quantity}
+                    allowDecimal
+                    maxDigits={9}
+                    onValueChange={(quantity) => update(item.key, { quantity })}
+                  />
+                </Labeled>
+                <Labeled htmlFor={id('unit')} text={t('trips.items.unit')}>
+                  <select
+                    id={id('unit')}
+                    className="input"
+                    aria-label={t('trips.items.unitOf', { n })}
+                    value={item.unit}
+                    onChange={(e) => update(item.key, { unit: e.target.value as ItemUnit })}
+                  >
+                    {units.map((u) => (
+                      <option key={u} value={u}>
+                        {t(`units.name.${u}`)}
+                      </option>
+                    ))}
+                  </select>
+                </Labeled>
                 <button
                   type="button"
-                  className="icon-btn mt-0.5"
+                  // Level with the inputs, below their labels
+                  className="icon-btn mt-6"
                   aria-label={t('trips.items.removeOf', { n })}
                   title={t('trips.items.remove')}
                   disabled={items.length === 1}
@@ -145,30 +169,39 @@ function CargoItemsEditor({
                 </button>
               </div>
               <div className={DETAILS_ROW}>
-                <input
-                  className="input"
-                  list={packingListId}
-                  aria-label={t('trips.items.packingTypeOf', { n })}
-                  placeholder={t('trips.items.packingTypePlaceholder')}
-                  maxLength={MAX_PACKING_LENGTH}
-                  value={item.packingType}
-                  onChange={(e) => update(item.key, { packingType: e.target.value })}
-                />
-                <NumberField
-                  ariaLabel={t('trips.items.packageCountOf', { n })}
-                  placeholder={t('trips.items.packageCountPlaceholder')}
-                  value={item.packageCount}
-                  maxDigits={7}
-                  onValueChange={(packageCount) => update(item.key, { packageCount })}
-                />
-                <input
-                  className="input"
-                  aria-label={t('trips.items.notesOf', { n })}
-                  placeholder={t('trips.items.notesPlaceholder')}
-                  maxLength={MAX_NOTES_LENGTH}
-                  value={item.notes}
-                  onChange={(e) => update(item.key, { notes: e.target.value })}
-                />
+                <Labeled htmlFor={id('packing')} text={t('trips.items.packingType')}>
+                  <input
+                    id={id('packing')}
+                    className="input"
+                    list={packingListId}
+                    aria-label={t('trips.items.packingTypeOf', { n })}
+                    placeholder={t('trips.items.packingTypePlaceholder')}
+                    maxLength={MAX_PACKING_LENGTH}
+                    value={item.packingType}
+                    onChange={(e) => update(item.key, { packingType: e.target.value })}
+                  />
+                </Labeled>
+                <Labeled htmlFor={id('packages')} text={t('trips.items.packageCount')}>
+                  <NumberField
+                    id={id('packages')}
+                    ariaLabel={t('trips.items.packageCountOf', { n })}
+                    placeholder={t('trips.items.packageCountPlaceholder')}
+                    value={item.packageCount}
+                    maxDigits={7}
+                    onValueChange={(packageCount) => update(item.key, { packageCount })}
+                  />
+                </Labeled>
+                <Labeled htmlFor={id('notes')} text={t('trips.items.notes')}>
+                  <input
+                    id={id('notes')}
+                    className="input"
+                    aria-label={t('trips.items.notesOf', { n })}
+                    placeholder={t('trips.items.notesPlaceholder')}
+                    maxLength={MAX_NOTES_LENGTH}
+                    value={item.notes}
+                    onChange={(e) => update(item.key, { notes: e.target.value })}
+                  />
+                </Labeled>
               </div>
             </li>
           )

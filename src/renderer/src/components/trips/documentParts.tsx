@@ -2,6 +2,7 @@
 // manifest). The documents are always in Arabic, so these take already-translated text.
 import type { ReactNode } from 'react'
 import emblem from '../../assets/sudan-emblem.svg'
+import type { SheetFrame } from './documentFrame'
 
 export function Section({
   title,
@@ -59,30 +60,34 @@ export function Latin({ children }: { children: string }): React.JSX.Element {
   )
 }
 
-// The issuing authority and the Sudan emblem, then the document's barcode (its number) beside
-// the verification QR code and the issue date, then the document's title
-export function DocumentHeader({
-  authority,
-  barcode,
-  numberLabel,
-  qr,
-  qrLabel,
-  date,
-  title
+// One printed page (the A4 content box inside the 10 mm page margin): the letterhead, the page's
+// content, and a footer with the QR code at the bottom left and the page number. A document longer
+// than a page is split into several sheets, so every page carries the barcode and the QR.
+export function DocumentSheet({
+  frame,
+  continued,
+  pageLabel,
+  measuring,
+  className = '',
+  children
 }: {
-  // Republic, ministry, authority and department, top to bottom
-  authority: readonly string[]
-  // Code 128 barcode of the document number (the number is printed under the bars)
-  barcode: string
-  numberLabel: string
-  qr: string
-  qrLabel: string
-  date: { label: string; value: string }
-  title: string
+  frame: SheetFrame
+  // A later page of the same document: its title says so
+  continued?: string
+  // "صفحة 1 من 2"
+  pageLabel: string
+  // The hidden copy the pages are measured on: marks its content area for usePagedRows
+  measuring?: boolean
+  className?: string
+  children: ReactNode
 }): React.JSX.Element {
-  const [republic, ...rest] = authority
+  const [republic, ...rest] = frame.authority
   return (
-    <>
+    <article
+      dir="rtl"
+      lang="ar"
+      className={`print-sheet mx-auto flex h-[276mm] w-[190mm] flex-col gap-3 overflow-hidden rounded-lg border-2 border-double border-brand-800 bg-white px-6 py-5 text-stone-900 select-text ${className}`}
+    >
       <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
         <div className="flex flex-col gap-0.5 text-[13px] leading-snug font-bold">
           <span className="text-[15px]">{republic}</span>
@@ -96,23 +101,44 @@ export function DocumentHeader({
           ))}
         </div>
         <img src={emblem} alt="" className="h-20 w-auto" />
-        <div className="flex items-start justify-end gap-3">
-          <div className="flex flex-col items-center gap-1 text-[11px]">
-            <img src={barcode} alt={numberLabel} className="h-12 w-auto max-w-60" />
-            <span className="text-stone-500">{numberLabel}</span>
-            <span className="text-stone-500">
-              {date.label}: <span className="font-semibold text-stone-900">{date.value}</span>
-            </span>
-          </div>
-          <figure className="flex flex-col items-center gap-0.5">
-            <img src={qr} alt={qrLabel} className="size-20 rounded border border-stone-200" />
-            <figcaption className="text-[10px] text-stone-500">{qrLabel}</figcaption>
-          </figure>
+        {/* The left edge (the end, in Arabic): the barcode, then the issue date */}
+        <div className="flex flex-col items-end gap-1 text-[11px]">
+          <img src={frame.barcode} alt={frame.barcodeAlt} className="h-11 w-auto max-w-52" />
+          <span className="text-stone-500">
+            {frame.date.label}:{' '}
+            <span className="font-semibold text-stone-900">{frame.date.value}</span>
+          </span>
         </div>
       </header>
       <h3 className="border-y-2 border-brand-800 py-1.5 text-center text-lg font-bold text-brand-900">
-        {title}
+        {frame.title}
+        {continued && (
+          <span className="ms-2 text-sm font-semibold text-stone-500">{continued}</span>
+        )}
       </h3>
-    </>
+
+      <div
+        data-measure={measuring ? 'body' : undefined}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
+      >
+        {children}
+      </div>
+
+      {/* The QR code last, so it sits at the bottom left */}
+      <footer className="flex items-end justify-between gap-4 border-t border-stone-200 pt-2">
+        <div className="flex flex-col gap-1 pb-1 text-[11px] text-stone-500">
+          <span>{frame.footer}</span>
+          <span className="font-semibold text-stone-700">{pageLabel}</span>
+        </div>
+        <figure className="flex shrink-0 flex-col items-center gap-0.5">
+          <img
+            src={frame.qr}
+            alt={frame.qrLabel}
+            className="size-20 rounded border border-stone-200"
+          />
+          <figcaption className="text-[10px] text-stone-500">{frame.qrLabel}</figcaption>
+        </figure>
+      </footer>
+    </article>
   )
 }

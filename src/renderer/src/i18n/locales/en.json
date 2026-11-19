@@ -3,6 +3,7 @@
     "windowTitle": "Masarat — Transport & Tax Portal",
     "name": "Masarat",
     "badge": "MVP",
+    "version": "v{{version}}",
     "tagline": "Electronic manifest and transport tax system",
     "panelSwitcher": "Switch panel"
   },
@@ -590,8 +591,10 @@
       },
       "footer": "Issued electronically by the Masarat system after the fees were paid with receipt {{receiptNo}}. Valid only with that receipt.",
       "vehicleAndTrip": "Vehicle and trip",
-      "parties": "Carrier, driver, sender and receiver"
-    }
+      "parties": "Carrier, driver, sender and receiver",
+      "continued": "(continued)"
+    },
+    "page": "Page {{page}} of {{count}}"
   },
   "govt": {
     "dashboard": {

@@ -1,8 +1,11 @@
+import { useRef } from 'react'
 import type { TFunction } from 'i18next'
 import type { CargoItem, Party, TripReferenceData } from '../../../../shared/fleet'
 import type { CertificateRecord, TripDetails } from '../../../../shared/billing'
 import type { Formatters } from '../../lib/format'
-import { DocumentHeader, Field, Latin, Section } from './documentParts'
+import { documentFrame } from './documentFrame'
+import { DocumentSheet, Field, Latin, Section } from './documentParts'
+import { usePagedRows, type PageSlice } from './usePagedRows'
 
 interface ManifestPageProps {
   details: TripDetails
@@ -20,8 +23,10 @@ function Blank({ className = '' }: { className?: string }): React.JSX.Element {
   return <span className={`block border-b border-stone-400 ${className}`} />
 }
 
-// Page 2 and on: the authorized manifest (تصريح الحركة). Customs, Zakat and other bodies add their
-// own stamps to the printed copy; the blank boxes and signature blocks are for them and the parties.
+// The authorized manifest (تصريح الحركة), on as many sheets as its cargo needs: page 1 opens with
+// the vehicle, trip and parties, the cargo table continues across pages, and the last page closes
+// with the total, the financial and customs section and the signatures. Customs, Zakat and other
+// bodies add their own stamps to the printed copy.
 function ManifestPage({
   details,
   certificate,
@@ -30,6 +35,9 @@ function ManifestPage({
   fa
 }: ManifestPageProps): React.JSX.Element {
   const { trip } = details
+  const measureRef = useRef<HTMLDivElement>(null)
+  const pages = usePagedRows(measureRef, details)
+  const frame = documentFrame('manifest', certificate, ar, fa)
   const city = (id: number): string => fa.city(reference.cities.find((c) => c.id === id))
   const dash = (value: string | null | undefined): string => value || '—'
   // Trips from before cargo items existed list their cargo type as a single line
@@ -77,27 +85,8 @@ function ManifestPage({
     { title: ar('certificate.manifest.receiver'), ...partyRow(trip.receiver) }
   ]
 
-  return (
-    <article
-      dir="rtl"
-      lang="ar"
-      className="print-certificate print-page-break flex flex-col gap-3 rounded-lg border-2 border-double border-brand-800 bg-white p-7 text-stone-900 select-text"
-    >
-      <DocumentHeader
-        authority={[
-          ar('certificate.header.republic'),
-          ar('certificate.header.ministry'),
-          ar('certificate.header.authority'),
-          ar('certificate.header.department')
-        ]}
-        barcode={certificate.manifestBarcode}
-        numberLabel={ar('certificate.fields.manifestNo')}
-        qr={certificate.qrDataUrl}
-        qrLabel={ar('certificate.scanToVerify')}
-        date={{ label: ar('certificate.fields.issuedAt'), value: fa.date(certificate.issuedAt) }}
-        title={ar('certificate.manifest.title')}
-      />
-
+  const intro = (
+    <div data-measure="intro" className="flex flex-col gap-3">
       <Section title={ar('certificate.manifest.vehicleAndTrip')} dense>
         <Field label={ar('certificate.manifest.headPlate')}>{fa.plate(trip.plateNumber)}</Field>
         <Field label={ar('certificate.manifest.registrationNo')}>
@@ -156,45 +145,51 @@ function ManifestPage({
           </tbody>
         </table>
       </section>
+    </div>
+  )
 
-      <section className="flex flex-col gap-1.5">
-        <h4 className="border-b border-brand-700 pb-1 text-[13px] font-bold text-brand-800">
-          {ar('certificate.cargo.title')}
-        </h4>
-        <table className="w-full border-collapse text-[12px]">
-          <thead>
-            <tr className="bg-brand-50 text-brand-900">
-              <th className={`${CELL} w-8 text-center`}>#</th>
-              <th className={`${CELL} text-start`}>{ar('certificate.cargo.item')}</th>
-              <th className={`${CELL} w-24 text-start`}>{ar('certificate.cargo.packing')}</th>
-              <th className={`${CELL} w-16 text-center`}>{ar('certificate.cargo.packages')}</th>
-              <th className={`${CELL} w-28 text-center`}>{ar('certificate.cargo.weight')}</th>
-              <th className={`${CELL} w-36 text-start`}>{ar('certificate.cargo.notes')}</th>
+  const cargoTable = (
+    rows: readonly { item: CargoItem; index: number }[],
+    withTotal: boolean
+  ): React.JSX.Element => (
+    <section data-measure="cargo" className="flex flex-col gap-1.5">
+      <h4 className="border-b border-brand-700 pb-1 text-[13px] font-bold text-brand-800">
+        {ar('certificate.cargo.title')}
+      </h4>
+      <table className="w-full border-collapse text-[12px]">
+        <thead>
+          <tr className="bg-brand-50 text-brand-900">
+            <th className={`${CELL} w-8 text-center`}>#</th>
+            <th className={`${CELL} text-start`}>{ar('certificate.cargo.item')}</th>
+            <th className={`${CELL} w-24 text-start`}>{ar('certificate.cargo.packing')}</th>
+            <th className={`${CELL} w-16 text-center`}>{ar('certificate.cargo.packages')}</th>
+            <th className={`${CELL} w-28 text-center`}>{ar('certificate.cargo.weight')}</th>
+            <th className={`${CELL} w-36 text-start`}>{ar('certificate.cargo.notes')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ item, index }) => (
+            <tr key={index} data-measure="row">
+              <td className={`${CELL} text-center`}>{fa.number(index + 1)}</td>
+              <td className={CELL}>
+                <bdi>{item.name}</bdi>
+              </td>
+              <td className={CELL}>
+                <bdi>{dash(item.packingType)}</bdi>
+              </td>
+              <td className={`${CELL} text-center tabular-nums`}>
+                {item.packageCount !== null ? fa.number(item.packageCount) : '—'}
+              </td>
+              <td className={`${CELL} text-center tabular-nums`}>
+                {fa.quantity(item.quantity, item.unit)}
+              </td>
+              <td className={`${CELL} text-[11px]`}>
+                <bdi>{item.notes ?? ''}</bdi>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {cargo.map((item, index) => (
-              <tr key={index} className="break-inside-avoid">
-                <td className={`${CELL} text-center`}>{fa.number(index + 1)}</td>
-                <td className={CELL}>
-                  <bdi>{item.name}</bdi>
-                </td>
-                <td className={CELL}>
-                  <bdi>{dash(item.packingType)}</bdi>
-                </td>
-                <td className={`${CELL} text-center tabular-nums`}>
-                  {item.packageCount !== null ? fa.number(item.packageCount) : '—'}
-                </td>
-                <td className={`${CELL} text-center tabular-nums`}>
-                  {fa.quantity(item.quantity, item.unit)}
-                </td>
-                <td className={`${CELL} text-[11px]`}>
-                  <bdi>{item.notes ?? ''}</bdi>
-                </td>
-              </tr>
-            ))}
-            {/* A body row, not <tfoot>: a footer would repeat on every printed page */}
-            <tr className="break-inside-avoid font-bold">
+          ))}
+          {withTotal && (
+            <tr data-measure="total" className="font-bold">
               <td colSpan={3} className={CELL}>
                 {ar('certificate.cargo.total')}
               </td>
@@ -206,17 +201,20 @@ function ManifestPage({
               </td>
               <td className={CELL} />
             </tr>
-          </tbody>
-        </table>
-      </section>
+          )}
+        </tbody>
+      </table>
+    </section>
+  )
 
+  const tail = (
+    <div data-measure="tail" className="flex flex-col gap-3">
       <Section title={ar('certificate.manifest.financial')} dense>
         <Field label={ar('certificate.manifest.shippingCost')}>{fa.currency(trip.tripCost)}</Field>
         <Field label={ar('certificate.manifest.customsDeclarationNo')}>
           <Blank className="mt-3 w-40" />
         </Field>
       </Section>
-
       <section className="grid grid-cols-3 gap-4 break-inside-avoid">
         {(['carrier', 'driver', 'receiver'] as const).map((who) => (
           <div key={who} className="flex flex-col gap-1.5 rounded border border-stone-300 p-2.5">
@@ -241,11 +239,40 @@ function ManifestPage({
           </div>
         ))}
       </section>
+    </div>
+  )
 
-      <footer className="mt-auto border-t border-stone-200 pt-3 text-center text-[11px] text-stone-500">
-        {ar('certificate.manifest.footer', { receiptNo: certificate.certificateNo })}
-      </footer>
-    </article>
+  const numbered = cargo.map((item, index) => ({ item, index }))
+  const sheet = (page: PageSlice, number: number, count: number): React.JSX.Element => (
+    <DocumentSheet
+      key={number}
+      frame={frame}
+      continued={number > 1 ? ar('certificate.manifest.continued') : undefined}
+      pageLabel={ar('certificate.page', { page: fa.number(number), count: fa.number(count) })}
+    >
+      {page.first && intro}
+      {(page.end > page.start || page.last) &&
+        cargoTable(numbered.slice(page.start, page.end), page.last)}
+      {page.last && tail}
+    </DocumentSheet>
+  )
+
+  return (
+    <>
+      {/* Hidden copy with every row on one sheet, measured to deal the rows out into pages */}
+      <div
+        ref={measureRef}
+        aria-hidden
+        className="no-print pointer-events-none invisible fixed top-0 -left-[10000px]"
+      >
+        <DocumentSheet frame={frame} pageLabel="-" measuring>
+          {intro}
+          {cargoTable(numbered, true)}
+          {tail}
+        </DocumentSheet>
+      </div>
+      {pages?.map((page, index) => sheet(page, index + 1, pages.length))}
+    </>
   )
 }
 

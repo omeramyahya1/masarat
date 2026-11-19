@@ -343,6 +343,7 @@ function registerAuthHandlers(): void {
   ipcMain.handle('auth:sign-up', (_event, input: SignUpInput) => runAuth(() => signUp(input)))
   ipcMain.handle('auth:log-in', (_event, input: LogInInput) => runAuth(() => logIn(input)))
   ipcMain.handle('auth:log-out', (_event, role: UserRole) => logOut(role))
+  ipcMain.handle('app:get-version', () => app.getVersion())
   ipcMain.handle('auth:get-session', (_event, role: UserRole) => getSession(role))
   ipcMain.handle('auth:update-profile', (_event, input: ProfileInput) =>
     runAuth(async () => updateProfile(input))

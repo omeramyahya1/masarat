@@ -3,6 +3,7 @@
     "windowTitle": "Masarat — Transport & Tax Portal",
     "name": "Masarat",
     "badge": "MVP",
+    "version": "v{{version}}",
     "tagline": "Electronic manifest and transport tax system",
     "panelSwitcher": "Switch panel"
   },

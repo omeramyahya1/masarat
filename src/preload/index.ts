@@ -47,6 +47,9 @@ export interface UpdateProgress {
 
 // Custom APIs for renderer
 const api = {
+  app: {
+    getVersion: (): Promise<string> => ipcRenderer.invoke('app:get-version')
+  },
   auth: {
     signUp: (input: SignUpInput): Promise<AuthResult> => ipcRenderer.invoke('auth:sign-up', input),
     logIn: (input: LogInInput): Promise<AuthResult> => ipcRenderer.invoke('auth:log-in', input),

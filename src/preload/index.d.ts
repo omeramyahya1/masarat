@@ -116,7 +116,13 @@ export interface AuthAPI {
   updateProfile: (input: ProfileInput) => Promise<AuthResult>
 }
 
+export interface AppAPI {
+  // The installed app's version (package.json's in development)
+  getVersion: () => Promise<string>
+}
+
 export interface CustomAPI {
+  app: AppAPI
   auth: AuthAPI
   fleet: FleetAPI
   trips: TripsAPI

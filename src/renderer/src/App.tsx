@@ -15,6 +15,14 @@ function App(): React.JSX.Element {
   const { t } = useTranslation()
   const [activeRole, setActiveRole] = useState<UserRole>('govt')
   const [sessions, setSessions] = useState<Sessions>({ owner: null, govt: null })
+  const [version, setVersion] = useState<string | null>(null)
+
+  useEffect(() => {
+    window.api.app
+      .getVersion()
+      .then(setVersion)
+      .catch(() => setVersion(null))
+  }, [])
 
   // Restore sessions kept by the main process (e.g. after a renderer reload)
   useEffect(() => {
@@ -53,6 +61,14 @@ function App(): React.JSX.Element {
               <span className="rounded border border-brand-200 bg-brand-50 px-1.5 text-[10px] font-semibold tracking-wide text-brand-700 uppercase rtl:tracking-normal">
                 {t('app.badge')}
               </span>
+              {version && (
+                <span
+                  dir="ltr"
+                  className="rounded border border-stone-200 bg-stone-100 px-1.5 text-[10px] font-semibold text-stone-600 tabular-nums"
+                >
+                  {t('app.version', { version })}
+                </span>
+              )}
             </div>
             <div className="text-xs text-stone-500">{t('app.tagline')}</div>
           </div>

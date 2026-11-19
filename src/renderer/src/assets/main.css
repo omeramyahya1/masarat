@@ -400,13 +400,19 @@
     background: transparent;
   }
 
-  .print-certificate {
-    print-color-adjust: exact;
-    -webkit-print-color-adjust: exact;
+  /* Each sheet is exactly one page (the documents paginate themselves; see usePagedRows) */
+  .print-sheets {
+    gap: 0;
   }
 
-  /* Each certificate page starts on a new sheet; a long cargo list flows onto more sheets */
-  .print-page-break {
+  .print-sheet {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    break-inside: avoid;
+  }
+
+  /* ~, not +: the manifest's hidden measuring copy sits between the documents */
+  .print-sheet ~ .print-sheet {
     break-before: page;
   }
 }

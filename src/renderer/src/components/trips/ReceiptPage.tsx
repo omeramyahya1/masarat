@@ -2,7 +2,8 @@ import type { TFunction } from 'i18next'
 import { tripCargoTypes, type TripReferenceData } from '../../../../shared/fleet'
 import type { CertificateRecord, PaymentRecord, TripDetails } from '../../../../shared/billing'
 import type { Formatters } from '../../lib/format'
-import { DocumentHeader, Field, Latin, Section } from './documentParts'
+import { documentFrame } from './documentFrame'
+import { DocumentSheet, Field, Latin, Section } from './documentParts'
 
 interface ReceiptPageProps {
   details: TripDetails
@@ -14,7 +15,7 @@ interface ReceiptPageProps {
   fa: Formatters
 }
 
-// Page 1: the electronic payment receipt (إيصال سداد إلكتروني) for the trip's taxes and fees
+// The electronic payment receipt (إيصال سداد إلكتروني) for the trip's taxes and fees
 function ReceiptPage({
   details,
   payment,
@@ -27,26 +28,10 @@ function ReceiptPage({
   const city = (id: number): string => fa.city(reference.cities.find((c) => c.id === id))
 
   return (
-    <article
-      dir="rtl"
-      lang="ar"
-      className="print-certificate flex flex-col gap-4 rounded-lg border-2 border-double border-brand-800 bg-white p-7 text-stone-900 select-text"
+    <DocumentSheet
+      frame={documentFrame('receipt', certificate, ar, fa)}
+      pageLabel={ar('certificate.page', { page: fa.number(1), count: fa.number(1) })}
     >
-      <DocumentHeader
-        authority={[
-          ar('certificate.header.republic'),
-          ar('certificate.header.ministry'),
-          ar('certificate.header.authority'),
-          ar('certificate.header.department')
-        ]}
-        barcode={certificate.receiptBarcode}
-        numberLabel={ar('certificate.fields.certificateNo')}
-        qr={certificate.qrDataUrl}
-        qrLabel={ar('certificate.scanToVerify')}
-        date={{ label: ar('certificate.fields.issuedAt'), value: fa.date(certificate.issuedAt) }}
-        title={ar('certificate.header.title')}
-      />
-
       <Section title={ar('certificate.sections.vehicle')}>
         <Field label={ar('certificate.fields.plate')}>{fa.plate(trip.plateNumber)}</Field>
         <Field label={ar('certificate.fields.vehicleType')}>
@@ -103,11 +88,7 @@ function ReceiptPage({
         )}
         <Field label={ar('certificate.fields.validUntil')}>{fa.date(certificate.validUntil)}</Field>
       </Section>
-
-      <footer className="mt-auto border-t border-stone-200 pt-3 text-center text-[11px] text-stone-500">
-        {ar('certificate.footer')}
-      </footer>
-    </article>
+    </DocumentSheet>
   )
 }
 

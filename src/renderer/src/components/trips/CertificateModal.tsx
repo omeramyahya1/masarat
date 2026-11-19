@@ -60,7 +60,7 @@ function CertificateModal({
 
   // Rendered straight into <body> so the print styles can drop the rest of the app from layout
   return createPortal(
-    <Modal labelledBy={titleId} onClose={close} className="print-dialog max-w-3xl">
+    <Modal labelledBy={titleId} onClose={close} className="print-dialog max-w-[calc(190mm+4rem)]">
       <div className="no-print mb-4 flex items-center justify-between gap-4">
         <h2 id={titleId} className="text-lg font-semibold">
           {t('certificate.dialogTitle')}
@@ -95,7 +95,8 @@ function CertificateModal({
         </div>
       )}
 
-      <div className="flex flex-col gap-6">
+      {/* Every page of both documents is a sheet; printing puts each on its own A4 page */}
+      <div className="print-sheets flex flex-col gap-6">
         <ReceiptPage
           details={details}
           payment={payment}

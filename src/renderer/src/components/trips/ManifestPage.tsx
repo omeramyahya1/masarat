@@ -219,7 +219,10 @@ function ManifestPage({
       </Section>
       <section className="grid grid-cols-3 gap-4 break-inside-avoid">
         {(['carrier', 'driver', 'receiver'] as const).map((who) => (
-          <div key={who} className="flex flex-col gap-1 rounded border border-stone-300 px-2.5 py-2">
+          <div
+            key={who}
+            className="flex flex-col gap-1 rounded border border-stone-300 px-2.5 py-2"
+          >
             <h5 className="text-[12px] font-bold text-brand-800">
               {ar(`certificate.manifest.signatures.${who}`)}
             </h5>

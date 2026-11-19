@@ -25,13 +25,26 @@ function textConditions(raw: string): SQL | undefined {
   if (!text) return undefined
   const western = text.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
 
+  // Plates match whatever else the text could be, so "34567" or "12/34567" (Western or Arabic
+  // digits) finds plates too
+  const plateKey = plateSearchKey(text)
+  const plate =
+    plateKey.length >= 2
+      ? sql`replace(replace(upper(${vehicles.plateNumber}), ' ', ''), '/', '') LIKE ${`%${escapeLike(plateKey)}%`} ESCAPE '\\'`
+      : undefined
+
   // An E-Sali bill ID (22 digits) or the start of one
   if (/^\d{6,22}$/.test(western)) {
-    return sql`${payments.billId} LIKE ${`${western}%`}`
+    return or(sql`${payments.billId} LIKE ${`${western}%`}`, plate)
   }
   // A trip number: "123" or "#123"
-  const tripNo = /^#?(\d{1,5})$/.exec(western)
-  if (tripNo) return eq(manifests.id, Number(tripNo[1]))
+  const tripNo = /^(#)?(\d{1,5})$/.exec(western)
+  if (tripNo) {
+    // "#123" is only a trip number
+    return tripNo[1]
+      ? eq(manifests.id, Number(tripNo[2]))
+      : or(eq(manifests.id, Number(tripNo[2])), plate)
+  }
   // A receipt or manifest number, whole or in part (MNF-2026-000123, mnf 2026 123, …)
   const docNo = /^(MNF|MSR)[\s-]*(\d{4})?[\s-]*(\d{0,6})$/i.exec(western)
   if (docNo) {
@@ -44,11 +57,8 @@ function textConditions(raw: string): SQL | undefined {
     return sql`${column} LIKE ${`${prefix.toUpperCase()}-${year ?? ''}%`}`
   }
 
-  const plate = plateSearchKey(text)
   return or(
-    plate.length >= 2
-      ? sql`replace(replace(upper(${vehicles.plateNumber}), ' ', ''), '/', '') LIKE ${`%${escapeLike(plate)}%`} ESCAPE '\\'`
-      : undefined,
+    plate,
     contains(vehicles.registrationNo, text),
     contains(users.companyName, text),
     contains(users.fullName, text),

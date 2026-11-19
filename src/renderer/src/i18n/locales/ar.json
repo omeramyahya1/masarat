@@ -768,6 +768,63 @@
         "amount": "المبلغ",
         "status": "الحالة"
       }
+    },
+    "export": {
+      "open": "تصدير",
+      "title": "تصدير",
+      "subtitle": "لوحة المعلومات كتقرير PDF، أو البيانات الأولية بصيغة Excel أو CSV. تُصدَّر الملفات باللغة العربية.",
+      "kind": "نوع التصدير",
+      "tabs": {
+        "report": "تقرير (PDF)",
+        "data": "بيانات (Excel / CSV)"
+      },
+      "parameters": "المعايير",
+      "reportOptions": "التقرير",
+      "automatic": "تلقائي",
+      "sections": "يتضمن",
+      "sectionNames": {
+        "kpis": "المؤشرات الرئيسية",
+        "chart": "مخطط الإيرادات",
+        "cargo": "الإيرادات حسب نوع الحمولة",
+        "tax": "الإيرادات حسب الضريبة والرسم",
+        "breakdown": "التوزيع",
+        "progress": "تقدّم الرحلات"
+      },
+      "reportNote": "يُفتح التقرير للمعاينة بالترويسة الرسمية، ويمكن تنزيله من هناك بصيغة PDF.",
+      "previewReport": "معاينة التقرير",
+      "reportPreview": "معاينة التقرير",
+      "reportSaved": "حُفظ التقرير.",
+      "dataOptions": "البيانات",
+      "datasetsLabel": "مجموعات البيانات",
+      "datasets": {
+        "trips": "الرحلات",
+        "bills": "الفواتير والمدفوعات",
+        "items": "أصناف الحمولة",
+        "taxLines": "بنود الضرائب والرسوم"
+      },
+      "dateBasis": "تُطبَّق الفترة على",
+      "dateBases": {
+        "trip": "تاريخ الرحلة",
+        "billed": "تاريخ إصدار الفاتورة",
+        "paid": "تاريخ السداد"
+      },
+      "status": "حالة الرحلة",
+      "statuses": {
+        "all": "الكل",
+        "draft": "المسودات",
+        "billed": "بانتظار الدفع",
+        "certified": "المعتمدة"
+      },
+      "format": "الصيغة",
+      "formats": {
+        "xlsx": "Excel",
+        "csv": "CSV"
+      },
+      "dataNote": "يكتب Excel ورقة لكل مجموعة بيانات، وملفات CSV بترميز UTF-8 وتُفتح في Excel.",
+      "csvFolder": "عند اختيار CSV مع عدة مجموعات: اختر مجلدًا، وتُحفظ كل مجموعة في ملف مستقل.",
+      "exportData": "تصدير البيانات",
+      "dataSaved": "تم الحفظ: {{rows}}.",
+      "rowCount": "{{dataset}} {{count}} صف"
     }
   },
   "states": {
@@ -801,5 +858,85 @@
     "packing_list": "قائمة التعبئة",
     "certificate_of_origin": "شهادة المنشأ",
     "trade_authorization": "إذن الاستيراد / التصدير"
+  },
+  "report": {
+    "title": "تقرير تحصيل ضرائب النقل البري",
+    "generatedAt": "تاريخ الإعداد",
+    "parameters": "معايير التقرير",
+    "kpis": "المؤشرات الرئيسية",
+    "footer": "أُعدّ هذا التقرير عبر نظام مسارات من السجلات المتاحة وقت إصداره."
+  },
+  "export": {
+    "columns": {
+      "trips": {
+        "tripId": "رقم الرحلة",
+        "manifestNo": "رقم المنفيست",
+        "tripDate": "تاريخ الرحلة",
+        "createdAt": "تاريخ التسجيل",
+        "status": "الحالة",
+        "owner": "مالك الأسطول",
+        "plate": "اللوحة",
+        "registrationNo": "رقم الترخيص",
+        "vehicleType": "نوع المركبة",
+        "trailers": "المقطورات",
+        "tripKind": "نوع الرحلة",
+        "origin": "نقطة الانطلاق",
+        "originState": "ولاية الانطلاق",
+        "destination": "الوجهة",
+        "destinationState": "ولاية الوجهة",
+        "distanceKm": "المسافة (كم)",
+        "driverName": "السائق",
+        "driverPhone": "هاتف السائق",
+        "shipperName": "المرسل",
+        "receiverName": "المستلم",
+        "cargoTypes": "أنواع الحمولة",
+        "cargoQuantity": "الحمولة",
+        "cargoUnit": "وحدة الحمولة",
+        "tripCost": "تكلفة الرحلة (ج.س)",
+        "amountDue": "الضرائب والرسوم (ج.س)",
+        "billId": "رقم فاتورة إيصالي",
+        "paidAt": "تاريخ السداد"
+      },
+      "bills": {
+        "billId": "رقم فاتورة إيصالي",
+        "tripId": "رقم الرحلة",
+        "manifestNo": "رقم المنفيست",
+        "owner": "مالك الأسطول",
+        "plate": "اللوحة",
+        "amount": "المبلغ (ج.س)",
+        "status": "حالة السداد",
+        "issuedAt": "تاريخ الإصدار",
+        "paidAt": "تاريخ السداد",
+        "paymentRef": "مرجع الدفع"
+      },
+      "items": {
+        "tripId": "رقم الرحلة",
+        "manifestNo": "رقم المنفيست",
+        "position": "#",
+        "description": "الوصف",
+        "cargoType": "نوع الحمولة",
+        "packingType": "نوع التعبئة",
+        "packageCount": "العدد",
+        "quantity": "الوزن",
+        "unit": "الوحدة",
+        "cost": "التكلفة (ج.س)",
+        "notes": "ملاحظات"
+      },
+      "taxLines": {
+        "tripId": "رقم الرحلة",
+        "manifestNo": "رقم المنفيست",
+        "billId": "رقم فاتورة إيصالي",
+        "line": "الضريبة أو الرسم",
+        "rate": "النسبة (%)",
+        "amount": "المبلغ (ج.س)",
+        "paidAt": "تاريخ السداد"
+      }
+    },
+    "paymentStatuses": {
+      "pending": "بانتظار الدفع",
+      "paid": "مدفوعة",
+      "expired": "منتهية الصلاحية",
+      "failed": "فاشلة"
+    }
   }
 }

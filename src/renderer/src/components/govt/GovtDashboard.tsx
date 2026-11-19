@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { LoaderCircle, RefreshCw } from 'lucide-react'
+import { FileDown, LoaderCircle, RefreshCw } from 'lucide-react'
 import type { CityRecord, FleetErrorCode } from '../../../../shared/fleet'
 import type { DashboardData } from '../../../../shared/dashboard'
 import {
@@ -18,6 +18,7 @@ import Menu from '../ui/Menu'
 import AnalyticsFilterFields from './AnalyticsFilterFields'
 import BarList from './BarList'
 import BreakdownCard from './BreakdownCard'
+import ExportDialog from './ExportDialog'
 import KpiGrid from './KpiGrid'
 import RecentBills from './RecentBills'
 import RegenerateDialog from './RegenerateDialog'
@@ -50,6 +51,7 @@ function GovtDashboard({
   const [loading, setLoading] = useState(true)
   const [reloadKey, setReloadKey] = useState(0)
   const [confirming, setConfirming] = useState(false)
+  const [exporting, setExporting] = useState(false)
   // City names only label routes; if they fail to load, the next refresh retries them
   const [citiesFailed, setCitiesFailed] = useState(false)
   const [citiesKey, setCitiesKey] = useState(0)
@@ -133,6 +135,14 @@ function GovtDashboard({
       <div className="flex items-center gap-2">
         <button
           type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={() => setExporting(true)}
+        >
+          <FileDown size={16} />
+          {t('govt.export.open')}
+        </button>
+        <button
+          type="button"
           className="icon-btn"
           aria-label={t('govt.dashboard.refresh')}
           title={t('govt.dashboard.refresh')}
@@ -179,6 +189,16 @@ function GovtDashboard({
     </div>
   )
 
+  const exportDialog = exporting && (
+    <ExportDialog
+      initialFilters={filters}
+      initialView={view}
+      cities={cities}
+      owners={owners}
+      onClose={() => setExporting(false)}
+    />
+  )
+
   const confirmDialog = confirming && (
     <RegenerateDialog
       onClose={() => setConfirming(false)}
@@ -198,6 +218,7 @@ function GovtDashboard({
         {filterBar}
         {error ? <FormAlert message={t(`fleet.errors.${error}`)} /> : spinner}
         {confirmDialog}
+        {exportDialog}
       </section>
     )
   }
@@ -288,6 +309,7 @@ function GovtDashboard({
       <RecentBills bills={data.recentBills} cities={cities} onOpenTrip={onOpenTrip} />
 
       {confirmDialog}
+      {exportDialog}
     </section>
   )
 }

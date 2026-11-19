@@ -768,6 +768,63 @@
         "amount": "Amount",
         "status": "Status"
       }
+    },
+    "export": {
+      "open": "Export",
+      "title": "Export",
+      "subtitle": "The dashboard as a PDF report, or the raw data as Excel or CSV. Exports are in Arabic.",
+      "kind": "Export type",
+      "tabs": {
+        "report": "Report (PDF)",
+        "data": "Data (Excel / CSV)"
+      },
+      "parameters": "Parameters",
+      "reportOptions": "Report",
+      "automatic": "Automatic",
+      "sections": "Include",
+      "sectionNames": {
+        "kpis": "Key figures",
+        "chart": "Revenue chart",
+        "cargo": "Revenue by cargo type",
+        "tax": "Revenue by tax and fee",
+        "breakdown": "Breakdown",
+        "progress": "Trip progress"
+      },
+      "reportNote": "The report opens as a preview with the official letterhead; download it from there as a PDF.",
+      "previewReport": "Preview report",
+      "reportPreview": "Report preview",
+      "reportSaved": "Report saved.",
+      "dataOptions": "Data",
+      "datasetsLabel": "Datasets",
+      "datasets": {
+        "trips": "Trips",
+        "bills": "Bills and payments",
+        "items": "Cargo items",
+        "taxLines": "Tax and fee lines"
+      },
+      "dateBasis": "Period applies to",
+      "dateBases": {
+        "trip": "Trip date",
+        "billed": "Bill issued",
+        "paid": "Paid on"
+      },
+      "status": "Trip status",
+      "statuses": {
+        "all": "All",
+        "draft": "Drafts",
+        "billed": "Pending payment",
+        "certified": "Authorized"
+      },
+      "format": "Format",
+      "formats": {
+        "xlsx": "Excel",
+        "csv": "CSV"
+      },
+      "dataNote": "Excel writes one sheet per dataset; CSV is UTF-8 and opens in Excel.",
+      "csvFolder": "CSV with several datasets: choose a folder, and each dataset is saved as its own file.",
+      "exportData": "Export data",
+      "dataSaved": "Saved: {{rows}}.",
+      "rowCount": "{{dataset}} {{count}} rows"
     }
   },
   "states": {
@@ -801,5 +858,85 @@
     "packing_list": "Packing list",
     "certificate_of_origin": "Certificate of origin",
     "trade_authorization": "Import / export authorization"
+  },
+  "report": {
+    "title": "Road Transport Tax Collection Report",
+    "generatedAt": "Prepared on",
+    "parameters": "Report parameters",
+    "kpis": "Key figures",
+    "footer": "Prepared by the Masarat system from the records available when it was issued."
+  },
+  "export": {
+    "columns": {
+      "trips": {
+        "tripId": "Trip #",
+        "manifestNo": "Manifest no.",
+        "tripDate": "Trip date",
+        "createdAt": "Registered on",
+        "status": "Status",
+        "owner": "Fleet owner",
+        "plate": "Plate",
+        "registrationNo": "Registration no.",
+        "vehicleType": "Vehicle type",
+        "trailers": "Trailers",
+        "tripKind": "Trip type",
+        "origin": "Origin",
+        "originState": "Origin state",
+        "destination": "Destination",
+        "destinationState": "Destination state",
+        "distanceKm": "Distance (km)",
+        "driverName": "Driver",
+        "driverPhone": "Driver phone",
+        "shipperName": "Sender",
+        "receiverName": "Receiver",
+        "cargoTypes": "Cargo types",
+        "cargoQuantity": "Load",
+        "cargoUnit": "Load unit",
+        "tripCost": "Trip cost (SDG)",
+        "amountDue": "Taxes and fees (SDG)",
+        "billId": "E-Sali bill ID",
+        "paidAt": "Paid on"
+      },
+      "bills": {
+        "billId": "E-Sali bill ID",
+        "tripId": "Trip #",
+        "manifestNo": "Manifest no.",
+        "owner": "Fleet owner",
+        "plate": "Plate",
+        "amount": "Amount (SDG)",
+        "status": "Payment status",
+        "issuedAt": "Issued on",
+        "paidAt": "Paid on",
+        "paymentRef": "Payment reference"
+      },
+      "items": {
+        "tripId": "Trip #",
+        "manifestNo": "Manifest no.",
+        "position": "#",
+        "description": "Description",
+        "cargoType": "Cargo type",
+        "packingType": "Packing",
+        "packageCount": "Packages",
+        "quantity": "Weight",
+        "unit": "Unit",
+        "cost": "Cost (SDG)",
+        "notes": "Notes"
+      },
+      "taxLines": {
+        "tripId": "Trip #",
+        "manifestNo": "Manifest no.",
+        "billId": "E-Sali bill ID",
+        "line": "Tax or fee",
+        "rate": "Rate (%)",
+        "amount": "Amount (SDG)",
+        "paidAt": "Paid on"
+      }
+    },
+    "paymentStatuses": {
+      "pending": "Pending",
+      "paid": "Paid",
+      "expired": "Expired",
+      "failed": "Failed"
+    }
   }
 }

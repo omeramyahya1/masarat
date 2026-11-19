@@ -601,12 +601,6 @@
       "title": "Overview",
       "scope": "Tax collection across all fleet owners",
       "subtitle": "All fleet owners · Updated {{time}}",
-      "period": "Period",
-      "periods": {
-        "30d": "Last 30 days",
-        "90d": "Last 90 days",
-        "12m": "Last 12 months"
-      },
       "refresh": "Refresh",
       "moreActions": "More actions",
       "empty": "No data for this period yet.",
@@ -636,6 +630,12 @@
           "day": "Dashed: today so far",
           "week": "Dashed: this week so far",
           "month": "Dashed: this month so far"
+        },
+        "groupBy": "Group by",
+        "buckets": {
+          "day": "Day",
+          "week": "Week",
+          "month": "Month"
         }
       },
       "status": {
@@ -652,11 +652,32 @@
         "title": "Revenue by tax and fee"
       },
       "breakdown": {
-        "label": "Breakdown",
-        "routes": "Top routes by revenue",
-        "states": "Revenue by origin state",
-        "byRoute": "Routes",
-        "byState": "States"
+        "title": {
+          "route": "Revenue by route",
+          "originState": "Revenue by origin state",
+          "destinationState": "Revenue by destination state",
+          "cargoType": "Revenue by cargo type",
+          "vehicleType": "Revenue by vehicle type",
+          "tripKind": "Revenue by trip type",
+          "owner": "Revenue by fleet owner"
+        },
+        "groupBy": "Group by",
+        "sortBy": "Sort by",
+        "by": {
+          "route": "Route",
+          "originState": "Origin state",
+          "destinationState": "Destination state",
+          "cargoType": "Cargo type",
+          "vehicleType": "Vehicle type",
+          "tripKind": "Trip type",
+          "owner": "Fleet owner"
+        },
+        "sort": {
+          "revenue": "Revenue",
+          "trips": "Trips",
+          "name": "Name"
+        },
+        "others": "Others"
       },
       "recent": {
         "title": "Latest bills",
@@ -700,6 +721,30 @@
         "tax": "Tax or fee",
         "change": "Change"
       }
+    },
+    "filters": {
+      "period": "Period",
+      "presets": {
+        "7d": "7 days",
+        "30d": "30 days",
+        "90d": "90 days",
+        "12m": "12 months",
+        "ytd": "This year",
+        "custom": "Custom"
+      },
+      "from": "From",
+      "to": "To",
+      "origin": "Origin",
+      "destination": "Destination",
+      "all": "All",
+      "wholeState": "{{state}} (whole state)",
+      "cargoType": "Cargo type",
+      "vehicleType": "Vehicle type",
+      "tripKind": "Trip type",
+      "owner": "Fleet owner",
+      "active": "Filters applied: {{count}}",
+      "clear": "Clear filters",
+      "rangeLabel": "{{from}} – {{to}}"
     }
   },
   "states": {

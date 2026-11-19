@@ -1,16 +1,21 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoaderCircle, RefreshCw } from 'lucide-react'
 import type { CityRecord, FleetErrorCode } from '../../../../shared/fleet'
+import type { DashboardData } from '../../../../shared/dashboard'
 import {
-  DASHBOARD_PERIODS,
-  type DashboardData,
-  type DashboardPeriod
-} from '../../../../shared/dashboard'
+  DEFAULT_FILTERS,
+  DEFAULT_VIEW,
+  bucketsFor,
+  type AnalyticsFilters,
+  type DashboardView,
+  type OwnerOption
+} from '../../../../shared/analytics'
 import { useFormat } from '../../lib/format'
 import { useMountedRef } from '../../lib/useMountedRef'
 import { FormAlert } from '../form/fields'
 import Menu from '../ui/Menu'
+import AnalyticsFilterFields from './AnalyticsFilterFields'
 import BarList from './BarList'
 import BreakdownCard from './BreakdownCard'
 import KpiGrid from './KpiGrid'
@@ -27,7 +32,14 @@ function GovtDashboard(): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
   const mounted = useMountedRef()
-  const [period, setPeriod] = useState<DashboardPeriod>('30d')
+  const [filters, setFilters] = useState<AnalyticsFilters>(DEFAULT_FILTERS)
+  const [view, setView] = useState<DashboardView>(DEFAULT_VIEW)
+  const [owners, setOwners] = useState<OwnerOption[]>([])
+  // What the main process needs; the breakdown's sort is applied here without asking it again
+  const request = useMemo<DashboardView>(
+    () => ({ bucket: view.bucket, breakdown: view.breakdown, sort: 'revenue' }),
+    [view.bucket, view.breakdown]
+  )
   const [data, setData] = useState<DashboardData | null>(null)
   const [cities, setCities] = useState<CityRecord[]>([])
   const [error, setError] = useState<FleetErrorCode | null>(null)
@@ -37,6 +49,13 @@ function GovtDashboard(): React.JSX.Element {
   // City names only label routes; if they fail to load, the next refresh retries them
   const [citiesFailed, setCitiesFailed] = useState(false)
   const [citiesKey, setCitiesKey] = useState(0)
+
+  useEffect(() => {
+    window.api.govt
+      .listOwners()
+      .then((result) => mounted.current && result.ok && setOwners(result.data))
+      .catch(() => undefined)
+  }, [mounted])
 
   useEffect(() => {
     window.api.govt
@@ -54,7 +73,7 @@ function GovtDashboard(): React.JSX.Element {
   useEffect(() => {
     let current = true
     window.api.govt
-      .dashboard(period)
+      .dashboard(filters, request)
       .then((result) => {
         if (!current) return
         if (result.ok) {
@@ -64,11 +83,11 @@ function GovtDashboard(): React.JSX.Element {
       })
       .catch(() => current && setError('unknown'))
       .finally(() => current && setLoading(false))
-    // A newer request (period change or refresh) supersedes this one
+    // A newer request (filter change or refresh) supersedes this one
     return (): void => {
       current = false
     }
-  }, [period, reloadKey])
+  }, [filters, request, reloadKey])
 
   // Loading is set here rather than in the effect, which would cost an extra render
   const reload = (): void => {
@@ -76,10 +95,25 @@ function GovtDashboard(): React.JSX.Element {
     setReloadKey((key) => key + 1)
     if (citiesFailed) setCitiesKey((key) => key + 1)
   }
-  const changePeriod = (value: DashboardPeriod): void => {
-    if (value === period) return
+  const changeFilters = (next: AnalyticsFilters): void => {
     setLoading(true)
-    setPeriod(value)
+    // A new range picks its own bucket size again
+    if (next.range !== filters.range) setView((v) => ({ ...v, bucket: null }))
+    setFilters(next)
+  }
+  const changeView = (patch: Partial<DashboardView>): void => {
+    if (patch.bucket !== undefined || patch.breakdown !== undefined) setLoading(true)
+    setView((v) => ({ ...v, ...patch }))
+  }
+  // "Last 30 days", or the custom dates
+  const rangeLabel = (): string => {
+    if (filters.range.preset !== 'custom' || !data) {
+      return t(`govt.filters.presets.${filters.range.preset}`)
+    }
+    return t('govt.filters.rangeLabel', {
+      from: format.date(data.from),
+      to: format.date(data.to - 1)
+    })
   }
 
   const header = (
@@ -93,15 +127,6 @@ function GovtDashboard(): React.JSX.Element {
         </p>
       </div>
       <div className="flex items-center gap-2">
-        <Segmented
-          label={t('govt.dashboard.period')}
-          options={DASHBOARD_PERIODS.map((value) => ({
-            value,
-            label: t(`govt.dashboard.periods.${value}`)
-          }))}
-          value={period}
-          onChange={changePeriod}
-        />
         <button
           type="button"
           className="icon-btn"
@@ -133,6 +158,17 @@ function GovtDashboard(): React.JSX.Element {
     </div>
   )
 
+  const filterBar = (
+    <div className="card p-5">
+      <AnalyticsFilterFields
+        filters={filters}
+        cities={cities}
+        owners={owners}
+        onChange={changeFilters}
+      />
+    </div>
+  )
+
   const spinner = (
     <div className="flex justify-center py-24 text-stone-400">
       <LoaderCircle className="animate-spin" />
@@ -155,6 +191,7 @@ function GovtDashboard(): React.JSX.Element {
     return (
       <section className="flex flex-col gap-6">
         {header}
+        {filterBar}
         {error ? <FormAlert message={t(`fleet.errors.${error}`)} /> : spinner}
         {confirmDialog}
       </section>
@@ -167,14 +204,33 @@ function GovtDashboard(): React.JSX.Element {
   return (
     <section className={`flex flex-col gap-6 transition-opacity ${loading ? 'opacity-60' : ''}`}>
       {header}
+      {filterBar}
       {error && <FormAlert message={t(`fleet.errors.${error}`)} />}
 
-      <KpiGrid kpis={data.kpis} periodLabel={t(`govt.dashboard.periods.${data.period}`)} />
+      <KpiGrid kpis={data.kpis} periodLabel={rangeLabel()} />
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <Card title={t(`govt.dashboard.revenue.title.${data.bucket}`)} className="lg:col-span-2">
+        <Card
+          title={t(`govt.dashboard.revenue.title.${data.bucket}`)}
+          className="lg:col-span-2"
+          action={
+            <Segmented
+              label={t('govt.dashboard.revenue.groupBy')}
+              options={bucketsFor(new Date(data.from), new Date(data.to)).map((bucket) => ({
+                value: bucket,
+                label: t(`govt.dashboard.revenue.buckets.${bucket}`)
+              }))}
+              value={data.bucket}
+              onChange={(bucket) => changeView({ bucket })}
+            />
+          }
+        >
           <Suspense fallback={spinner}>
-            <RevenueChart points={data.revenueSeries} bucket={data.bucket} />
+            <RevenueChart
+              points={data.revenueSeries}
+              bucket={data.bucket}
+              inProgress={data.to >= data.generatedAt}
+            />
           </Suspense>
         </Card>
 
@@ -215,9 +271,12 @@ function GovtDashboard(): React.JSX.Element {
         </div>
 
         <BreakdownCard
-          topRoutes={data.topRoutes}
-          byState={data.byState}
+          rows={data.breakdown}
+          breakdownBy={data.breakdownBy}
+          sort={view.sort}
           cities={cities}
+          onBreakdownChange={(breakdown) => changeView({ breakdown })}
+          onSortChange={(sort) => changeView({ sort })}
           className="lg:col-span-2"
         />
       </div>

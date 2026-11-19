@@ -22,7 +22,8 @@ import type {
   VehicleRecord
 } from '../shared/fleet'
 import type { TripDetails } from '../shared/billing'
-import type { DashboardData, DashboardPeriod } from '../shared/dashboard'
+import type { DashboardData } from '../shared/dashboard'
+import type { AnalyticsFilters, DashboardView, OwnerOption } from '../shared/analytics'
 import type { OcrResult, ScanInput } from '../shared/ocr'
 import type { TaxRatesInput, TaxSettingsView } from '../shared/tax'
 
@@ -114,8 +115,11 @@ const api = {
   govt: {
     getReferenceData: (): Promise<FleetResult<TripReferenceData>> =>
       ipcRenderer.invoke('govt:get-reference-data'),
-    dashboard: (period: DashboardPeriod): Promise<FleetResult<DashboardData>> =>
-      ipcRenderer.invoke('govt:dashboard', period),
+    dashboard: (
+      filters: AnalyticsFilters,
+      view: DashboardView
+    ): Promise<FleetResult<DashboardData>> => ipcRenderer.invoke('govt:dashboard', filters, view),
+    listOwners: (): Promise<FleetResult<OwnerOption[]>> => ipcRenderer.invoke('govt:list-owners'),
     getTaxSettings: (): Promise<FleetResult<TaxSettingsView>> =>
       ipcRenderer.invoke('govt:get-tax-settings'),
     updateTaxRates: (input: TaxRatesInput): Promise<FleetResult<TaxSettingsView>> =>

@@ -21,7 +21,8 @@ import type {
   VehicleRecord
 } from '../shared/fleet'
 import type { TripDetails } from '../shared/billing'
-import type { DashboardData, DashboardPeriod } from '../shared/dashboard'
+import type { DashboardData } from '../shared/dashboard'
+import type { AnalyticsFilters, DashboardView, OwnerOption } from '../shared/analytics'
 import type { OcrResult, ScanInput } from '../shared/ocr'
 import type { TaxRatesInput, TaxSettingsView } from '../shared/tax'
 
@@ -99,7 +100,8 @@ export interface CertificatesAPI {
 
 export interface GovtAPI {
   getReferenceData: () => Promise<FleetResult<TripReferenceData>>
-  dashboard: (period: DashboardPeriod) => Promise<FleetResult<DashboardData>>
+  dashboard: (filters: AnalyticsFilters, view: DashboardView) => Promise<FleetResult<DashboardData>>
+  listOwners: () => Promise<FleetResult<OwnerOption[]>>
   getTaxSettings: () => Promise<FleetResult<TaxSettingsView>>
   // Basis points per tax; each change is logged under the signed-in government user
   updateTaxRates: (input: TaxRatesInput) => Promise<FleetResult<TaxSettingsView>>

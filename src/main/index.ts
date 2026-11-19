@@ -32,7 +32,8 @@ import { ensureDemoData, regenerateDemoData } from './services/demoData'
 import type { AuthResult, LogInInput, ProfileInput, SignUpInput, UserRole } from '../shared/auth'
 import type { TaxRatesInput } from '../shared/tax'
 import type { DriverInput, FleetResult, TripInput, VehicleInput } from '../shared/fleet'
-import { isDashboardPeriod } from '../shared/dashboard'
+import { isAnalyticsFilters, isDashboardView } from '../shared/analytics'
+import { listOwners } from './services/analyticsQuery'
 
 // Configure updater logging
 autoUpdater.logger = log
@@ -304,13 +305,15 @@ function registerGovtHandlers(): void {
   ipcMain.handle('govt:get-reference-data', () =>
     runGovt(() => ({ ok: true, data: getReferenceData() }))
   )
-  ipcMain.handle('govt:dashboard', (_event, period: unknown) =>
+  ipcMain.handle('govt:dashboard', (_event, filters: unknown, view: unknown) =>
     runGovt(() =>
-      isDashboardPeriod(period)
-        ? { ok: true, data: getDashboard(period) }
+      isAnalyticsFilters(filters) && isDashboardView(view)
+        ? { ok: true, data: getDashboard(filters, view) }
         : { ok: false, error: 'missing_fields' }
     )
   )
+  // Fleet owners, for the owner filter
+  ipcMain.handle('govt:list-owners', () => runGovt(() => ({ ok: true, data: listOwners() })))
   ipcMain.handle('govt:get-tax-settings', () =>
     runGovt(() => ({ ok: true, data: getTaxSettingsView() }))
   )

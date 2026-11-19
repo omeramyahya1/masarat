@@ -1,24 +1,18 @@
 // Government dashboard data, computed in the main process (src/main/services/dashboard.ts)
+import type { AnalyticsFilters, Breakdown, BucketSize } from './analytics'
 import type { CargoType, ManifestStatus } from './fleet'
 import type { LineCode } from './tax'
 
-export const DASHBOARD_PERIODS = ['30d', '90d', '12m'] as const
-export type DashboardPeriod = (typeof DASHBOARD_PERIODS)[number]
-
-export const isDashboardPeriod = (value: unknown): value is DashboardPeriod =>
-  (DASHBOARD_PERIODS as readonly unknown[]).includes(value)
-
-// Revenue series bucket size for each period
-export type BucketSize = 'day' | 'week' | 'month'
+export type { BucketSize }
 
 export interface DashboardKpis {
   // Paid in the period, and in the period of the same length before it (null when the records
   // don't reach back that far, so there's nothing fair to compare against)
   revenue: number
   previousRevenue: number | null
-  // Certified trips whose certificate hasn't expired (not period-filtered)
+  // Certified trips whose permit hasn't expired (not limited to the period; other filters apply)
   activeTrips: number
-  // Bills not paid yet (not period-filtered)
+  // Bills not paid yet (not limited to the period; other filters apply)
   pendingBills: number
   pendingAmount: number
   certificatesIssued: number
@@ -47,15 +41,13 @@ export interface TaxSlice {
   revenue: number
 }
 
-export interface RouteRevenue {
-  originCityId: number
-  destinationCityId: number
-  revenue: number
-  trips: number
-}
-
-export interface StateRevenue {
-  state: string
+// One group of the breakdown card: a route, a state, a cargo type, … Routes carry their cities;
+// owners their name; the other dimensions their key (a state name, a cargo type code, …)
+export interface BreakdownRow {
+  key: string
+  originCityId?: number
+  destinationCityId?: number
+  name?: string
   revenue: number
   trips: number
 }
@@ -75,16 +67,21 @@ export interface RecentBill {
 }
 
 export interface DashboardData {
-  period: DashboardPeriod
+  filters: AnalyticsFilters
+  // The range the figures cover, [from, to) in ms
+  from: number
+  to: number
+  // The bucket size the series was built with, and the breakdown's dimension
   bucket: BucketSize
+  breakdownBy: Breakdown
   generatedAt: number
   kpis: DashboardKpis
   revenueSeries: RevenuePoint[]
   byCargo: CargoSlice[]
   byTax: TaxSlice[]
-  topRoutes: RouteRevenue[]
-  byState: StateRevenue[]
-  // Manifests created in the period, by status
+  // Every group, by revenue; the card sorts and trims it
+  breakdown: BreakdownRow[]
+  // Manifests created in the range, by status
   statusCounts: Record<ManifestStatus, number>
   recentBills: RecentBill[]
 }

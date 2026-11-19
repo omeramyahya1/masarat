@@ -1,5 +1,5 @@
-// Government dashboard: totals and breakdowns across all fleet owners
-import { and, count, desc, eq, gte, lt, sql, sum } from 'drizzle-orm'
+// Government dashboard: totals and breakdowns across all fleet owners, for the filters chosen
+import { and, count, desc, eq, gte, lt, sql, sum, type SQL } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import {
   certificates,
@@ -13,55 +13,48 @@ import {
   vehicles
 } from '../db'
 import { MANIFEST_STATUSES, type CargoType, type ManifestStatus } from '../../shared/fleet'
-import type {
-  BucketSize,
-  CargoSlice,
-  DashboardData,
-  DashboardPeriod,
-  RevenuePoint
-} from '../../shared/dashboard'
+import {
+  bucketStart,
+  nextBucket,
+  resolveBucket,
+  resolveRange,
+  type AnalyticsFilters,
+  type BucketSize,
+  type DashboardView
+} from '../../shared/analytics'
+import type { BreakdownRow, CargoSlice, DashboardData, RevenuePoint } from '../../shared/dashboard'
+import { inFilteredTrips } from './analyticsQuery'
 
-const TOP_ROUTES = 8
 const RECENT_BILLS = 10
 
-// Local midnight at the start of the period's first bucket
-function periodStart(period: DashboardPeriod, now: Date): Date {
-  const start = new Date(now)
-  start.setHours(0, 0, 0, 0)
-  if (period === '30d') start.setDate(start.getDate() - 29)
-  else if (period === '90d') {
-    // 13 weeks, each starting on Sunday (the first working day in Sudan)
-    start.setDate(start.getDate() - 7 * 12 - start.getDay())
-  } else {
-    start.setDate(1)
-    start.setMonth(start.getMonth() - 11)
-  }
-  return start
+// Paid payments of filtered trips, paid in [from, to)
+function paidIn(f: AnalyticsFilters, from: Date, to: Date): SQL | undefined {
+  return and(
+    eq(payments.status, 'paid'),
+    gte(payments.paidAt, from),
+    lt(payments.paidAt, to),
+    inFilteredTrips(payments.manifestId, f)
+  )
 }
 
-const BUCKETS: Record<DashboardPeriod, BucketSize> = { '30d': 'day', '90d': 'week', '12m': 'month' }
-
-function nextBucket(date: Date, bucket: BucketSize): Date {
-  const next = new Date(date)
-  if (bucket === 'day') next.setDate(next.getDate() + 1)
-  else if (bucket === 'week') next.setDate(next.getDate() + 7)
-  else next.setMonth(next.getMonth() + 1)
-  return next
-}
-
-// Empty buckets from start to now, then paid amounts dropped into them
-function revenueSeries(start: Date, now: Date, bucket: BucketSize): RevenuePoint[] {
+// Empty buckets covering [from, to), then the paid amounts dropped into them
+function revenueSeries(
+  paid: SQL | undefined,
+  from: Date,
+  to: Date,
+  bucket: BucketSize
+): RevenuePoint[] {
   const points: RevenuePoint[] = []
-  for (let at = start; at <= now; at = nextBucket(at, bucket)) {
+  for (let at = bucketStart(from, bucket); at < to; at = nextBucket(at, bucket)) {
     points.push({ start: at.getTime(), revenue: 0, trips: 0 })
   }
-  const paid = getDb()
+  const rows = getDb()
     .select({ paidAt: payments.paidAt, amount: payments.amount })
     .from(payments)
-    .where(and(eq(payments.status, 'paid'), gte(payments.paidAt, start)))
+    .where(paid)
     .all()
-  for (const { paidAt, amount } of paid) {
-    if (!paidAt) continue
+  for (const { paidAt, amount } of rows) {
+    if (!paidAt || points.length === 0) continue
     const time = paidAt.getTime()
     // Last bucket starting at or before the payment
     let index = points.length - 1
@@ -76,9 +69,8 @@ const total = (value: string | number | null): number => Number(value ?? 0)
 
 // Each paid trip's taxes split across its cargo items in proportion to their cost (a trip can
 // mix cargo types). Trips from before cargo items existed count under their own cargo type.
-function revenueByCargo(start: Date): CargoSlice[] {
+function revenueByCargo(paidInPeriod: SQL | undefined): CargoSlice[] {
   const db = getDb()
-  const paidInPeriod = and(eq(payments.status, 'paid'), gte(payments.paidAt, start))
   const paid = db
     .select({
       manifestId: payments.manifestId,
@@ -131,28 +123,116 @@ function revenueByCargo(start: Date): CargoSlice[] {
     .sort((a, b) => b.revenue - a.revenue)
 }
 
-export function getDashboard(period: DashboardPeriod): DashboardData {
+// Revenue grouped by the breakdown's dimension, every group, by revenue
+function breakdown(
+  view: DashboardView,
+  paid: SQL | undefined,
+  byCargo: CargoSlice[]
+): BreakdownRow[] {
+  const db = getDb()
+  const revenue = sql<number>`sum(${payments.amount})`.mapWith(Number)
+  switch (view.breakdown) {
+    case 'route':
+      return db
+        .select({
+          originCityId: manifests.originCityId,
+          destinationCityId: manifests.destinationCityId,
+          revenue,
+          trips: count()
+        })
+        .from(payments)
+        .innerJoin(manifests, eq(payments.manifestId, manifests.id))
+        .where(paid)
+        .groupBy(manifests.originCityId, manifests.destinationCityId)
+        .orderBy(desc(revenue))
+        .all()
+        .map((r) => ({ key: `${r.originCityId}-${r.destinationCityId}`, ...r }))
+    case 'originState':
+    case 'destinationState': {
+      const city = alias(cities, 'breakdown_city')
+      const cityId =
+        view.breakdown === 'originState' ? manifests.originCityId : manifests.destinationCityId
+      return db
+        .select({ key: city.state, revenue, trips: count() })
+        .from(payments)
+        .innerJoin(manifests, eq(payments.manifestId, manifests.id))
+        .innerJoin(city, eq(cityId, city.id))
+        .where(paid)
+        .groupBy(city.state)
+        .orderBy(desc(revenue))
+        .all()
+    }
+    // Split across each trip's items like the cargo card, so the two agree
+    case 'cargoType':
+      return byCargo.map((c) => ({ key: c.cargoType, revenue: c.revenue, trips: c.trips }))
+    case 'vehicleType':
+      return db
+        .select({ key: vehicles.vehicleType, revenue, trips: count() })
+        .from(payments)
+        .innerJoin(manifests, eq(payments.manifestId, manifests.id))
+        .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
+        .where(paid)
+        .groupBy(vehicles.vehicleType)
+        .orderBy(desc(revenue))
+        .all()
+    case 'tripKind':
+      return db
+        .select({ key: manifests.tripKind, revenue, trips: count() })
+        .from(payments)
+        .innerJoin(manifests, eq(payments.manifestId, manifests.id))
+        .where(paid)
+        .groupBy(manifests.tripKind)
+        .orderBy(desc(revenue))
+        .all()
+    case 'owner':
+      return db
+        .select({
+          id: users.id,
+          companyName: users.companyName,
+          fullName: users.fullName,
+          revenue,
+          trips: count()
+        })
+        .from(payments)
+        .innerJoin(manifests, eq(payments.manifestId, manifests.id))
+        .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
+        .innerJoin(users, eq(vehicles.ownerId, users.id))
+        .where(paid)
+        .groupBy(users.id)
+        .orderBy(desc(revenue))
+        .all()
+        .map((r) => ({
+          key: String(r.id),
+          name: r.companyName || r.fullName,
+          revenue: r.revenue,
+          trips: r.trips
+        }))
+  }
+}
+
+export function getDashboard(filters: AnalyticsFilters, view: DashboardView): DashboardData {
   const db = getDb()
   const now = new Date()
-  const start = periodStart(period, now)
-  const previousStart = new Date(start.getTime() - (now.getTime() - start.getTime()))
-  const bucket = BUCKETS[period]
+  const { from, to } = resolveRange(filters.range, now)
+  const previousFrom = new Date(from.getTime() - (to.getTime() - from.getTime()))
+  const bucket = resolveBucket(from, to, view.bucket)
+  // Trips matching the route / cargo / vehicle / owner filters
+  const inTrips = (column: Parameters<typeof inFilteredTrips>[0]): SQL | undefined =>
+    inFilteredTrips(column, filters)
 
-  const paidBetween = (from: Date, to: Date): number =>
+  const paidBetween = (start: Date, end: Date): number =>
     total(
       db
         .select({ value: sum(payments.amount) })
         .from(payments)
-        .where(
-          and(eq(payments.status, 'paid'), gte(payments.paidAt, from), lt(payments.paidAt, to))
-        )
+        .where(paidIn(filters, start, end))
         .get()?.value ?? null
     )
 
   const pending = db
     .select({ bills: count(), amount: sum(payments.amount) })
     .from(payments)
-    .where(eq(payments.status, 'pending'))
+    .where(and(eq(payments.status, 'pending'), inTrips(payments.manifestId)))
     .get()
 
   const billed = db
@@ -161,7 +241,9 @@ export function getDashboard(period: DashboardPeriod): DashboardData {
       paid: sql<number>`coalesce(sum(case when ${payments.status} = 'paid' then ${payments.amount} else 0 end), 0)`
     })
     .from(payments)
-    .where(gte(payments.createdAt, start))
+    .where(
+      and(gte(payments.createdAt, from), lt(payments.createdAt, to), inTrips(payments.manifestId))
+    )
     .get()
   const billedAmount = total(billed?.amount ?? null)
 
@@ -173,11 +255,10 @@ export function getDashboard(period: DashboardPeriod): DashboardData {
       .get()?.value ?? null
   const countOf = (rows: { value: number } | undefined): number => rows?.value ?? 0
 
-  // Revenue breakdowns attribute each payment to the period it was paid in
-  const paidInPeriod = and(eq(payments.status, 'paid'), gte(payments.paidAt, start))
-  const revenue = sql<number>`sum(${payments.amount})`.mapWith(Number)
+  // Revenue breakdowns attribute each payment to the range it was paid in
+  const paidInPeriod = paidIn(filters, from, to)
 
-  const byCargo = revenueByCargo(start)
+  const byCargo = revenueByCargo(paidInPeriod)
 
   // The paid trips' tax lines; together they add up to the revenue
   const taxRevenue = sql<number>`sum(${manifestTaxes.amount})`.mapWith(Number)
@@ -190,32 +271,6 @@ export function getDashboard(period: DashboardPeriod): DashboardData {
     .orderBy(desc(taxRevenue))
     .all()
 
-  const topRoutes = db
-    .select({
-      originCityId: manifests.originCityId,
-      destinationCityId: manifests.destinationCityId,
-      revenue,
-      trips: count()
-    })
-    .from(payments)
-    .innerJoin(manifests, eq(payments.manifestId, manifests.id))
-    .where(paidInPeriod)
-    .groupBy(manifests.originCityId, manifests.destinationCityId)
-    .orderBy(desc(revenue))
-    .limit(TOP_ROUTES)
-    .all()
-
-  const origin = alias(cities, 'origin')
-  const byState = db
-    .select({ state: origin.state, revenue, trips: count() })
-    .from(payments)
-    .innerJoin(manifests, eq(payments.manifestId, manifests.id))
-    .innerJoin(origin, eq(manifests.originCityId, origin.id))
-    .where(paidInPeriod)
-    .groupBy(origin.state)
-    .orderBy(desc(revenue))
-    .all()
-
   const statusCounts = Object.fromEntries(MANIFEST_STATUSES.map((s) => [s, 0])) as Record<
     ManifestStatus,
     number
@@ -223,12 +278,13 @@ export function getDashboard(period: DashboardPeriod): DashboardData {
   for (const row of db
     .select({ status: manifests.status, value: count() })
     .from(manifests)
-    .where(gte(manifests.createdAt, start))
+    .where(and(gte(manifests.createdAt, from), lt(manifests.createdAt, to), inTrips(manifests.id)))
     .groupBy(manifests.status)
     .all()) {
     statusCounts[row.status] = row.value
   }
 
+  const billedOrPaidAt = sql`coalesce(${payments.paidAt}, ${payments.createdAt})`
   const recentBills = db
     .select({
       manifestId: payments.manifestId,
@@ -247,24 +303,56 @@ export function getDashboard(period: DashboardPeriod): DashboardData {
     .innerJoin(manifests, eq(payments.manifestId, manifests.id))
     .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
     .innerJoin(users, eq(vehicles.ownerId, users.id))
-    .orderBy(desc(sql`coalesce(${payments.paidAt}, ${payments.createdAt})`), desc(payments.id))
+    .where(
+      and(
+        sql`${billedOrPaidAt} >= ${Math.floor(from.getTime() / 1000)}`,
+        sql`${billedOrPaidAt} < ${Math.floor(to.getTime() / 1000)}`,
+        inTrips(payments.manifestId)
+      )
+    )
+    .orderBy(desc(billedOrPaidAt), desc(payments.id))
     .limit(RECENT_BILLS)
     .all()
 
+  // Vehicle counts follow the vehicle and owner filters only
+  const vehicleScope = and(
+    filters.vehicleType ? eq(vehicles.vehicleType, filters.vehicleType) : undefined,
+    filters.ownerId ? eq(vehicles.ownerId, filters.ownerId) : undefined
+  )
+  const owners =
+    filters.vehicleType || filters.ownerId
+      ? countOf(
+          db
+            .select({ value: sql<number>`count(distinct ${vehicles.ownerId})`.mapWith(Number) })
+            .from(vehicles)
+            .where(vehicleScope)
+            .get()
+        )
+      : countOf(db.select({ value: count() }).from(users).where(eq(users.role, 'owner')).get())
+
   return {
-    period,
+    filters,
+    from: from.getTime(),
+    to: to.getTime(),
     bucket,
+    breakdownBy: view.breakdown,
     generatedAt: now.getTime(),
     kpis: {
-      revenue: paidBetween(start, now),
+      revenue: paidBetween(from, to),
       previousRevenue:
-        firstPaidAt && firstPaidAt <= previousStart ? paidBetween(previousStart, start) : null,
+        firstPaidAt && firstPaidAt <= previousFrom ? paidBetween(previousFrom, from) : null,
       activeTrips: countOf(
         db
           .select({ value: count() })
           .from(certificates)
           .innerJoin(manifests, eq(certificates.manifestId, manifests.id))
-          .where(and(eq(manifests.status, 'certified'), gte(certificates.validUntil, now)))
+          .where(
+            and(
+              eq(manifests.status, 'certified'),
+              gte(certificates.validUntil, now),
+              inTrips(manifests.id)
+            )
+          )
           .get()
       ),
       pendingBills: pending?.bills ?? 0,
@@ -273,20 +361,23 @@ export function getDashboard(period: DashboardPeriod): DashboardData {
         db
           .select({ value: count() })
           .from(certificates)
-          .where(gte(certificates.issuedAt, start))
+          .where(
+            and(
+              gte(certificates.issuedAt, from),
+              lt(certificates.issuedAt, to),
+              inTrips(certificates.manifestId)
+            )
+          )
           .get()
       ),
       collectionRate: billedAmount > 0 ? total(billed?.paid ?? 0) / billedAmount : null,
-      vehicles: countOf(db.select({ value: count() }).from(vehicles).get()),
-      fleetOwners: countOf(
-        db.select({ value: count() }).from(users).where(eq(users.role, 'owner')).get()
-      )
+      vehicles: countOf(db.select({ value: count() }).from(vehicles).where(vehicleScope).get()),
+      fleetOwners: owners
     },
-    revenueSeries: revenueSeries(start, now, bucket),
+    revenueSeries: revenueSeries(paidInPeriod, from, to, bucket),
     byCargo,
     byTax,
-    topRoutes,
-    byState,
+    breakdown: breakdown(view, paidInPeriod, byCargo),
     statusCounts,
     recentBills: recentBills.map(
       ({ fullName, companyName, createdAt, paidAt, status, ...bill }) => ({

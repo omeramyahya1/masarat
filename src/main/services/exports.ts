@@ -303,27 +303,26 @@ export async function exportData(
   const save = (options: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue> =>
     window ? dialog.showSaveDialog(window, options) : dialog.showSaveDialog(options)
 
-  if (input.format === 'xlsx') {
-    const { canceled, filePath } = await save({
-      defaultPath: `masarat-data-${span}.xlsx`,
-      filters: [{ name: 'Excel', extensions: ['xlsx'] }]
-    })
-    if (canceled || !filePath) return { ok: true, data: { saved: false, rows } }
-    await writeWorkbook(input, data, filePath)
-    return { ok: true, data: { saved: true, rows } }
-  }
+  const excel = input.formats.includes('xlsx')
+  const csv = input.formats.includes('csv')
+  const csvName = (dataset: ExportDataset): string => `masarat-${dataset}-${span}.csv`
+  const workbookName = `masarat-data-${span}.xlsx`
 
-  if (input.datasets.length === 1) {
+  // A single file: an Excel workbook, or the CSV of a single dataset
+  if (!csv || (!excel && input.datasets.length === 1)) {
     const [dataset] = input.datasets
-    const { canceled, filePath } = await save({
-      defaultPath: `masarat-${dataset}-${span}.csv`,
-      filters: [{ name: 'CSV', extensions: ['csv'] }]
-    })
+    const { canceled, filePath } = await save(
+      excel
+        ? { defaultPath: workbookName, filters: [{ name: 'Excel', extensions: ['xlsx'] }] }
+        : { defaultPath: csvName(dataset), filters: [{ name: 'CSV', extensions: ['csv'] }] }
+    )
     if (canceled || !filePath) return { ok: true, data: { saved: false, rows } }
-    await writeFile(filePath, toCsv(input, dataset, data[dataset]), 'utf8')
+    if (excel) await writeWorkbook(input, data, filePath)
+    else await writeFile(filePath, toCsv(input, dataset, data[dataset]), 'utf8')
     return { ok: true, data: { saved: true, rows } }
   }
 
+  // Several files (CSVs of several datasets, or Excel and CSV together) go into a folder
   const folderOptions: Electron.OpenDialogOptions = {
     properties: ['openDirectory', 'createDirectory']
   }
@@ -332,12 +331,9 @@ export async function exportData(
     : await dialog.showOpenDialog(folderOptions)
   const folder = filePaths[0]
   if (canceled || !folder) return { ok: true, data: { saved: false, rows } }
+  if (excel) await writeWorkbook(input, data, join(folder, workbookName))
   for (const dataset of input.datasets) {
-    await writeFile(
-      join(folder, `masarat-${dataset}-${span}.csv`),
-      toCsv(input, dataset, data[dataset]),
-      'utf8'
-    )
+    await writeFile(join(folder, csvName(dataset)), toCsv(input, dataset, data[dataset]), 'utf8')
   }
   return { ok: true, data: { saved: true, rows } }
 }

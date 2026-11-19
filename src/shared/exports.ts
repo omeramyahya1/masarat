@@ -89,7 +89,8 @@ export interface ExportInput {
   dateBasis: DateBasis
   status: ExportStatus
   datasets: ExportDataset[]
-  format: ExportFormat
+  // One or both; files of more than one kind go into a folder
+  formats: ExportFormat[]
   labels: ExportLabels
 }
 
@@ -109,7 +110,9 @@ export function isExportOptions(value: unknown): value is Omit<ExportInput, 'fil
   return (
     isOneOf(DATE_BASES, v.dateBasis) &&
     isOneOf(EXPORT_STATUSES, v.status) &&
-    isOneOf(EXPORT_FORMATS, v.format) &&
+    Array.isArray(v.formats) &&
+    v.formats.length > 0 &&
+    v.formats.every((f) => isOneOf(EXPORT_FORMATS, f)) &&
     Array.isArray(v.datasets) &&
     v.datasets.length > 0 &&
     v.datasets.every((d) => isOneOf(EXPORT_DATASETS, d)) &&

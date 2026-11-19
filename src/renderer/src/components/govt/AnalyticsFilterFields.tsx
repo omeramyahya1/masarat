@@ -83,11 +83,14 @@ function AnalyticsFilterFields({
   filters,
   cities,
   owners,
+  showOwner = true,
   onChange
 }: {
   filters: AnalyticsFilters
   cities: readonly CityRecord[]
   owners: readonly OwnerOption[]
+  // The export dialog leaves out the owner filter
+  showOwner?: boolean
   onChange: (filters: AnalyticsFilters) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
@@ -223,12 +226,14 @@ function AnalyticsFilterFields({
           options={TRIP_KINDS.map((k) => ({ value: k, label: t(`tripKinds.${k}`) }))}
           onChange={(value) => set('tripKind', (value || null) as AnalyticsFilters['tripKind'])}
         />
-        <FilterSelect
-          label={t('govt.filters.owner')}
-          value={filters.ownerId ? String(filters.ownerId) : ''}
-          options={owners.map((o) => ({ value: String(o.id), label: o.name }))}
-          onChange={(value) => set('ownerId', value ? Number(value) : null)}
-        />
+        {showOwner && (
+          <FilterSelect
+            label={t('govt.filters.owner')}
+            value={filters.ownerId ? String(filters.ownerId) : ''}
+            options={owners.map((o) => ({ value: String(o.id), label: o.name }))}
+            onChange={(value) => set('ownerId', value ? Number(value) : null)}
+          />
+        )}
       </div>
 
       {active > 0 && (

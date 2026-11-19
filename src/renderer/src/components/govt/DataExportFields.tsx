@@ -5,6 +5,7 @@ import type { AnalyticsFilters } from '../../../../shared/analytics'
 import {
   DATE_BASES,
   EXPORT_COLUMNS,
+  EXPORT_FORMATS,
   EXPORT_DATASETS,
   EXPORT_STATUSES,
   type DateBasis,
@@ -28,7 +29,6 @@ import { LINE_CODES } from '../../../../shared/tax'
 import { useFormat } from '../../lib/format'
 import { useMountedRef } from '../../lib/useMountedRef'
 import { FormAlert } from '../form/fields'
-import { Segmented } from './parts'
 
 // Labels for a list of stored values, from one translation group
 const labelsFor = (
@@ -53,7 +53,7 @@ function DataExportFields({
   const [datasets, setDatasets] = useState<ReadonlySet<ExportDataset>>(() => new Set(['trips']))
   const [dateBasis, setDateBasis] = useState<DateBasis>('trip')
   const [status, setStatus] = useState<ExportStatus>('all')
-  const [fileFormat, setFileFormat] = useState<ExportFormat>('xlsx')
+  const [formats, setFormats] = useState<ReadonlySet<ExportFormat>>(() => new Set(['xlsx']))
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [result, setResult] = useState<ExportResult | null>(null)
@@ -105,7 +105,7 @@ function DataExportFields({
         status,
         // In the dialog's order, whatever order they were ticked in
         datasets: EXPORT_DATASETS.filter((d) => datasets.has(d)),
-        format: fileFormat,
+        formats: EXPORT_FORMATS.filter((f) => formats.has(f)),
         labels
       })
       if (!mounted.current) return
@@ -171,22 +171,33 @@ function DataExportFields({
               ))}
             </select>
           </label>
-          <div className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-stone-500">{t('govt.export.format')}</span>
-            <Segmented
-              label={t('govt.export.format')}
-              options={[
-                { value: 'xlsx', label: t('govt.export.formats.xlsx') },
-                { value: 'csv', label: t('govt.export.formats.csv') }
-              ]}
-              value={fileFormat}
-              onChange={setFileFormat}
-            />
-          </div>
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className="mb-1 text-xs font-medium text-stone-500">
+              {t('govt.export.format')}
+            </legend>
+            {EXPORT_FORMATS.map((f) => (
+              <label key={f} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-brand-700"
+                  checked={formats.has(f)}
+                  onChange={() =>
+                    setFormats((current) => {
+                      const next = new Set(current)
+                      if (next.has(f)) next.delete(f)
+                      else next.add(f)
+                      return next
+                    })
+                  }
+                />
+                {t(`govt.export.formats.${f}`)}
+              </label>
+            ))}
+          </fieldset>
         </div>
         <p className="text-xs text-stone-500">
           {t(
-            fileFormat === 'csv' && datasets.size > 1
+            formats.size > 1 || (formats.has('csv') && datasets.size > 1)
               ? 'govt.export.csvFolder'
               : 'govt.export.dataNote'
           )}
@@ -217,7 +228,7 @@ function DataExportFields({
         <button
           type="button"
           className="btn btn-primary"
-          disabled={pending || datasets.size === 0}
+          disabled={pending || datasets.size === 0 || formats.size === 0}
           onClick={runExport}
         >
           {pending && <LoaderCircle size={16} className="animate-spin" />}

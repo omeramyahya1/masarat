@@ -873,7 +873,7 @@
         "csv": "CSV"
       },
       "dataNote": "Excel writes one sheet per dataset; CSV is UTF-8 and opens in Excel.",
-      "csvFolder": "CSV with several datasets: choose a folder, and each dataset is saved as its own file.",
+      "csvFolder": "Several files (CSV for several datasets, or Excel and CSV together): choose a folder, and each file is saved in it.",
       "exportData": "Export data",
       "dataSaved": "Saved: {{rows}}.",
       "rowCount": "{{dataset}} {{count}} rows"

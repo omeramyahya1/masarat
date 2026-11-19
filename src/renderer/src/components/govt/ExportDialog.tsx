@@ -62,7 +62,11 @@ function ExportDialog({
   const titleId = useId()
   const mounted = useMountedRef()
   const [tab, setTab] = useState<Tab>('report')
-  const [filters, setFilters] = useState<AnalyticsFilters>(initialFilters)
+  // Exports cover every fleet owner, so the dashboard's owner filter isn't carried over
+  const [filters, setFilters] = useState<AnalyticsFilters>(() => ({
+    ...initialFilters,
+    ownerId: null
+  }))
   const [view, setView] = useState<DashboardView>(initialView)
   const [sections, setSections] = useState<ReadonlySet<ReportSection>>(
     () => new Set(REPORT_SECTIONS)
@@ -131,6 +135,7 @@ function ExportDialog({
             filters={filters}
             cities={cities}
             owners={owners}
+            showOwner={false}
             onChange={setFilters}
           />
         </fieldset>

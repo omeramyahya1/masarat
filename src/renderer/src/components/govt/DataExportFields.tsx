@@ -50,7 +50,7 @@ function DataExportFields({
   const { t, i18n } = useTranslation()
   const format = useFormat()
   const mounted = useMountedRef()
-  const [datasets, setDatasets] = useState<ReadonlySet<ExportDataset>>(new Set(['trips']))
+  const [datasets, setDatasets] = useState<ReadonlySet<ExportDataset>>(() => new Set(['trips']))
   const [dateBasis, setDateBasis] = useState<DateBasis>('trip')
   const [status, setStatus] = useState<ExportStatus>('all')
   const [fileFormat, setFileFormat] = useState<ExportFormat>('xlsx')

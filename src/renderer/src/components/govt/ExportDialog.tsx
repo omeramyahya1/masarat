@@ -64,7 +64,9 @@ function ExportDialog({
   const [tab, setTab] = useState<Tab>('report')
   const [filters, setFilters] = useState<AnalyticsFilters>(initialFilters)
   const [view, setView] = useState<DashboardView>(initialView)
-  const [sections, setSections] = useState<ReadonlySet<ReportSection>>(new Set(REPORT_SECTIONS))
+  const [sections, setSections] = useState<ReadonlySet<ReportSection>>(
+    () => new Set(REPORT_SECTIONS)
+  )
   const [report, setReport] = useState<DashboardData | null>(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<FleetErrorCode | null>(null)

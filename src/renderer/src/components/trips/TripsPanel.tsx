@@ -1,14 +1,21 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, ArrowRight, LoaderCircle, Plus, Route } from 'lucide-react'
 import {
+  CARGO_TYPES,
+  MANIFEST_STATUSES,
+  TRIP_KINDS,
   tripCargoTypes,
   type FleetErrorCode,
   type TripRecord,
   type TripReferenceData
 } from '../../../../shared/fleet'
 import type { AuthUser } from '../../../../shared/auth'
+import { parseDay } from '../../../../shared/analytics'
+import { plateSearchKey } from '../../../../shared/plate'
 import { useFormat } from '../../lib/format'
+import { useListView, type ListViewConfig } from '../../lib/useListView'
+import ListToolbar from '../ui/ListToolbar'
 import { FormAlert } from '../form/fields'
 import PlateBadge from '../fleet/PlateBadge'
 import TripDetails from './TripDetails'
@@ -35,6 +42,121 @@ function TripsPanel({
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [created, setCreated] = useState<TripRecord | null>(null)
   const [deleted, setDeleted] = useState<number | null>(null)
+
+  // Search, filters, sort and grouping over the loaded trips
+  const listConfig = useMemo<ListViewConfig<TripRecord>>(() => {
+    const city = (id: number): string => format.city(reference?.cities.find((c) => c.id === id))
+    const cityNames = (id: number): string => {
+      const found = reference?.cities.find((c) => c.id === id)
+      return `${found?.name ?? ''} ${found?.nameAr ?? ''}`
+    }
+    const route = (trip: TripRecord): string =>
+      `${city(trip.originCityId)} ${format.isArabic ? '←' : '→'} ${city(trip.destinationCityId)}`
+    const statusOrder = (trip: TripRecord): number => MANIFEST_STATUSES.indexOf(trip.status)
+    const monthFormat = new Intl.DateTimeFormat(format.isArabic ? 'ar-SD-u-nu-latn' : 'en-US', {
+      month: 'long',
+      year: 'numeric'
+    })
+    return {
+      storageKey: 'masarat.list.trips',
+      defaultSort: 'tripDate',
+      defaultDirection: 'desc',
+      matches: (trip, query) => {
+        const plate = plateSearchKey(query)
+        if (plate.length >= 2 && plateSearchKey(trip.plateNumber).includes(plate)) return true
+        return [
+          `#${trip.id}`,
+          cityNames(trip.originCityId),
+          cityNames(trip.destinationCityId),
+          trip.driverName ?? '',
+          trip.shipper.name,
+          trip.receiver.name,
+          ...trip.items.map((item) => item.name)
+        ].some((text) => text.toLowerCase().includes(query))
+      },
+      filters: {
+        status: (trip, value) =>
+          value === 'billed'
+            ? trip.status === 'billed' || trip.status === 'paid'
+            : trip.status === value,
+        tripKind: (trip, value) => trip.tripKind === value,
+        cargoType: (trip, value) => tripCargoTypes(trip).some((c) => c === value),
+        vehicle: (trip, value) => String(trip.vehicleId) === value,
+        driver: (trip, value) => String(trip.driverId ?? '') === value,
+        from: (trip, value) => trip.tripDate >= (parseDay(value)?.getTime() ?? 0),
+        to: (trip, value) => trip.tripDate <= (parseDay(value)?.getTime() ?? Infinity)
+      },
+      sorts: {
+        tripDate: (a, b) => a.tripDate - b.tripDate || a.id - b.id,
+        createdAt: (a, b) => a.createdAt - b.createdAt || a.id - b.id,
+        amount: (a, b) => a.taxAmount - b.taxAmount,
+        tripCost: (a, b) => a.tripCost - b.tripCost,
+        distance: (a, b) => a.distanceKm - b.distanceKm,
+        status: (a, b) => statusOrder(a) - statusOrder(b)
+      },
+      groups: {
+        status: (trip) => ({
+          key: trip.status,
+          label: t(`statuses.${trip.status}`),
+          order: statusOrder(trip)
+        }),
+        month: (trip) => {
+          const date = new Date(trip.tripDate)
+          return {
+            key: `${date.getFullYear()}-${date.getMonth()}`,
+            label: monthFormat.format(date),
+            // Newest month first
+            order: -(date.getFullYear() * 12 + date.getMonth())
+          }
+        },
+        vehicle: (trip) => ({
+          key: String(trip.vehicleId),
+          label: format.plate(trip.plateNumber),
+          order: trip.plateNumber
+        }),
+        driver: (trip) => ({
+          key: String(trip.driverId ?? ''),
+          label: trip.driverName ?? t('listView.noDriver'),
+          order: trip.driverName ?? '\uffff'
+        }),
+        route: (trip) => ({
+          key: `${trip.originCityId}-${trip.destinationCityId}`,
+          label: route(trip),
+          order: route(trip)
+        }),
+        tripKind: (trip) => ({
+          key: trip.tripKind,
+          label: t(`tripKinds.${trip.tripKind}`),
+          order: TRIP_KINDS.indexOf(trip.tripKind)
+        }),
+        cargoType: (trip) => ({
+          key: trip.cargoType,
+          label: t(`cargoTypes.${trip.cargoType}`),
+          order: CARGO_TYPES.indexOf(trip.cargoType)
+        })
+      }
+    }
+  }, [reference, format, t])
+  const list = useListView(trips, listConfig)
+  // Filter options from the trips themselves
+  const vehicleOptions = useMemo(
+    () =>
+      [...new Map((trips ?? []).map((trip) => [trip.vehicleId, trip.plateNumber]))].map(
+        ([id, plate]) => ({ value: String(id), label: format.plate(plate) })
+      ),
+    [trips, format]
+  )
+  const driverOptions = useMemo(
+    () =>
+      [
+        ...new Map(
+          (trips ?? []).flatMap((trip) =>
+            trip.driverId && trip.driverName ? [[trip.driverId, trip.driverName] as const] : []
+          )
+        )
+      ].map(([id, name]) => ({ value: String(id), label: name })),
+    [trips]
+  )
   const openTrip = (tripId: number): void => {
     setDeleted(null)
     setMode({ tripId })
@@ -131,6 +253,66 @@ function TripsPanel({
     setMode('new')
   }
 
+  const row = (trip: TripRecord): React.JSX.Element => (
+    <tr
+      key={trip.id}
+      className={`cursor-pointer hover:bg-stone-50 ${trip.id === created?.id ? 'bg-brand-50/60' : ''}`}
+      onClick={() => openTrip(trip.id)}
+    >
+      <td className="whitespace-nowrap">
+        {/* Keyboard access to the row; the row itself handles mouse clicks */}
+        <button
+          type="button"
+          className="text-start hover:underline"
+          aria-label={`${t('trips.open')}: ${format.date(trip.tripDate)}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            openTrip(trip.id)
+          }}
+        >
+          {format.date(trip.tripDate)}
+        </button>
+      </td>
+      <td>
+        <PlateBadge plate={trip.plateNumber} />
+      </td>
+      <td>
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          {format.city(cityById(trip.originCityId))}
+          <ArrowRight size={14} className="text-stone-400 rtl:-scale-x-100" />
+          {format.city(cityById(trip.destinationCityId))}
+        </span>
+      </td>
+      <td>
+        <div>
+          {tripCargoTypes(trip).length > 1 ? (
+            <span title={format.list(tripCargoTypes(trip).map((c) => t(`cargoTypes.${c}`)))}>
+              {t('trips.mixed')}
+            </span>
+          ) : (
+            t(`cargoTypes.${trip.cargoType}`)
+          )}
+        </div>
+        <div className="text-xs text-stone-500 tabular-nums">
+          {format.quantity(trip.cargoQuantity, trip.cargoUnit)}
+        </div>
+      </td>
+      <td className="whitespace-nowrap tabular-nums">
+        {t('units.km', { value: format.number(trip.distanceKm) })}
+      </td>
+      <td className="text-end font-medium whitespace-nowrap tabular-nums">
+        {format.currency(trip.taxAmount)}
+      </td>
+      <td>
+        <span
+          className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${STATUS_STYLES[trip.status]}`}
+        >
+          {t(`statuses.${trip.status}`)}
+        </span>
+      </td>
+    </tr>
+  )
+
   return (
     <section className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-4">
@@ -179,84 +361,87 @@ function TripsPanel({
           </button>
         </div>
       ) : (
-        <div className="card overflow-x-auto">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>{t('trips.columns.date')}</th>
-                <th>{t('trips.columns.vehicle')}</th>
-                <th>{t('trips.columns.route')}</th>
-                <th>{t('trips.columns.cargo')}</th>
-                <th>{t('trips.columns.distance')}</th>
-                <th className="text-end">{t('trips.columns.tax')}</th>
-                <th>{t('trips.columns.status')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {trips.map((trip) => (
-                <tr
-                  key={trip.id}
-                  className={`cursor-pointer hover:bg-stone-50 ${trip.id === created?.id ? 'bg-brand-50/60' : ''}`}
-                  onClick={() => openTrip(trip.id)}
-                >
-                  <td className="whitespace-nowrap">
-                    {/* Keyboard access to the row; the row itself handles mouse clicks */}
-                    <button
-                      type="button"
-                      className="text-start hover:underline"
-                      aria-label={`${t('trips.open')}: ${format.date(trip.tripDate)}`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openTrip(trip.id)
-                      }}
-                    >
-                      {format.date(trip.tripDate)}
-                    </button>
-                  </td>
-                  <td>
-                    <PlateBadge plate={trip.plateNumber} />
-                  </td>
-                  <td>
-                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                      {format.city(cityById(trip.originCityId))}
-                      <ArrowRight size={14} className="text-stone-400 rtl:-scale-x-100" />
-                      {format.city(cityById(trip.destinationCityId))}
-                    </span>
-                  </td>
-                  <td>
-                    <div>
-                      {tripCargoTypes(trip).length > 1 ? (
-                        <span
-                          title={format.list(tripCargoTypes(trip).map((c) => t(`cargoTypes.${c}`)))}
-                        >
-                          {t('trips.mixed')}
-                        </span>
-                      ) : (
-                        t(`cargoTypes.${trip.cargoType}`)
-                      )}
-                    </div>
-                    <div className="text-xs text-stone-500 tabular-nums">
-                      {format.quantity(trip.cargoQuantity, trip.cargoUnit)}
-                    </div>
-                  </td>
-                  <td className="whitespace-nowrap tabular-nums">
-                    {t('units.km', { value: format.number(trip.distanceKm) })}
-                  </td>
-                  <td className="text-end font-medium whitespace-nowrap tabular-nums">
-                    {format.currency(trip.taxAmount)}
-                  </td>
-                  <td>
-                    <span
-                      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${STATUS_STYLES[trip.status]}`}
-                    >
-                      {t(`statuses.${trip.status}`)}
-                    </span>
-                  </td>
+        <>
+          <ListToolbar
+            state={list.state}
+            onChange={list.update}
+            onReset={list.reset}
+            searchPlaceholder={t('trips.list.search')}
+            filters={[
+              {
+                key: 'status',
+                label: t('trips.list.status'),
+                options: (['draft', 'billed', 'certified'] as const).map((s) => ({
+                  value: s,
+                  label: t(`statuses.${s}`)
+                }))
+              },
+              {
+                key: 'tripKind',
+                label: t('trips.fields.tripKind'),
+                options: TRIP_KINDS.map((k) => ({ value: k, label: t(`tripKinds.${k}`) }))
+              },
+              {
+                key: 'cargoType',
+                label: t('trips.list.cargoType'),
+                options: CARGO_TYPES.map((c) => ({ value: c, label: t(`cargoTypes.${c}`) }))
+              },
+              { key: 'vehicle', label: t('trips.list.vehicle'), options: vehicleOptions },
+              { key: 'driver', label: t('trips.fields.driver'), options: driverOptions },
+              { key: 'from', label: t('trips.list.from'), type: 'date' },
+              { key: 'to', label: t('trips.list.to'), type: 'date' }
+            ]}
+            sorts={['tripDate', 'createdAt', 'amount', 'tripCost', 'distance', 'status'].map(
+              (s) => ({
+                value: s,
+                label: t(`trips.list.sorts.${s}`)
+              })
+            )}
+            groups={['status', 'month', 'vehicle', 'driver', 'route', 'tripKind', 'cargoType'].map(
+              (g) => ({ value: g, label: t(`trips.list.groups.${g}`) })
+            )}
+            shown={list.visible.length}
+            total={list.total}
+          />
+          <div className="card overflow-x-auto">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>{t('trips.columns.date')}</th>
+                  <th>{t('trips.columns.vehicle')}</th>
+                  <th>{t('trips.columns.route')}</th>
+                  <th>{t('trips.columns.cargo')}</th>
+                  <th>{t('trips.columns.distance')}</th>
+                  <th className="text-end">{t('trips.columns.tax')}</th>
+                  <th>{t('trips.columns.status')}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {list.groups
+                  ? list.groups.flatMap((group) => [
+                      <tr key={`group-${group.key}`} className="bg-stone-50">
+                        <th colSpan={7} className="text-start text-sm font-semibold text-stone-800">
+                          <span className="me-3">{group.label}</span>
+                          <span className="text-xs font-normal text-stone-500">
+                            {t('trips.groupSummary', {
+                              count: format.number(group.items.length),
+                              total: format.currency(
+                                group.items.reduce((sum, trip) => sum + trip.taxAmount, 0)
+                              )
+                            })}
+                          </span>
+                        </th>
+                      </tr>,
+                      ...group.items.map(row)
+                    ])
+                  : list.visible.map(row)}
+              </tbody>
+            </table>
+            {list.visible.length === 0 && (
+              <p className="py-10 text-center text-sm text-stone-500">{t('listView.noMatches')}</p>
+            )}
+          </div>
+        </>
       )}
     </section>
   )

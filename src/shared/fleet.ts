@@ -130,6 +130,8 @@ export interface DriverInput {
 
 export interface DriverRecord extends DriverInput {
   id: number
+  // Trips naming this driver
+  tripCount: number
   createdAt: number
 }
 

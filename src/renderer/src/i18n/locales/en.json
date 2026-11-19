@@ -276,6 +276,23 @@
       "document_too_large": "The file is larger than 20 MB.",
       "scan_conflict": "This document doesn't match the shipment read from the trip's other documents (a certificate of origin is only for imports, an authorization only for imports and exports). Check the file, or remove the other documents and scan again.",
       "zero_bill": "This trip's taxes and fees come to 0 SDG, so there is no bill to pay. The tax rates and fees need to be reviewed by the tax administration before this trip can be authorized."
+    },
+    "groupSummary": "{{count}} vehicles",
+    "list": {
+      "search": "Search by plate or registration number",
+      "registrationPresent": "Recorded",
+      "registrationMissing": "Missing",
+      "sorts": {
+        "createdAt": "Date added",
+        "plate": "Plate",
+        "type": "Type",
+        "capacity": "Capacity",
+        "trips": "Trips"
+      },
+      "groups": {
+        "type": "Type",
+        "unit": "Unit"
+      }
     }
   },
   "drivers": {
@@ -292,7 +309,8 @@
     },
     "columns": {
       "name": "Name",
-      "phone": "Phone number"
+      "phone": "Phone number",
+      "trips": "Trips"
     },
     "dialog": {
       "addTitle": "Add a driver",
@@ -309,6 +327,14 @@
       "name": "Driver name",
       "phone": "Phone number",
       "phoneHint": "e.g. 0912345678. It can start with +249."
+    },
+    "list": {
+      "search": "Search by name or phone",
+      "sorts": {
+        "name": "Name",
+        "trips": "Trips",
+        "createdAt": "Date added"
+      }
     }
   },
   "trips": {
@@ -467,6 +493,32 @@
       "open": "Open",
       "openOf": "Open {{name}}",
       "empty": "No documents attached."
+    },
+    "groupSummary": "{{count}} trips · {{total}}",
+    "list": {
+      "search": "Search by trip #, plate, city, driver, sender, receiver or item",
+      "status": "Status",
+      "cargoType": "Cargo type",
+      "vehicle": "Vehicle",
+      "from": "Trip date from",
+      "to": "Trip date to",
+      "sorts": {
+        "tripDate": "Trip date",
+        "createdAt": "Registered",
+        "amount": "Amount due",
+        "tripCost": "Trip cost",
+        "distance": "Distance",
+        "status": "Status"
+      },
+      "groups": {
+        "status": "Status",
+        "month": "Month",
+        "vehicle": "Vehicle",
+        "driver": "Driver",
+        "route": "Route",
+        "tripKind": "Trip type",
+        "cargoType": "Cargo type"
+      }
     }
   },
   "billing": {
@@ -938,5 +990,17 @@
       "expired": "Expired",
       "failed": "Failed"
     }
+  },
+  "listView": {
+    "sortBy": "Sort by",
+    "groupBy": "Group by",
+    "noGrouping": "No grouping",
+    "all": "All",
+    "ascending": "Ascending",
+    "descending": "Descending",
+    "shown": "Showing {{shown}} of {{total}}",
+    "clear": "Clear search and filters",
+    "noMatches": "Nothing matches the search and filters.",
+    "noDriver": "No driver"
   }
 }

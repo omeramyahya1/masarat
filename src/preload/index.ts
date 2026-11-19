@@ -21,8 +21,10 @@ import type {
   VehicleInput,
   VehicleRecord
 } from '../shared/fleet'
-import type { TripDetails } from '../shared/billing'
-import type { DashboardData, DashboardPeriod } from '../shared/dashboard'
+import type { GovtSearchInput, GovtSearchResult, TripDetails } from '../shared/billing'
+import type { DashboardData } from '../shared/dashboard'
+import type { AnalyticsFilters, DashboardView, OwnerOption } from '../shared/analytics'
+import type { ExportInput, ExportResult } from '../shared/exports'
 import type { OcrResult, ScanInput } from '../shared/ocr'
 import type { TaxRatesInput, TaxSettingsView } from '../shared/tax'
 
@@ -114,8 +116,21 @@ const api = {
   govt: {
     getReferenceData: (): Promise<FleetResult<TripReferenceData>> =>
       ipcRenderer.invoke('govt:get-reference-data'),
-    dashboard: (period: DashboardPeriod): Promise<FleetResult<DashboardData>> =>
-      ipcRenderer.invoke('govt:dashboard', period),
+    dashboard: (
+      filters: AnalyticsFilters,
+      view: DashboardView
+    ): Promise<FleetResult<DashboardData>> => ipcRenderer.invoke('govt:dashboard', filters, view),
+    listOwners: (): Promise<FleetResult<OwnerOption[]>> => ipcRenderer.invoke('govt:list-owners'),
+    search: (input: GovtSearchInput): Promise<FleetResult<GovtSearchResult[]>> =>
+      ipcRenderer.invoke('govt:search', input),
+    getTrip: (manifestId: number): Promise<FleetResult<TripDetails>> =>
+      ipcRenderer.invoke('govt:get-trip', manifestId),
+    openDocument: (documentId: number): Promise<FleetResult<null>> =>
+      ipcRenderer.invoke('govt:open-document', documentId),
+    saveReportPdf: (fileName: string): Promise<FleetResult<{ saved: boolean }>> =>
+      ipcRenderer.invoke('govt:save-report-pdf', fileName),
+    exportData: (input: ExportInput): Promise<FleetResult<ExportResult>> =>
+      ipcRenderer.invoke('govt:export-data', input),
     getTaxSettings: (): Promise<FleetResult<TaxSettingsView>> =>
       ipcRenderer.invoke('govt:get-tax-settings'),
     updateTaxRates: (input: TaxRatesInput): Promise<FleetResult<TaxSettingsView>> =>

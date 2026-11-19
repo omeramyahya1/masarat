@@ -80,3 +80,18 @@ export function normalizePlate(value: string): string | null {
   const parts = parsePlate(value)
   return parts ? formatPlate(parts) : null
 }
+
+// A plate (or part of one), typed in either script, as a search key: Latin state code and Western
+// digits with no spaces or slash, e.g. "خ ١٢ / ٣٤" -> "KH1234". Matches stored plates with their
+// spaces and slash removed.
+export function plateSearchKey(value: string): string {
+  let text = value
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+  // Longest Arabic letter groups first, so "ش ك" isn't read as "ش" then "ك"
+  const codes = [...PLATE_CODES].sort(
+    (a, b) => PLATE_LETTERS_AR[b].length - PLATE_LETTERS_AR[a].length
+  )
+  for (const code of codes) text = text.split(PLATE_LETTERS_AR[code]).join(code)
+  return text.replace(/[\s/]/g, '').toUpperCase()
+}

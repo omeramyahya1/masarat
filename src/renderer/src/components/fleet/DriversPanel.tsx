@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useId, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoaderCircle, Pencil, Plus, Trash2, UsersRound } from 'lucide-react'
 import type { DriverRecord, FleetErrorCode } from '../../../../shared/fleet'
+import { useFormat } from '../../lib/format'
+import { useListView, type ListViewConfig } from '../../lib/useListView'
 import { FormAlert } from '../form/fields'
+import ListToolbar from '../ui/ListToolbar'
 import Modal from '../ui/Modal'
 import DriverDialog from './DriverDialog'
 
@@ -14,6 +17,27 @@ function DriversPanel(): React.JSX.Element {
   // 'new' opens the add dialog; a record opens it for editing
   const [editing, setEditing] = useState<DriverRecord | 'new' | null>(null)
   const [deleting, setDeleting] = useState<DriverRecord | null>(null)
+  const format = useFormat()
+
+  // Search and sort over the loaded drivers (drivers aren't grouped)
+  const listConfig = useMemo<ListViewConfig<DriverRecord>>(
+    () => ({
+      storageKey: 'masarat.list.drivers',
+      defaultSort: 'name',
+      defaultDirection: 'asc',
+      matches: (driver, query) =>
+        driver.name.toLowerCase().includes(query) ||
+        driver.phone.includes(query.replace(/[\s-]/g, '')),
+      filters: {},
+      sorts: {
+        name: (a, b) => a.name.localeCompare(b.name, 'ar'),
+        trips: (a, b) => a.tripCount - b.tripCount,
+        createdAt: (a, b) => a.createdAt - b.createdAt || a.id - b.id
+      }
+    }),
+    []
+  )
+  const list = useListView(drivers, listConfig)
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -66,55 +90,75 @@ function DriversPanel(): React.JSX.Element {
           </button>
         </div>
       ) : (
-        <div className="card overflow-hidden">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>{t('drivers.columns.name')}</th>
-                <th>{t('drivers.columns.phone')}</th>
-                <th className="w-0">
-                  <span className="sr-only">{t('common.actions')}</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {drivers.map((driver) => (
-                <tr key={driver.id}>
-                  <td className="font-medium text-stone-900">
-                    <bdi>{driver.name}</bdi>
-                  </td>
-                  <td>
-                    <bdi className="tabular-nums" dir="ltr">
-                      {driver.phone}
-                    </bdi>
-                  </td>
-                  <td>
-                    <div className="flex justify-end gap-1">
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        title={t('drivers.edit')}
-                        aria-label={t('drivers.editName', { name: driver.name })}
-                        onClick={() => setEditing(driver)}
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        className="icon-btn hover:text-red-700"
-                        title={t('drivers.delete')}
-                        aria-label={t('drivers.deleteName', { name: driver.name })}
-                        onClick={() => setDeleting(driver)}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
+        <>
+          <ListToolbar
+            state={list.state}
+            onChange={list.update}
+            onReset={list.reset}
+            searchPlaceholder={t('drivers.list.search')}
+            filters={[]}
+            sorts={['name', 'trips', 'createdAt'].map((s) => ({
+              value: s,
+              label: t(`drivers.list.sorts.${s}`)
+            }))}
+            shown={list.visible.length}
+            total={list.total}
+          />
+          <div className="card overflow-hidden">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>{t('drivers.columns.name')}</th>
+                  <th>{t('drivers.columns.phone')}</th>
+                  <th>{t('drivers.columns.trips')}</th>
+                  <th className="w-0">
+                    <span className="sr-only">{t('common.actions')}</span>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {list.visible.map((driver) => (
+                  <tr key={driver.id}>
+                    <td className="font-medium text-stone-900">
+                      <bdi>{driver.name}</bdi>
+                    </td>
+                    <td>
+                      <bdi className="tabular-nums" dir="ltr">
+                        {driver.phone}
+                      </bdi>
+                    </td>
+                    <td className="tabular-nums">{format.number(driver.tripCount)}</td>
+                    <td>
+                      <div className="flex justify-end gap-1">
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title={t('drivers.edit')}
+                          aria-label={t('drivers.editName', { name: driver.name })}
+                          onClick={() => setEditing(driver)}
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn hover:text-red-700"
+                          title={t('drivers.delete')}
+                          aria-label={t('drivers.deleteName', { name: driver.name })}
+                          onClick={() => setDeleting(driver)}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {list.visible.length === 0 && (
+              <p className="py-10 text-center text-sm text-stone-500">{t('listView.noMatches')}</p>
+            )}
+          </div>
+        </>
       )}
 
       {editing && (

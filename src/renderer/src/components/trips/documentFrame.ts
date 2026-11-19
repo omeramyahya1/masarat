@@ -6,12 +6,14 @@ import type { Formatters } from '../../lib/format'
 export interface SheetFrame {
   // Republic, ministry, authority and department, top to bottom
   authority: readonly string[]
-  // Code 128 barcode of the document number (the number is printed under the bars)
-  barcode: string
+  // Code 128 barcode of the document number (the number is printed under the bars); a report
+  // has none
+  barcode?: string
   barcodeAlt: string
   date: { label: string; value: string }
   title: string
-  qr: string
+  // The verification QR; a report has none
+  qr?: string
   qrLabel: string
   footer: string
 }

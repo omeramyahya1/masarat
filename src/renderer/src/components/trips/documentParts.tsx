@@ -103,7 +103,9 @@ export function DocumentSheet({
         <img src={emblem} alt="" className="h-20 w-auto" />
         {/* The left edge (the end, in Arabic): the barcode, then the issue date */}
         <div className="flex flex-col items-end gap-1 text-[11px]">
-          <img src={frame.barcode} alt={frame.barcodeAlt} className="h-11 w-auto max-w-52" />
+          {frame.barcode && (
+            <img src={frame.barcode} alt={frame.barcodeAlt} className="h-11 w-auto max-w-52" />
+          )}
           <span className="text-stone-500">
             {frame.date.label}:{' '}
             <span className="font-semibold text-stone-900">{frame.date.value}</span>
@@ -130,14 +132,16 @@ export function DocumentSheet({
           <span>{frame.footer}</span>
           <span className="font-semibold text-stone-700">{pageLabel}</span>
         </div>
-        <figure className="flex shrink-0 flex-col items-center gap-0.5">
-          <img
-            src={frame.qr}
-            alt={frame.qrLabel}
-            className="size-20 rounded border border-stone-200"
-          />
-          <figcaption className="text-[10px] text-stone-500">{frame.qrLabel}</figcaption>
-        </figure>
+        {frame.qr && (
+          <figure className="flex shrink-0 flex-col items-center gap-0.5">
+            <img
+              src={frame.qr}
+              alt={frame.qrLabel}
+              className="size-20 rounded border border-stone-200"
+            />
+            <figcaption className="text-[10px] text-stone-500">{frame.qrLabel}</figcaption>
+          </figure>
+        )}
       </footer>
     </article>
   )

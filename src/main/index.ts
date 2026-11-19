@@ -32,7 +32,12 @@ import { ensureDemoData, regenerateDemoData } from './services/demoData'
 import type { AuthResult, LogInInput, ProfileInput, SignUpInput, UserRole } from '../shared/auth'
 import type { TaxRatesInput } from '../shared/tax'
 import type { DriverInput, FleetResult, TripInput, VehicleInput } from '../shared/fleet'
-import { isDashboardPeriod } from '../shared/dashboard'
+import { isAnalyticsFilters, isDashboardView } from '../shared/analytics'
+import { listOwners } from './services/analyticsQuery'
+import { searchTrips } from './services/govtTrips'
+import { exportData } from './services/exports'
+import { isExportOptions, type ExportInput } from '../shared/exports'
+import type { GovtSearchInput } from '../shared/billing'
 
 // Configure updater logging
 autoUpdater.logger = log
@@ -266,24 +271,43 @@ function registerFleetHandlers(): void {
     runFleetAsync((ownerId) => openDocument(ownerId, documentId))
   )
 
-  // Saves the page as a PDF; the certificate's print styles hide everything else
+  // Saves the page as a PDF (the receipt and manifest); the print styles hide everything else
   ipcMain.handle('certificates:save-pdf', (event, fileName: unknown) =>
-    runFleetAsync(async () => {
-      const window = BrowserWindow.fromWebContents(event.sender)
-      const defaultPath =
-        typeof fileName === 'string' && /^[\w.-]+$/.test(fileName)
-          ? `${fileName}.pdf`
-          : 'certificate.pdf'
-      const options = { defaultPath, filters: [{ name: 'PDF', extensions: ['pdf'] }] }
-      const { canceled, filePath } = window
-        ? await dialog.showSaveDialog(window, options)
-        : await dialog.showSaveDialog(options)
-      if (canceled || !filePath) return { ok: true, data: { saved: false } }
-      const pdf = await event.sender.printToPDF({ pageSize: 'A4', printBackground: true })
-      await writeFile(filePath, pdf)
-      return { ok: true, data: { saved: true } }
-    })
+    runSignedIn(() => savePagePdf(event.sender, fileName, 'certificate'))
   )
+}
+
+// Prints the window's current page to a PDF the user saves. Used for the receipt and manifest
+// (either panel) and the government report; their print styles decide what's on the pages.
+async function savePagePdf(
+  sender: Electron.WebContents,
+  fileName: unknown,
+  fallbackName: string
+): Promise<FleetResult<{ saved: boolean }>> {
+  const window = BrowserWindow.fromWebContents(sender)
+  const defaultPath =
+    typeof fileName === 'string' && /^[\w.-]+$/.test(fileName)
+      ? `${fileName}.pdf`
+      : `${fallbackName}.pdf`
+  const options = { defaultPath, filters: [{ name: 'PDF', extensions: ['pdf'] }] }
+  const { canceled, filePath } = window
+    ? await dialog.showSaveDialog(window, options)
+    : await dialog.showSaveDialog(options)
+  if (canceled || !filePath) return { ok: true, data: { saved: false } }
+  const pdf = await sender.printToPDF({ pageSize: 'A4', printBackground: true })
+  await writeFile(filePath, pdf)
+  return { ok: true, data: { saved: true } }
+}
+
+// For actions either panel may take: a fleet owner or a government user has to be signed in
+async function runSignedIn<T>(action: () => Promise<FleetResult<T>>): Promise<FleetResult<T>> {
+  if (!getSession('owner') && !getSession('govt')) return { ok: false, error: 'not_signed_in' }
+  try {
+    return await action()
+  } catch (err) {
+    log.error('Request failed:', err)
+    return { ok: false, error: 'unknown' }
+  }
 }
 
 // Government panel handlers; they need the government session, and see every owner's data
@@ -304,12 +328,40 @@ function registerGovtHandlers(): void {
   ipcMain.handle('govt:get-reference-data', () =>
     runGovt(() => ({ ok: true, data: getReferenceData() }))
   )
-  ipcMain.handle('govt:dashboard', (_event, period: unknown) =>
+  ipcMain.handle('govt:dashboard', (_event, filters: unknown, view: unknown) =>
     runGovt(() =>
-      isDashboardPeriod(period)
-        ? { ok: true, data: getDashboard(period) }
+      isAnalyticsFilters(filters) && isDashboardView(view)
+        ? { ok: true, data: getDashboard(filters, view) }
         : { ok: false, error: 'missing_fields' }
     )
+  )
+  // Fleet owners, for the owner filter
+  ipcMain.handle('govt:list-owners', () => runGovt(() => ({ ok: true, data: listOwners() })))
+  // Search across every owner's trips, then open one read-only
+  ipcMain.handle('govt:search', (_event, input: GovtSearchInput) =>
+    runGovt(() => searchTrips(input))
+  )
+  ipcMain.handle('govt:get-trip', (_event, manifestId: unknown) =>
+    runGovt(() =>
+      typeof manifestId === 'number'
+        ? getTripDetails(null, manifestId)
+        : { ok: false, error: 'manifest_not_found' }
+    )
+  )
+  // Raw data as Excel or CSV
+  ipcMain.handle('govt:export-data', (event, input: ExportInput) =>
+    runGovt(() =>
+      input && isAnalyticsFilters(input.filters) && isExportOptions(input)
+        ? exportData(BrowserWindow.fromWebContents(event.sender), input)
+        : { ok: false, error: 'missing_fields' }
+    )
+  )
+  // The dashboard report; the report's print styles decide what's on the pages
+  ipcMain.handle('govt:save-report-pdf', (event, fileName: unknown) =>
+    runGovt(() => savePagePdf(event.sender, fileName, 'masarat-report'))
+  )
+  ipcMain.handle('govt:open-document', (_event, documentId: unknown) =>
+    runGovt(() => openDocument(null, documentId))
   )
   ipcMain.handle('govt:get-tax-settings', () =>
     runGovt(() => ({ ok: true, data: getTaxSettingsView() }))

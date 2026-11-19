@@ -1,0 +1,339 @@
+// The government's raw data export: trips, bills, cargo items and tax lines for the chosen filters,
+// as one Excel workbook (a sheet per dataset) or CSV files (one per dataset). Headers and labels are
+// in Arabic, passed in by the renderer.
+import { dialog, type BrowserWindow } from 'electron'
+import { writeFile } from 'fs/promises'
+import { join } from 'path'
+import ExcelJS from 'exceljs'
+import { and, asc, eq, gte, inArray, lt, type SQL } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/sqlite-core'
+import {
+  certificates,
+  cities,
+  getDb,
+  manifestCargoItems,
+  manifestTaxes,
+  manifestTrailers,
+  manifests,
+  payments,
+  users,
+  vehicles
+} from '../db'
+import { formatDay, resolveRange } from '../../shared/analytics'
+import {
+  EXPORT_COLUMNS,
+  type ExportDataset,
+  type ExportInput,
+  type ExportResult
+} from '../../shared/exports'
+import type { FleetResult } from '../../shared/fleet'
+import { inFilteredTrips } from './analyticsQuery'
+
+type Cell = string | number | Date | null
+type Row = Cell[]
+
+// Columns holding a date with a time, or a date alone
+const DATE_TIME_COLUMNS = new Set(['createdAt', 'paidAt', 'issuedAt'])
+const DATE_COLUMNS = new Set(['tripDate'])
+
+const origin = alias(cities, 'export_origin')
+const destination = alias(cities, 'export_destination')
+
+// The trips the export covers: the filters, the period on the chosen date, and the status
+function selectTripIds(input: ExportInput): number[] {
+  const { from, to } = resolveRange(input.filters.range, new Date())
+  const period: SQL | undefined =
+    input.dateBasis === 'trip'
+      ? and(gte(manifests.tripDate, from), lt(manifests.tripDate, to))
+      : input.dateBasis === 'billed'
+        ? and(gte(payments.createdAt, from), lt(payments.createdAt, to))
+        : and(eq(payments.status, 'paid'), gte(payments.paidAt, from), lt(payments.paidAt, to))
+  const status: SQL | undefined =
+    input.status === 'all'
+      ? undefined
+      : input.status === 'billed'
+        ? inArray(manifests.status, ['billed', 'paid'])
+        : eq(manifests.status, input.status)
+  return getDb()
+    .select({ id: manifests.id })
+    .from(manifests)
+    .leftJoin(payments, eq(payments.manifestId, manifests.id))
+    .where(and(period, status, inFilteredTrips(manifests.id, input.filters)))
+    .orderBy(asc(manifests.tripDate), asc(manifests.id))
+    .all()
+    .map((r) => r.id)
+}
+
+// Builds each dataset's rows, in EXPORT_COLUMNS order
+function buildRows(input: ExportInput, ids: number[]): Record<ExportDataset, Row[]> {
+  const db = getDb()
+  const value = (group: string, key: string | null | undefined): string | null =>
+    key ? (input.labels.values[group]?.[key] ?? key) : null
+  const empty: Record<ExportDataset, Row[]> = { trips: [], bills: [], items: [], taxLines: [] }
+  if (ids.length === 0) return empty
+
+  const trips = db
+    .select({
+      id: manifests.id,
+      manifestNo: certificates.manifestNo,
+      tripDate: manifests.tripDate,
+      createdAt: manifests.createdAt,
+      status: manifests.status,
+      cargoType: manifests.cargoType,
+      companyName: users.companyName,
+      fullName: users.fullName,
+      plate: vehicles.plateNumber,
+      registrationNo: vehicles.registrationNo,
+      vehicleType: vehicles.vehicleType,
+      tripKind: manifests.tripKind,
+      origin: origin.name,
+      originAr: origin.nameAr,
+      originState: origin.state,
+      destination: destination.name,
+      destinationAr: destination.nameAr,
+      destinationState: destination.state,
+      distanceKm: manifests.distanceKm,
+      driverName: manifests.driverName,
+      driverPhone: manifests.driverPhone,
+      shipperName: manifests.shipperName,
+      receiverName: manifests.receiverName,
+      cargoQuantity: manifests.cargoQuantity,
+      cargoUnit: manifests.cargoUnit,
+      tripCost: manifests.tripCost,
+      amountDue: manifests.taxAmount,
+      billId: payments.billId,
+      billAmount: payments.amount,
+      billStatus: payments.status,
+      issuedAt: payments.createdAt,
+      paidAt: payments.paidAt,
+      paymentRef: payments.paymentRef
+    })
+    .from(manifests)
+    .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
+    .innerJoin(users, eq(vehicles.ownerId, users.id))
+    .innerJoin(origin, eq(manifests.originCityId, origin.id))
+    .innerJoin(destination, eq(manifests.destinationCityId, destination.id))
+    .leftJoin(payments, eq(payments.manifestId, manifests.id))
+    .leftJoin(certificates, eq(certificates.manifestId, manifests.id))
+    .where(inArray(manifests.id, ids))
+    .orderBy(asc(manifests.tripDate), asc(manifests.id))
+    .all()
+  const byId = new Map(trips.map((trip) => [trip.id, trip]))
+
+  const items = db
+    .select()
+    .from(manifestCargoItems)
+    .where(inArray(manifestCargoItems.manifestId, ids))
+    .orderBy(asc(manifestCargoItems.manifestId), asc(manifestCargoItems.position))
+    .all()
+  const cargoTypes = new Map<number, Set<string>>()
+  for (const item of items) {
+    cargoTypes.set(
+      item.manifestId,
+      (cargoTypes.get(item.manifestId) ?? new Set()).add(item.cargoType)
+    )
+  }
+  const trailers = new Map<number, string[]>()
+  for (const trailer of db
+    .select()
+    .from(manifestTrailers)
+    .where(inArray(manifestTrailers.manifestId, ids))
+    .orderBy(asc(manifestTrailers.position))
+    .all()) {
+    trailers.set(trailer.manifestId, [
+      ...(trailers.get(trailer.manifestId) ?? []),
+      trailer.plateNumber
+    ])
+  }
+
+  const owner = (t: (typeof trips)[number]): string => t.companyName || t.fullName
+  const rows = empty
+  for (const t of trips) {
+    rows.trips.push([
+      t.id,
+      t.manifestNo,
+      t.tripDate,
+      t.createdAt,
+      value('statuses', t.status),
+      owner(t),
+      t.plate,
+      t.registrationNo,
+      value('vehicleTypes', t.vehicleType),
+      (trailers.get(t.id) ?? []).join('، ') || null,
+      value('tripKinds', t.tripKind),
+      t.originAr ?? t.origin,
+      value('states', t.originState),
+      t.destinationAr ?? t.destination,
+      value('states', t.destinationState),
+      t.distanceKm,
+      t.driverName,
+      t.driverPhone,
+      t.shipperName,
+      t.receiverName,
+      // Trips from before cargo items existed have only their own type
+      [...(cargoTypes.get(t.id) ?? new Set([t.cargoType]))]
+        .map((c) => value('cargoTypes', c))
+        .join('، '),
+      t.cargoQuantity,
+      value('units', t.cargoUnit),
+      t.tripCost,
+      t.amountDue,
+      t.billId,
+      t.paidAt
+    ])
+    if (t.billId) {
+      rows.bills.push([
+        t.billId,
+        t.id,
+        t.manifestNo,
+        owner(t),
+        t.plate,
+        t.billAmount,
+        value('paymentStatuses', t.billStatus),
+        t.issuedAt,
+        t.paidAt,
+        t.paymentRef
+      ])
+    }
+  }
+  for (const item of items) {
+    rows.items.push([
+      item.manifestId,
+      byId.get(item.manifestId)?.manifestNo ?? null,
+      item.position + 1,
+      item.name,
+      value('cargoTypes', item.cargoType),
+      item.packingType,
+      item.packageCount,
+      item.quantity,
+      value('units', item.unit),
+      item.cost,
+      item.notes
+    ])
+  }
+  for (const line of db
+    .select()
+    .from(manifestTaxes)
+    .where(inArray(manifestTaxes.manifestId, ids))
+    .orderBy(asc(manifestTaxes.manifestId), asc(manifestTaxes.id))
+    .all()) {
+    const trip = byId.get(line.manifestId)
+    rows.taxLines.push([
+      line.manifestId,
+      trip?.manifestNo ?? null,
+      trip?.billId ?? null,
+      value('lines', line.code),
+      line.rateBps === null ? null : line.rateBps / 100,
+      line.amount,
+      trip?.paidAt ?? null
+    ])
+  }
+  return rows
+}
+
+const pad = (n: number): string => String(n).padStart(2, '0')
+const dateTimeText = (date: Date): string =>
+  `${formatDay(date)} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+
+// RFC 4180: quote fields with commas, quotes or line breaks
+function csvField(value: Cell, column: string): string {
+  if (value === null) return ''
+  const text =
+    value instanceof Date
+      ? DATE_COLUMNS.has(column)
+        ? formatDay(value)
+        : dateTimeText(value)
+      : String(value)
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+function toCsv(input: ExportInput, dataset: ExportDataset, rows: Row[]): string {
+  const columns = EXPORT_COLUMNS[dataset]
+  const header = columns.map((c) => csvField(input.labels.columns[dataset]?.[c] ?? c, c))
+  const lines = [
+    header.join(','),
+    ...rows.map((row) => row.map((v, i) => csvField(v, columns[i])).join(','))
+  ]
+  // The byte order mark makes Excel read the file as UTF-8 (Arabic text)
+  return `\uFEFF${lines.join('\r\n')}\r\n`
+}
+
+async function writeWorkbook(
+  input: ExportInput,
+  data: Record<ExportDataset, Row[]>,
+  path: string
+): Promise<void> {
+  const workbook = new ExcelJS.Workbook()
+  workbook.creator = 'Masarat'
+  workbook.created = new Date()
+  for (const dataset of input.datasets) {
+    const columns = EXPORT_COLUMNS[dataset]
+    // Sheet names are limited to 31 characters and some punctuation
+    const name = (input.labels.sheets[dataset] ?? dataset).replace(/[\\/?*[\]:]/g, ' ').slice(0, 31)
+    const sheet = workbook.addWorksheet(name, {
+      views: [{ rightToLeft: true, state: 'frozen', ySplit: 1 }]
+    })
+    sheet.columns = columns.map((column) => ({
+      header: input.labels.columns[dataset]?.[column] ?? column,
+      key: column,
+      width: DATE_TIME_COLUMNS.has(column) ? 18 : DATE_COLUMNS.has(column) ? 12 : 16,
+      style: DATE_TIME_COLUMNS.has(column)
+        ? { numFmt: 'yyyy-mm-dd hh:mm' }
+        : DATE_COLUMNS.has(column)
+          ? { numFmt: 'yyyy-mm-dd' }
+          : undefined
+    }))
+    sheet.addRows(data[dataset])
+    const header = sheet.getRow(1)
+    header.font = { bold: true }
+    header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE7F0EA' } }
+  }
+  await workbook.xlsx.writeFile(path)
+}
+
+// Asks where to save, then writes the files. CSV with several datasets asks for a folder.
+export async function exportData(
+  window: BrowserWindow | null,
+  input: ExportInput
+): Promise<FleetResult<ExportResult>> {
+  const data = buildRows(input, selectTripIds(input))
+  const rows = Object.fromEntries(input.datasets.map((d) => [d, data[d].length]))
+  const { from, to } = resolveRange(input.filters.range, new Date())
+  const span = `${formatDay(from)}-${formatDay(new Date(to.getTime() - 1))}`
+  const save = (options: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue> =>
+    window ? dialog.showSaveDialog(window, options) : dialog.showSaveDialog(options)
+
+  const excel = input.formats.includes('xlsx')
+  const csv = input.formats.includes('csv')
+  const csvName = (dataset: ExportDataset): string => `masarat-${dataset}-${span}.csv`
+  const workbookName = `masarat-data-${span}.xlsx`
+
+  // A single file: an Excel workbook, or the CSV of a single dataset
+  if (!csv || (!excel && input.datasets.length === 1)) {
+    const [dataset] = input.datasets
+    const { canceled, filePath } = await save(
+      excel
+        ? { defaultPath: workbookName, filters: [{ name: 'Excel', extensions: ['xlsx'] }] }
+        : { defaultPath: csvName(dataset), filters: [{ name: 'CSV', extensions: ['csv'] }] }
+    )
+    if (canceled || !filePath) return { ok: true, data: { saved: false, rows } }
+    if (excel) await writeWorkbook(input, data, filePath)
+    else await writeFile(filePath, toCsv(input, dataset, data[dataset]), 'utf8')
+    return { ok: true, data: { saved: true, rows } }
+  }
+
+  // Several files (CSVs of several datasets, or Excel and CSV together) go into a folder
+  const folderOptions: Electron.OpenDialogOptions = {
+    properties: ['openDirectory', 'createDirectory']
+  }
+  const { canceled, filePaths } = window
+    ? await dialog.showOpenDialog(window, folderOptions)
+    : await dialog.showOpenDialog(folderOptions)
+  const folder = filePaths[0]
+  if (canceled || !folder) return { ok: true, data: { saved: false, rows } }
+  if (excel) await writeWorkbook(input, data, join(folder, workbookName))
+  for (const dataset of input.datasets) {
+    await writeFile(join(folder, csvName(dataset)), toCsv(input, dataset, data[dataset]), 'utf8')
+  }
+  return { ok: true, data: { saved: true, rows } }
+}

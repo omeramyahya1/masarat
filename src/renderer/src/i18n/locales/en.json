@@ -276,6 +276,23 @@
       "document_too_large": "The file is larger than 20 MB.",
       "scan_conflict": "This document doesn't match the shipment read from the trip's other documents (a certificate of origin is only for imports, an authorization only for imports and exports). Check the file, or remove the other documents and scan again.",
       "zero_bill": "This trip's taxes and fees come to 0 SDG, so there is no bill to pay. The tax rates and fees need to be reviewed by the tax administration before this trip can be authorized."
+    },
+    "groupSummary": "{{count}} vehicles",
+    "list": {
+      "search": "Search by plate or registration number",
+      "registrationPresent": "Recorded",
+      "registrationMissing": "Missing",
+      "sorts": {
+        "createdAt": "Date added",
+        "plate": "Plate",
+        "type": "Type",
+        "capacity": "Capacity",
+        "trips": "Trips"
+      },
+      "groups": {
+        "type": "Type",
+        "unit": "Unit"
+      }
     }
   },
   "drivers": {
@@ -292,7 +309,8 @@
     },
     "columns": {
       "name": "Name",
-      "phone": "Phone number"
+      "phone": "Phone number",
+      "trips": "Trips"
     },
     "dialog": {
       "addTitle": "Add a driver",
@@ -309,6 +327,14 @@
       "name": "Driver name",
       "phone": "Phone number",
       "phoneHint": "e.g. 0912345678. It can start with +249."
+    },
+    "list": {
+      "search": "Search by name or phone",
+      "sorts": {
+        "name": "Name",
+        "trips": "Trips",
+        "createdAt": "Date added"
+      }
     }
   },
   "trips": {
@@ -412,7 +438,8 @@
       "delete": "Delete",
       "noTrailers": "None",
       "carrier": "Carrier",
-      "carrierTin": "TIN: {{tin}}"
+      "carrierTin": "TIN: {{tin}}",
+      "owner": "Fleet owner"
     },
     "backToTrip": "Back to trip",
     "items": {
@@ -466,6 +493,32 @@
       "open": "Open",
       "openOf": "Open {{name}}",
       "empty": "No documents attached."
+    },
+    "groupSummary": "{{count}} trips · {{total}}",
+    "list": {
+      "search": "Search by trip #, plate, city, driver, sender, receiver or item",
+      "status": "Status",
+      "cargoType": "Cargo type",
+      "vehicle": "Vehicle",
+      "from": "Trip date from",
+      "to": "Trip date to",
+      "sorts": {
+        "tripDate": "Trip date",
+        "createdAt": "Registered",
+        "amount": "Amount due",
+        "tripCost": "Trip cost",
+        "distance": "Distance",
+        "status": "Status"
+      },
+      "groups": {
+        "status": "Status",
+        "month": "Month",
+        "vehicle": "Vehicle",
+        "driver": "Driver",
+        "route": "Route",
+        "tripKind": "Trip type",
+        "cargoType": "Cargo type"
+      }
     }
   },
   "billing": {
@@ -473,7 +526,8 @@
     "amountDue": "Amount due",
     "draft": {
       "body": "Generate an E-Sali bill ID to pay this trip's taxes and fees. They're calculated at the current rates and fees when the bill is issued.",
-      "generate": "Generate bill ID"
+      "generate": "Generate bill ID",
+      "govtBody": "No bill has been generated for this trip yet."
     },
     "missing": {
       "title": "Complete the manifest before generating the bill ID:",
@@ -601,12 +655,6 @@
       "title": "Overview",
       "scope": "Tax collection across all fleet owners",
       "subtitle": "All fleet owners · Updated {{time}}",
-      "period": "Period",
-      "periods": {
-        "30d": "Last 30 days",
-        "90d": "Last 90 days",
-        "12m": "Last 12 months"
-      },
       "refresh": "Refresh",
       "moreActions": "More actions",
       "empty": "No data for this period yet.",
@@ -636,6 +684,12 @@
           "day": "Dashed: today so far",
           "week": "Dashed: this week so far",
           "month": "Dashed: this month so far"
+        },
+        "groupBy": "Group by",
+        "buckets": {
+          "day": "Day",
+          "week": "Week",
+          "month": "Month"
         }
       },
       "status": {
@@ -652,11 +706,32 @@
         "title": "Revenue by tax and fee"
       },
       "breakdown": {
-        "label": "Breakdown",
-        "routes": "Top routes by revenue",
-        "states": "Revenue by origin state",
-        "byRoute": "Routes",
-        "byState": "States"
+        "title": {
+          "route": "Revenue by route",
+          "originState": "Revenue by origin state",
+          "destinationState": "Revenue by destination state",
+          "cargoType": "Revenue by cargo type",
+          "vehicleType": "Revenue by vehicle type",
+          "tripKind": "Revenue by trip type",
+          "owner": "Revenue by fleet owner"
+        },
+        "groupBy": "Group by",
+        "sortBy": "Sort by",
+        "by": {
+          "route": "Route",
+          "originState": "Origin state",
+          "destinationState": "Destination state",
+          "cargoType": "Cargo type",
+          "vehicleType": "Vehicle type",
+          "tripKind": "Trip type",
+          "owner": "Fleet owner"
+        },
+        "sort": {
+          "revenue": "Revenue",
+          "trips": "Trips",
+          "name": "Name"
+        },
+        "others": "Others"
       },
       "recent": {
         "title": "Latest bills",
@@ -700,6 +775,108 @@
         "tax": "Tax or fee",
         "change": "Change"
       }
+    },
+    "filters": {
+      "period": "Period",
+      "presets": {
+        "7d": "7 days",
+        "30d": "30 days",
+        "90d": "90 days",
+        "12m": "12 months",
+        "ytd": "This year",
+        "custom": "Custom"
+      },
+      "from": "From",
+      "to": "To",
+      "origin": "Origin",
+      "destination": "Destination",
+      "all": "All",
+      "wholeState": "{{state}} (whole state)",
+      "cargoType": "Cargo type",
+      "vehicleType": "Vehicle type",
+      "tripKind": "Trip type",
+      "owner": "Fleet owner",
+      "active": "Filters applied: {{count}}",
+      "clear": "Clear filters",
+      "rangeLabel": "{{from}} – {{to}}"
+    },
+    "search": {
+      "label": "Search trips",
+      "placeholder": "Search by E-Sali bill ID, MNF-/MSR- number, trip #, plate, company or city",
+      "route": "Route",
+      "submit": "Search",
+      "clear": "Clear search",
+      "resultsTitle": "Search results",
+      "resultCount": "{{count}} trips found",
+      "manyResults": "Showing the latest {{count}} trips. Narrow the search to see others.",
+      "noResults": "No trips match this search.",
+      "openTrip": "Open trip #{{id}}",
+      "columns": {
+        "trip": "Trip",
+        "billId": "E-Sali bill ID",
+        "company": "Fleet owner",
+        "vehicle": "Vehicle",
+        "route": "Route",
+        "amount": "Amount",
+        "status": "Status"
+      }
+    },
+    "export": {
+      "open": "Export",
+      "title": "Export",
+      "subtitle": "The dashboard as a PDF report, or the raw data as Excel or CSV. Exports are in Arabic.",
+      "kind": "Export type",
+      "tabs": {
+        "report": "Report (PDF)",
+        "data": "Data (Excel / CSV)"
+      },
+      "parameters": "Parameters",
+      "reportOptions": "Report",
+      "automatic": "Automatic",
+      "sections": "Include",
+      "sectionNames": {
+        "kpis": "Key figures",
+        "chart": "Revenue chart",
+        "cargo": "Revenue by cargo type",
+        "tax": "Revenue by tax and fee",
+        "breakdown": "Breakdown",
+        "progress": "Trip progress"
+      },
+      "reportNote": "The report opens as a preview with the official letterhead; download it from there as a PDF.",
+      "previewReport": "Preview report",
+      "reportPreview": "Report preview",
+      "reportSaved": "Report saved.",
+      "dataOptions": "Data",
+      "datasetsLabel": "Datasets",
+      "datasets": {
+        "trips": "Trips",
+        "bills": "Bills and payments",
+        "items": "Cargo items",
+        "taxLines": "Tax and fee lines"
+      },
+      "dateBasis": "Period applies to",
+      "dateBases": {
+        "trip": "Trip date",
+        "billed": "Bill issued",
+        "paid": "Paid on"
+      },
+      "status": "Trip status",
+      "statuses": {
+        "all": "All",
+        "draft": "Drafts",
+        "billed": "Pending payment",
+        "certified": "Authorized"
+      },
+      "format": "Format",
+      "formats": {
+        "xlsx": "Excel",
+        "csv": "CSV"
+      },
+      "dataNote": "Excel writes one sheet per dataset; CSV is UTF-8 and opens in Excel.",
+      "csvFolder": "Several files (CSV for several datasets, or Excel and CSV together): choose a folder, and each file is saved in it.",
+      "exportData": "Export data",
+      "dataSaved": "Saved: {{rows}}.",
+      "rowCount": "{{dataset}} {{count}} rows"
     }
   },
   "states": {
@@ -733,5 +910,97 @@
     "packing_list": "Packing list",
     "certificate_of_origin": "Certificate of origin",
     "trade_authorization": "Import / export authorization"
+  },
+  "report": {
+    "title": "Road Transport Tax Collection Report",
+    "generatedAt": "Prepared on",
+    "parameters": "Report parameters",
+    "kpis": "Key figures",
+    "footer": "Prepared by the Masarat system from the records available when it was issued."
+  },
+  "export": {
+    "columns": {
+      "trips": {
+        "tripId": "Trip #",
+        "manifestNo": "Manifest no.",
+        "tripDate": "Trip date",
+        "createdAt": "Registered on",
+        "status": "Status",
+        "owner": "Fleet owner",
+        "plate": "Plate",
+        "registrationNo": "Registration no.",
+        "vehicleType": "Vehicle type",
+        "trailers": "Trailers",
+        "tripKind": "Trip type",
+        "origin": "Origin",
+        "originState": "Origin state",
+        "destination": "Destination",
+        "destinationState": "Destination state",
+        "distanceKm": "Distance (km)",
+        "driverName": "Driver",
+        "driverPhone": "Driver phone",
+        "shipperName": "Sender",
+        "receiverName": "Receiver",
+        "cargoTypes": "Cargo types",
+        "cargoQuantity": "Load",
+        "cargoUnit": "Load unit",
+        "tripCost": "Trip cost (SDG)",
+        "amountDue": "Taxes and fees (SDG)",
+        "billId": "E-Sali bill ID",
+        "paidAt": "Paid on"
+      },
+      "bills": {
+        "billId": "E-Sali bill ID",
+        "tripId": "Trip #",
+        "manifestNo": "Manifest no.",
+        "owner": "Fleet owner",
+        "plate": "Plate",
+        "amount": "Amount (SDG)",
+        "status": "Payment status",
+        "issuedAt": "Issued on",
+        "paidAt": "Paid on",
+        "paymentRef": "Payment reference"
+      },
+      "items": {
+        "tripId": "Trip #",
+        "manifestNo": "Manifest no.",
+        "position": "#",
+        "description": "Description",
+        "cargoType": "Cargo type",
+        "packingType": "Packing",
+        "packageCount": "Packages",
+        "quantity": "Weight",
+        "unit": "Unit",
+        "cost": "Cost (SDG)",
+        "notes": "Notes"
+      },
+      "taxLines": {
+        "tripId": "Trip #",
+        "manifestNo": "Manifest no.",
+        "billId": "E-Sali bill ID",
+        "line": "Tax or fee",
+        "rate": "Rate (%)",
+        "amount": "Amount (SDG)",
+        "paidAt": "Paid on"
+      }
+    },
+    "paymentStatuses": {
+      "pending": "Pending",
+      "paid": "Paid",
+      "expired": "Expired",
+      "failed": "Failed"
+    }
+  },
+  "listView": {
+    "sortBy": "Sort by",
+    "groupBy": "Group by",
+    "noGrouping": "No grouping",
+    "all": "All",
+    "ascending": "Ascending",
+    "descending": "Descending",
+    "shown": "Showing {{shown}} of {{total}}",
+    "clear": "Clear search and filters",
+    "noMatches": "Nothing matches the search and filters.",
+    "noDriver": "No driver"
   }
 }

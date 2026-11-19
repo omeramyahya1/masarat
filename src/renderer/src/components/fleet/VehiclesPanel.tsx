@@ -1,7 +1,15 @@
-import { useCallback, useEffect, useId, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoaderCircle, Pencil, Plus, Trash2, Truck } from 'lucide-react'
-import type { FleetErrorCode, VehicleRecord } from '../../../../shared/fleet'
+import {
+  QUANTITY_UNITS,
+  VEHICLE_TYPES,
+  type FleetErrorCode,
+  type VehicleRecord
+} from '../../../../shared/fleet'
+import { plateSearchKey } from '../../../../shared/plate'
+import { useListView, type ListViewConfig } from '../../lib/useListView'
+import ListToolbar from '../ui/ListToolbar'
 import { useFormat } from '../../lib/format'
 import { FormAlert } from '../form/fields'
 import Modal from '../ui/Modal'
@@ -16,6 +24,50 @@ function VehiclesPanel(): React.JSX.Element {
   // 'new' opens the add dialog; a record opens it for editing
   const [editing, setEditing] = useState<VehicleRecord | 'new' | null>(null)
   const [deleting, setDeleting] = useState<VehicleRecord | null>(null)
+
+  // Search, filters, sort and grouping over the loaded vehicles
+  const listConfig = useMemo<ListViewConfig<VehicleRecord>>(
+    () => ({
+      storageKey: 'masarat.list.vehicles',
+      defaultSort: 'createdAt',
+      defaultDirection: 'asc',
+      matches: (vehicle, query) => {
+        const plate = plateSearchKey(query)
+        return (
+          (plate.length >= 1 && plateSearchKey(vehicle.plateNumber).includes(plate)) ||
+          (vehicle.registrationNo ?? '').toLowerCase().includes(query)
+        )
+      },
+      filters: {
+        type: (vehicle, value) => vehicle.vehicleType === value,
+        unit: (vehicle, value) => vehicle.capacityUnit === value,
+        registration: (vehicle, value) =>
+          value === 'missing' ? !vehicle.registrationNo : Boolean(vehicle.registrationNo)
+      },
+      sorts: {
+        plate: (a, b) => a.plateNumber.localeCompare(b.plateNumber),
+        type: (a, b) =>
+          t(`vehicleTypes.${a.vehicleType}`).localeCompare(t(`vehicleTypes.${b.vehicleType}`)),
+        capacity: (a, b) => a.capacity - b.capacity,
+        trips: (a, b) => a.tripCount - b.tripCount,
+        createdAt: (a, b) => a.createdAt - b.createdAt || a.id - b.id
+      },
+      groups: {
+        type: (vehicle) => ({
+          key: vehicle.vehicleType,
+          label: t(`vehicleTypes.${vehicle.vehicleType}`),
+          order: VEHICLE_TYPES.indexOf(vehicle.vehicleType)
+        }),
+        unit: (vehicle) => ({
+          key: vehicle.capacityUnit,
+          label: t(`units.name.${vehicle.capacityUnit}`),
+          order: QUANTITY_UNITS.indexOf(vehicle.capacityUnit)
+        })
+      }
+    }),
+    [t]
+  )
+  const list = useListView(vehicles, listConfig)
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -36,6 +88,51 @@ function VehiclesPanel(): React.JSX.Element {
     setEditing(null)
     load()
   }
+
+  const row = (vehicle: VehicleRecord): React.JSX.Element => (
+    <tr key={vehicle.id}>
+      <td>
+        <PlateBadge plate={vehicle.plateNumber} />
+      </td>
+      <td>
+        {vehicle.registrationNo ? (
+          <bdi className="font-mono text-xs">{vehicle.registrationNo}</bdi>
+        ) : (
+          <span className="text-amber-700">{t('fleet.missingRegistration')}</span>
+        )}
+      </td>
+      <td>{t(`vehicleTypes.${vehicle.vehicleType}`)}</td>
+      <td className="tabular-nums">{format.quantity(vehicle.capacity, vehicle.capacityUnit)}</td>
+      <td className="tabular-nums">{format.number(vehicle.tripCount)}</td>
+      <td>
+        <div className="flex justify-end gap-1">
+          <button
+            type="button"
+            className="icon-btn"
+            title={t('fleet.edit')}
+            aria-label={t('fleet.editPlate', {
+              plate: format.plate(vehicle.plateNumber)
+            })}
+            onClick={() => setEditing(vehicle)}
+          >
+            <Pencil size={16} />
+          </button>
+          <button
+            type="button"
+            className="icon-btn hover:text-red-700"
+            title={vehicle.tripCount > 0 ? t('fleet.errors.vehicle_in_use') : t('fleet.delete')}
+            aria-label={t('fleet.deletePlate', {
+              plate: format.plate(vehicle.plateNumber)
+            })}
+            disabled={vehicle.tripCount > 0}
+            onClick={() => setDeleting(vehicle)}
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </td>
+    </tr>
+  )
 
   return (
     <section className="flex flex-col gap-4">
@@ -73,74 +170,75 @@ function VehiclesPanel(): React.JSX.Element {
           </button>
         </div>
       ) : (
-        <div className="card overflow-hidden">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>{t('fleet.columns.plate')}</th>
-                <th>{t('fleet.columns.registrationNo')}</th>
-                <th>{t('fleet.columns.type')}</th>
-                <th>{t('fleet.columns.capacity')}</th>
-                <th>{t('fleet.columns.trips')}</th>
-                <th className="w-0">
-                  <span className="sr-only">{t('common.actions')}</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {vehicles.map((vehicle) => (
-                <tr key={vehicle.id}>
-                  <td>
-                    <PlateBadge plate={vehicle.plateNumber} />
-                  </td>
-                  <td>
-                    {vehicle.registrationNo ? (
-                      <bdi className="font-mono text-xs">{vehicle.registrationNo}</bdi>
-                    ) : (
-                      <span className="text-amber-700">{t('fleet.missingRegistration')}</span>
-                    )}
-                  </td>
-                  <td>{t(`vehicleTypes.${vehicle.vehicleType}`)}</td>
-                  <td className="tabular-nums">
-                    {format.quantity(vehicle.capacity, vehicle.capacityUnit)}
-                  </td>
-                  <td className="tabular-nums">{format.number(vehicle.tripCount)}</td>
-                  <td>
-                    <div className="flex justify-end gap-1">
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        title={t('fleet.edit')}
-                        aria-label={t('fleet.editPlate', {
-                          plate: format.plate(vehicle.plateNumber)
-                        })}
-                        onClick={() => setEditing(vehicle)}
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        className="icon-btn hover:text-red-700"
-                        title={
-                          vehicle.tripCount > 0
-                            ? t('fleet.errors.vehicle_in_use')
-                            : t('fleet.delete')
-                        }
-                        aria-label={t('fleet.deletePlate', {
-                          plate: format.plate(vehicle.plateNumber)
-                        })}
-                        disabled={vehicle.tripCount > 0}
-                        onClick={() => setDeleting(vehicle)}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
+        <>
+          <ListToolbar
+            state={list.state}
+            onChange={list.update}
+            onReset={list.reset}
+            searchPlaceholder={t('fleet.list.search')}
+            filters={[
+              {
+                key: 'type',
+                label: t('fleet.columns.type'),
+                options: VEHICLE_TYPES.map((v) => ({ value: v, label: t(`vehicleTypes.${v}`) }))
+              },
+              {
+                key: 'unit',
+                label: t('fleet.fields.capacityUnit'),
+                options: QUANTITY_UNITS.map((u) => ({ value: u, label: t(`units.name.${u}`) }))
+              },
+              {
+                key: 'registration',
+                label: t('fleet.columns.registrationNo'),
+                options: [
+                  { value: 'present', label: t('fleet.list.registrationPresent') },
+                  { value: 'missing', label: t('fleet.list.registrationMissing') }
+                ]
+              }
+            ]}
+            sorts={['createdAt', 'plate', 'type', 'capacity', 'trips'].map((s) => ({
+              value: s,
+              label: t(`fleet.list.sorts.${s}`)
+            }))}
+            groups={['type', 'unit'].map((g) => ({ value: g, label: t(`fleet.list.groups.${g}`) }))}
+            shown={list.visible.length}
+            total={list.total}
+          />
+          <div className="card overflow-hidden">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>{t('fleet.columns.plate')}</th>
+                  <th>{t('fleet.columns.registrationNo')}</th>
+                  <th>{t('fleet.columns.type')}</th>
+                  <th>{t('fleet.columns.capacity')}</th>
+                  <th>{t('fleet.columns.trips')}</th>
+                  <th className="w-0">
+                    <span className="sr-only">{t('common.actions')}</span>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {list.groups
+                  ? list.groups.flatMap((group) => [
+                      <tr key={`group-${group.key}`} className="bg-stone-50">
+                        <th colSpan={6} className="text-start text-sm font-semibold text-stone-800">
+                          <span className="me-3">{group.label}</span>
+                          <span className="text-xs font-normal text-stone-500">
+                            {t('fleet.groupSummary', { count: format.number(group.items.length) })}
+                          </span>
+                        </th>
+                      </tr>,
+                      ...group.items.map(row)
+                    ])
+                  : list.visible.map(row)}
+              </tbody>
+            </table>
+            {list.visible.length === 0 && (
+              <p className="py-10 text-center text-sm text-stone-500">{t('listView.noMatches')}</p>
+            )}
+          </div>
+        </>
       )}
 
       {editing && (

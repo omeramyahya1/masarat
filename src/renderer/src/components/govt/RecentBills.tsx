@@ -9,10 +9,13 @@ import { Card, Empty, RouteLabel } from './parts'
 // Latest bills across all owners, paid or still pending
 function RecentBills({
   bills,
-  cities
+  cities,
+  onOpenTrip
 }: {
   bills: RecentBill[]
   cities: readonly CityRecord[]
+  // Opens the bill's trip in the read-only trip view
+  onOpenTrip: (manifestId: number) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
@@ -36,9 +39,24 @@ function RecentBills({
             </thead>
             <tbody>
               {bills.map((bill) => (
-                <tr key={bill.billId}>
+                <tr
+                  key={bill.billId}
+                  className="cursor-pointer hover:bg-stone-50"
+                  onClick={() => onOpenTrip(bill.manifestId)}
+                >
                   <td className="whitespace-nowrap">
-                    <div>{format.dateTime(bill.paidAt ?? bill.createdAt)}</div>
+                    {/* Keyboard access to the row; the row itself handles mouse clicks */}
+                    <button
+                      type="button"
+                      className="text-start hover:underline"
+                      aria-label={t('govt.search.openTrip', { id: format.number(bill.manifestId) })}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onOpenTrip(bill.manifestId)
+                      }}
+                    >
+                      {format.dateTime(bill.paidAt ?? bill.createdAt)}
+                    </button>
                     <div dir="ltr" className="font-mono text-[11px] text-stone-400">
                       {bill.billId}
                     </div>

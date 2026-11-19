@@ -69,27 +69,32 @@ function PartyBlock({ title, party }: { title: string; party: Party }): React.JS
 interface TripDetailsProps {
   tripId: number
   reference: TripReferenceData
-  // The signed-in owner, whose address and TIN the bill needs
-  owner: AuthUser
-  onGoToProfile: () => void
   onBack: () => void
+  // The government's view of any owner's trip: nothing can be changed, and it shows whose trip it is
+  readOnly?: boolean
+  // The signed-in owner, whose address and TIN the bill needs (owner view)
+  owner?: AuthUser
+  onGoToProfile?: () => void
   // Opens the form on this trip (drafts only)
-  onEdit: (trip: TripRecord) => void
+  onEdit?: (trip: TripRecord) => void
   // The draft was deleted
-  onDeleted: () => void
+  onDeleted?: () => void
   // The trip's status changed, so the list needs reloading
-  onChanged: () => void
+  onChanged?: () => void
 }
+
+const noop = (): void => undefined
 
 function TripDetails({
   tripId,
   reference,
-  owner,
-  onGoToProfile,
   onBack,
-  onEdit,
-  onDeleted,
-  onChanged
+  readOnly = false,
+  owner,
+  onGoToProfile = noop,
+  onEdit = noop,
+  onDeleted = noop,
+  onChanged = noop
 }: TripDetailsProps): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
@@ -103,15 +108,14 @@ function TripDetails({
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   useEffect(() => {
-    window.api.billing
-      .getTrip(tripId)
+    ;(readOnly ? window.api.govt.getTrip(tripId) : window.api.billing.getTrip(tripId))
       .then((result) => {
         if (!mounted.current) return
         if (result.ok) setDetails(result.data)
         else setError(result.error)
       })
       .catch(() => mounted.current && setError('unknown'))
-  }, [tripId, mounted])
+  }, [tripId, mounted, readOnly])
 
   const run = async (action: Action): Promise<void> => {
     setPending(action)
@@ -142,7 +146,9 @@ function TripDetails({
 
   const openDocument = async (documentId: number): Promise<void> => {
     try {
-      const result = await window.api.documents.open(documentId)
+      const result = readOnly
+        ? await window.api.govt.openDocument(documentId)
+        : await window.api.documents.open(documentId)
       if (mounted.current && !result.ok) setError(result.error)
     } catch {
       if (mounted.current) setError('unknown')
@@ -187,7 +193,8 @@ function TripDetails({
   const spinner = (action: Action): ReactNode =>
     pending === action && <LoaderCircle size={16} className="animate-spin" />
   // What the draft still needs before its bill can be generated
-  const missing = trip.status === 'draft' ? missingForBilling(trip, owner) : []
+  const missing =
+    !readOnly && owner && trip.status === 'draft' ? missingForBilling(trip, owner) : []
   const missingProfile = missing.some((m) => m === 'carrier_address' || m === 'carrier_tin')
   const missingTrip = missing.some((m) => m !== 'carrier_address' && m !== 'carrier_tin')
 
@@ -210,7 +217,7 @@ function TripDetails({
             {t('trips.details.subtitle', { date: format.date(trip.createdAt) })}
           </p>
         </div>
-        {trip.status === 'draft' && (
+        {!readOnly && trip.status === 'draft' && (
           <div className="flex gap-2">
             <button
               type="button"
@@ -233,7 +240,7 @@ function TripDetails({
           </div>
         )}
         {/* Demo control: kept out of the way so the main view looks like the real product */}
-        {trip.status === 'billed' && payment && (
+        {!readOnly && trip.status === 'billed' && payment && (
           <Menu
             label={t('trips.details.moreActions')}
             items={[
@@ -264,6 +271,18 @@ function TripDetails({
             {t('trips.details.summary')}
           </h3>
           <dl className="divide-y divide-stone-100 text-sm">
+            {readOnly && (
+              <Row label={t('trips.details.owner')}>
+                <span className="inline-flex flex-col items-end">
+                  <bdi>{details.owner.companyName}</bdi>
+                  {details.owner.companyName !== details.owner.fullName && (
+                    <bdi className="text-xs font-normal text-stone-500">
+                      {details.owner.fullName}
+                    </bdi>
+                  )}
+                </span>
+              </Row>
+            )}
             <Row label={t('trips.details.vehicle')}>
               <PlateBadge plate={trip.plateNumber} />
             </Row>
@@ -437,7 +456,9 @@ function TripDetails({
 
           {!payment ? (
             <>
-              <p className="text-sm text-stone-600">{t('billing.draft.body')}</p>
+              <p className="text-sm text-stone-600">
+                {t(readOnly ? 'billing.draft.govtBody' : 'billing.draft.body')}
+              </p>
               <div className="flex items-baseline justify-between rounded-lg bg-stone-50 px-4 py-3">
                 <span className="text-sm text-stone-500">{t('billing.amountDue')}</span>
                 <span className="text-lg font-semibold tabular-nums">
@@ -469,15 +490,17 @@ function TripDetails({
                   </div>
                 </div>
               )}
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={pending !== null || missing.length > 0}
-                onClick={() => run('generate')}
-              >
-                {spinner('generate')}
-                {t('billing.draft.generate')}
-              </button>
+              {!readOnly && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={pending !== null || missing.length > 0}
+                  onClick={() => run('generate')}
+                >
+                  {spinner('generate')}
+                  {t('billing.draft.generate')}
+                </button>
+              )}
             </>
           ) : payment.status !== 'paid' || !certificate ? (
             <>
@@ -512,17 +535,21 @@ function TripDetails({
                   {t('billing.pending.issuedAt', { date: format.dateTime(payment.createdAt) })}
                 </span>
               </div>
-              <p className="text-sm text-stone-600">{t('billing.pending.hint')}</p>
-              {notPaid && <FormAlert message={t('billing.pending.notPaid')} />}
-              <button
-                type="button"
-                className="btn btn-secondary"
-                disabled={pending !== null}
-                onClick={() => run('refresh')}
-              >
-                {pending === 'refresh' ? spinner('refresh') : <RefreshCw size={16} />}
-                {t('billing.pending.refresh')}
-              </button>
+              {!readOnly && (
+                <>
+                  <p className="text-sm text-stone-600">{t('billing.pending.hint')}</p>
+                  {notPaid && <FormAlert message={t('billing.pending.notPaid')} />}
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={pending !== null}
+                    onClick={() => run('refresh')}
+                  >
+                    {pending === 'refresh' ? spinner('refresh') : <RefreshCw size={16} />}
+                    {t('billing.pending.refresh')}
+                  </button>
+                </>
+              )}
             </>
           ) : (
             <>

@@ -1,6 +1,6 @@
 // A fleet owner's drivers. Trips pick one; the manifest keeps its own copy of the name and phone,
 // so editing a driver later doesn't change manifests already issued.
-import { and, asc, eq, ne } from 'drizzle-orm'
+import { and, asc, count, eq, ne } from 'drizzle-orm'
 import { drivers, getDb, manifests, type Driver } from '../db'
 import {
   MAX_DRIVER_NAME_LENGTH,
@@ -10,10 +10,11 @@ import {
   type FleetResult
 } from '../../shared/fleet'
 
-const toRecord = (driver: Driver): DriverRecord => ({
+const toRecord = (driver: Driver, tripCount = 0): DriverRecord => ({
   id: driver.id,
   name: driver.name,
   phone: driver.phone,
+  tripCount,
   createdAt: driver.createdAt.getTime()
 })
 
@@ -50,12 +51,14 @@ export function findOwnedDriver(ownerId: number, driverId: unknown): Driver | un
 
 export function listDrivers(ownerId: number): DriverRecord[] {
   return getDb()
-    .select()
+    .select({ driver: drivers, tripCount: count(manifests.id) })
     .from(drivers)
+    .leftJoin(manifests, eq(manifests.driverId, drivers.id))
     .where(eq(drivers.ownerId, ownerId))
+    .groupBy(drivers.id)
     .orderBy(asc(drivers.name), asc(drivers.id))
     .all()
-    .map(toRecord)
+    .map((row) => toRecord(row.driver, row.tripCount))
 }
 
 export function addDriver(ownerId: number, input: DriverInput): FleetResult<DriverRecord> {

@@ -21,7 +21,7 @@ import type {
   VehicleInput,
   VehicleRecord
 } from '../shared/fleet'
-import type { TripDetails } from '../shared/billing'
+import type { GovtSearchInput, GovtSearchResult, TripDetails } from '../shared/billing'
 import type { DashboardData } from '../shared/dashboard'
 import type { AnalyticsFilters, DashboardView, OwnerOption } from '../shared/analytics'
 import type { OcrResult, ScanInput } from '../shared/ocr'
@@ -120,6 +120,12 @@ const api = {
       view: DashboardView
     ): Promise<FleetResult<DashboardData>> => ipcRenderer.invoke('govt:dashboard', filters, view),
     listOwners: (): Promise<FleetResult<OwnerOption[]>> => ipcRenderer.invoke('govt:list-owners'),
+    search: (input: GovtSearchInput): Promise<FleetResult<GovtSearchResult[]>> =>
+      ipcRenderer.invoke('govt:search', input),
+    getTrip: (manifestId: number): Promise<FleetResult<TripDetails>> =>
+      ipcRenderer.invoke('govt:get-trip', manifestId),
+    openDocument: (documentId: number): Promise<FleetResult<null>> =>
+      ipcRenderer.invoke('govt:open-document', documentId),
     getTaxSettings: (): Promise<FleetResult<TaxSettingsView>> =>
       ipcRenderer.invoke('govt:get-tax-settings'),
     updateTaxRates: (input: TaxRatesInput): Promise<FleetResult<TaxSettingsView>> =>

@@ -412,7 +412,8 @@
       "delete": "Delete",
       "noTrailers": "None",
       "carrier": "Carrier",
-      "carrierTin": "TIN: {{tin}}"
+      "carrierTin": "TIN: {{tin}}",
+      "owner": "Fleet owner"
     },
     "backToTrip": "Back to trip",
     "items": {
@@ -473,7 +474,8 @@
     "amountDue": "Amount due",
     "draft": {
       "body": "Generate an E-Sali bill ID to pay this trip's taxes and fees. They're calculated at the current rates and fees when the bill is issued.",
-      "generate": "Generate bill ID"
+      "generate": "Generate bill ID",
+      "govtBody": "No bill has been generated for this trip yet."
     },
     "missing": {
       "title": "Complete the manifest before generating the bill ID:",
@@ -745,6 +747,27 @@
       "active": "Filters applied: {{count}}",
       "clear": "Clear filters",
       "rangeLabel": "{{from}} – {{to}}"
+    },
+    "search": {
+      "label": "Search trips",
+      "placeholder": "Search by E-Sali bill ID, MNF-/MSR- number, trip #, plate, company or city",
+      "route": "Route",
+      "submit": "Search",
+      "clear": "Clear search",
+      "resultsTitle": "Search results",
+      "resultCount": "{{count}} trips found",
+      "manyResults": "Showing the latest {{count}} trips. Narrow the search to see others.",
+      "noResults": "No trips match this search.",
+      "openTrip": "Open trip #{{id}}",
+      "columns": {
+        "trip": "Trip",
+        "billId": "E-Sali bill ID",
+        "company": "Fleet owner",
+        "vehicle": "Vehicle",
+        "route": "Route",
+        "amount": "Amount",
+        "status": "Status"
+      }
     }
   },
   "states": {

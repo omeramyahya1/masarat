@@ -20,7 +20,7 @@ import type {
   VehicleInput,
   VehicleRecord
 } from '../shared/fleet'
-import type { TripDetails } from '../shared/billing'
+import type { GovtSearchInput, GovtSearchResult, TripDetails } from '../shared/billing'
 import type { DashboardData } from '../shared/dashboard'
 import type { AnalyticsFilters, DashboardView, OwnerOption } from '../shared/analytics'
 import type { OcrResult, ScanInput } from '../shared/ocr'
@@ -102,6 +102,11 @@ export interface GovtAPI {
   getReferenceData: () => Promise<FleetResult<TripReferenceData>>
   dashboard: (filters: AnalyticsFilters, view: DashboardView) => Promise<FleetResult<DashboardData>>
   listOwners: () => Promise<FleetResult<OwnerOption[]>>
+  // Trips of every owner by bill ID, receipt/manifest number, trip number, plate, name or route
+  search: (input: GovtSearchInput) => Promise<FleetResult<GovtSearchResult[]>>
+  // Any owner's trip, read-only
+  getTrip: (manifestId: number) => Promise<FleetResult<TripDetails>>
+  openDocument: (documentId: number) => Promise<FleetResult<null>>
   getTaxSettings: () => Promise<FleetResult<TaxSettingsView>>
   // Basis points per tax; each change is logged under the signed-in government user
   updateTaxRates: (input: TaxRatesInput) => Promise<FleetResult<TaxSettingsView>>

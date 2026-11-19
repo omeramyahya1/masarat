@@ -24,17 +24,35 @@ import {
   type TripRow
 } from './trips'
 
-const ownedTripColumns = { ...tripColumns, vehicleCapacity: vehicles.capacity }
-type OwnedTrip = TripRow & { vehicleCapacity: number }
+const ownedTripColumns = {
+  ...tripColumns,
+  vehicleCapacity: vehicles.capacity,
+  ownerCompany: users.companyName,
+  ownerName: users.fullName,
+  ownerPhone: users.phone
+}
+type OwnedTrip = TripRow & {
+  vehicleCapacity: number
+  ownerCompany: string | null
+  ownerName: string
+  ownerPhone: string | null
+}
 
-// The manifest with its vehicle, only if it belongs to this owner
-function findOwnedTrip(ownerId: number, manifestId: unknown): OwnedTrip | undefined {
+// The manifest with its vehicle and owner, if it belongs to this owner. A null owner is the
+// government, which may open any trip.
+function findOwnedTrip(ownerId: number | null, manifestId: unknown): OwnedTrip | undefined {
   if (typeof manifestId !== 'number') return undefined
   return getDb()
     .select(ownedTripColumns)
     .from(manifests)
     .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-    .where(and(eq(manifests.id, manifestId), eq(vehicles.ownerId, ownerId)))
+    .innerJoin(users, eq(vehicles.ownerId, users.id))
+    .where(
+      and(
+        eq(manifests.id, manifestId),
+        ownerId === null ? undefined : eq(vehicles.ownerId, ownerId)
+      )
+    )
     .get()
 }
 
@@ -73,13 +91,14 @@ export function validUntilFor(tripDate: Date): Date {
   return end
 }
 
+// A trip with its bill and documents; the government passes a null owner
 export async function getTripDetails(
-  ownerId: number,
+  ownerId: number | null,
   manifestId: number
 ): Promise<FleetResult<TripDetails>> {
   const row = findOwnedTrip(ownerId, manifestId)
   if (!row) return { ok: false, error: 'manifest_not_found' }
-  const { vehicleCapacity, ...trip } = row
+  const { vehicleCapacity, ownerCompany, ownerName, ownerPhone, ...trip } = row
 
   const payment = paymentOf(trip.id)
   const certificate = getDb()
@@ -120,6 +139,7 @@ export async function getTripDetails(
     ok: true,
     data: {
       trip: toTripRecord(trip),
+      owner: { companyName: ownerCompany || ownerName, fullName: ownerName, phone: ownerPhone },
       vehicleCapacity,
       payment: paymentRecord,
       certificate: certificateRecord

@@ -117,20 +117,26 @@ export function removeTripFolder(manifestId: number): void {
 }
 
 // The owner's own attachment, by id
-function findOwnedDocument(ownerId: number, documentId: unknown): TripDocument | undefined {
+// A null owner is the government, which may open any trip's attachments
+function findOwnedDocument(ownerId: number | null, documentId: unknown): TripDocument | undefined {
   if (typeof documentId !== 'number') return undefined
   return getDb()
     .select({ document: tripDocuments })
     .from(tripDocuments)
     .innerJoin(manifests, eq(tripDocuments.manifestId, manifests.id))
     .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-    .where(and(eq(tripDocuments.id, documentId), eq(vehicles.ownerId, ownerId)))
+    .where(
+      and(
+        eq(tripDocuments.id, documentId),
+        ownerId === null ? undefined : eq(vehicles.ownerId, ownerId)
+      )
+    )
     .get()?.document
 }
 
 // A saved attachment's file and original name, for the viewer and the scanner
 export function findOwnedDocumentFile(
-  ownerId: number,
+  ownerId: number | null,
   documentId: unknown
 ): { path: string; fileName: string } | undefined {
   const document = findOwnedDocument(ownerId, documentId)
@@ -141,7 +147,7 @@ export function findOwnedDocumentFile(
 
 // Opens an attachment in the system's default viewer
 export async function openDocument(
-  ownerId: number,
+  ownerId: number | null,
   documentId: unknown
 ): Promise<FleetResult<null>> {
   const path = findOwnedDocumentFile(ownerId, documentId)?.path

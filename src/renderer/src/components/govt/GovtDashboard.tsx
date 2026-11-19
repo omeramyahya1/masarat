@@ -28,7 +28,11 @@ import { Card, Empty, Segmented } from './parts'
 const RevenueChart = lazy(() => import('./RevenueChart'))
 
 // Government landing view: collection totals and activity across every fleet owner
-function GovtDashboard(): React.JSX.Element {
+function GovtDashboard({
+  onOpenTrip
+}: {
+  onOpenTrip: (manifestId: number) => void
+}): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
   const mounted = useMountedRef()
@@ -281,7 +285,7 @@ function GovtDashboard(): React.JSX.Element {
         />
       </div>
 
-      <RecentBills bills={data.recentBills} cities={cities} />
+      <RecentBills bills={data.recentBills} cities={cities} onOpenTrip={onOpenTrip} />
 
       {confirmDialog}
     </section>

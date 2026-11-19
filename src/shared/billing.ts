@@ -38,6 +38,8 @@ export interface CertificateRecord {
 
 export interface TripDetails {
   trip: TripRecord
+  // The fleet owner the trip belongs to (shown in the government's view of a trip)
+  owner: { companyName: string; fullName: string; phone: string | null }
   vehicleCapacity: number
   payment: PaymentRecord | null
   certificate: CertificateRecord | null
@@ -48,3 +50,27 @@ export interface TripDetails {
 export function buildQrPayload(billId: string, plateNumber: string, manifestNo: string): string {
   return JSON.stringify({ esaliBillId: billId, status: 'paid', plate: plateNumber, manifestNo })
 }
+
+// A trip found by the government search
+export interface GovtSearchInput {
+  // Bill ID, MNF-/MSR- number, trip number, plate, company or city name; may be empty when a
+  // route is given
+  query: string
+  originCityId?: number | null
+  destinationCityId?: number | null
+}
+
+export interface GovtSearchResult {
+  manifestId: number
+  manifestNo: string | null
+  billId: string | null
+  companyName: string
+  plateNumber: string
+  originCityId: number
+  destinationCityId: number
+  tripDate: number
+  amount: number
+  status: TripRecord['status']
+}
+
+export const MAX_SEARCH_RESULTS = 100

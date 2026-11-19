@@ -17,6 +17,8 @@ interface ManifestPageProps {
 }
 
 const CELL = 'border border-stone-300 px-2 py-1'
+// The parties table is the tallest part of page 1; tighter rows leave more room for the cargo
+const PARTY_CELL = 'border border-stone-300 px-2 py-0.5 leading-snug'
 
 // A blank line to fill in by hand
 function Blank({ className = '' }: { className?: string }): React.JSX.Element {
@@ -117,9 +119,9 @@ function ManifestPage({
         <table className="w-full table-fixed border-collapse text-[11.5px]">
           <thead>
             <tr className="bg-brand-50 text-brand-900">
-              <th className={`${CELL} w-24`} />
+              <th className={`${PARTY_CELL} w-24`} />
               {parties.map((p) => (
-                <th key={p.title} className={`${CELL} text-start`}>
+                <th key={p.title} className={`${PARTY_CELL} text-start`}>
                   {p.title}
                 </th>
               ))}
@@ -128,11 +130,11 @@ function ManifestPage({
           <tbody>
             {(['name', 'address', 'phone', 'tin'] as const).map((row) => (
               <tr key={row}>
-                <th className={`${CELL} text-start font-normal text-stone-500`}>
+                <th className={`${PARTY_CELL} text-start font-normal text-stone-500`}>
                   {ar(`certificate.manifest.${row}`)}
                 </th>
                 {parties.map((p) => (
-                  <td key={p.title} className={`${CELL} font-semibold`}>
+                  <td key={p.title} className={`${PARTY_CELL} font-semibold`}>
                     {row === 'phone' || row === 'tin' ? (
                       <Latin>{p[row]}</Latin>
                     ) : (
@@ -217,12 +219,12 @@ function ManifestPage({
       </Section>
       <section className="grid grid-cols-3 gap-4 break-inside-avoid">
         {(['carrier', 'driver', 'receiver'] as const).map((who) => (
-          <div key={who} className="flex flex-col gap-1.5 rounded border border-stone-300 p-2.5">
+          <div key={who} className="flex flex-col gap-1 rounded border border-stone-300 px-2.5 py-2">
             <h5 className="text-[12px] font-bold text-brand-800">
               {ar(`certificate.manifest.signatures.${who}`)}
             </h5>
             <div className="grid grid-cols-[minmax(0,1fr)_4rem] gap-2">
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 {(['name', 'signature', 'date'] as const).map((line) => (
                   <div key={line} className="flex items-end gap-2 text-[11px]">
                     <span className="shrink-0 text-stone-500">

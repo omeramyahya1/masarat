@@ -14,6 +14,11 @@
     "noUnusedParameters": true,
     "noImplicitAny": false,
     "noImplicitReturns": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@masarat/ui/*": [
+        "./packages/ui/src/*"
+      ]
+    }
   }
 }

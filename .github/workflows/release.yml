@@ -5,7 +5,9 @@
 #   2. build:   Linux AppImage and Windows installer + portable .exe, in parallel, uploaded to the draft
 #   3. publish: checks every file is there, then publishes the draft
 #
-# Runs when `npm run release` pushes a v<version> tag. It can also be started by hand
+# Builds apps/desktop-demo (the Electron MVP), the only app released this way.
+#
+# Runs when `bun run release` pushes a v<version> tag. It can also be started by hand
 # (Actions tab > Release > Run workflow) to retry a tag whose run failed.
 name: Release
 
@@ -46,6 +48,7 @@ jobs:
       # so a mismatch would publish to the wrong release
       - name: Check the tag matches package.json
         id: version
+        working-directory: apps/desktop-demo
         run: |
           version="$(node -p "require('./package.json').version")"
           if [ "v$version" != "$TAG" ]; then
@@ -60,7 +63,7 @@ jobs:
         run: |
           if state="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
             if [ "$state" = "false" ]; then
-              echo "::error::Release $TAG is already published. Bump the version (npm version patch)."
+              echo "::error::Release $TAG is already published. Bump the version (bun pm version patch in apps/desktop-demo)."
               exit 1
             fi
             echo "Reusing the existing draft for $TAG"
@@ -85,22 +88,30 @@ jobs:
         with:
           ref: ${{ env.TAG }}
 
+      # electron-builder and electron-vite run on Node; bun installs and runs the scripts
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: npm
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
 
       # postinstall rebuilds better-sqlite3 for Electron on this OS
       - name: Install dependencies
-        run: npm ci
+        working-directory: apps/desktop-demo
+        run: bun install --frozen-lockfile
 
       - name: Typecheck and build
-        run: npm run build
+        working-directory: apps/desktop-demo
+        run: bun run build
 
       # Uploads into the draft created above (electron-builder.yml has releaseType: draft)
       - name: Package and upload to the draft release
-        run: npx electron-builder ${{ matrix.target }} --publish always
+        working-directory: apps/desktop-demo
+        run: bunx electron-builder ${{ matrix.target }} --publish always
         env:
           # Allow re-running a build for a draft created more than 2 hours ago
           EP_GH_IGNORE_TIME: true

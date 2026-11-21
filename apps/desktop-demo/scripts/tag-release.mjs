@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type -- plain JS script, no type annotations */
-// `npm run release`: tags the current commit as v<version> and pushes the tag. The push starts
+// `bun run release`: tags the current commit as v<version> and pushes the tag. The push starts
 // .github/workflows/release.yml, which builds the Linux and Windows files from exactly this commit
 // into a draft release and publishes it once every file is attached.
 import { execFileSync } from 'node:child_process'
@@ -21,7 +21,7 @@ const { version } = JSON.parse(readFileSync('package.json', 'utf8'))
 const tag = `v${version}`
 const head = git('rev-parse', 'HEAD')
 
-// Lines of "<sha>\t<ref>", empty if the tag doesn't exist. Annotated tags (npm version creates
+// Lines of "<sha>\t<ref>", empty if the tag doesn't exist. Annotated tags (bun pm version creates
 // them) also list "<ref>^{}" with the commit they point to, so prefer that line.
 const remoteRefs = git('ls-remote', '--tags', 'origin', `refs/tags/${tag}`, `refs/tags/${tag}^{}`)
   .split('\n')
@@ -31,7 +31,7 @@ const remote = (remoteRefs.find(([, ref]) => ref.endsWith('^{}')) ?? remoteRefs[
 if (remote) {
   if (remote !== head) {
     fail(
-      `${tag} already exists on GitHub for a different commit. Bump the version (npm version patch).`
+      `${tag} already exists on GitHub for a different commit. Bump the version (bun pm version patch).`
     )
   }
   console.log(`${tag} is already on GitHub for this commit.`)
@@ -48,7 +48,7 @@ try {
   // No local tag yet
 }
 if (local && local !== head) {
-  fail(`local tag ${tag} points to a different commit. Bump the version (npm version patch).`)
+  fail(`local tag ${tag} points to a different commit. Bump the version (bun pm version patch).`)
 }
 if (!local) git('tag', tag)
 

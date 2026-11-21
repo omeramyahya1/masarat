@@ -1,0 +1,34 @@
+{
+  "name": "masarat",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Masarat: electronic transport manifests and tax collection for Sudan",
+  "type": "module",
+  "workspaces": [
+    "apps/api",
+    "apps/*-portal",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "bun --filter @masarat/api dev",
+    "dev:owner": "bun --filter @masarat/owner-portal dev",
+    "dev:govt": "bun --filter @masarat/govt-portal dev",
+    "dev:demo": "cd apps/desktop-demo && bun run dev",
+    "build": "bun --filter './apps/*' build",
+    "typecheck": "bun --filter '*' typecheck",
+    "lint": "eslint --cache .",
+    "format": "prettier --write .",
+    "db:generate": "bun --filter @masarat/api db:generate",
+    "release": "cd apps/desktop-demo && bun run release"
+  },
+  "devDependencies": {
+    "@electron-toolkit/eslint-config-prettier": "^3.0.1",
+    "@electron-toolkit/eslint-config-ts": "^4.0.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "prettier": "^3.9.10",
+    "typescript": "^5.9.3"
+  }
+}

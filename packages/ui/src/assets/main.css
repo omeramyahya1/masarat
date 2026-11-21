@@ -1,0 +1,421 @@
+/*
+ * Tailwind v4 without Preflight: the small reset in the base layer below replaces it.
+ * Everything lives in cascade layers so Tailwind utilities can override the classes below
+ * (unlayered CSS would otherwise always win over utilities).
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+/* The portal importing this file is scanned for classes by default; add the shared components */
+@source '..';
+
+/* Masarat palette: a muted, official green on a warm light canvas */
+@theme {
+  --color-brand-50: #eef6f0;
+  --color-brand-100: #d6ebdc;
+  --color-brand-200: #acd5b8;
+  --color-brand-300: #78b98c;
+  --color-brand-400: #4c9b66;
+  --color-brand-500: #2f8550;
+  --color-brand-600: #1f7041;
+  --color-brand-700: #185b36;
+  --color-brand-800: #13492c;
+  --color-brand-900: #0e3821;
+  --color-canvas: #f5f6f2;
+}
+
+/*
+ * Arabic font: IBM Plex Sans Arabic, bundled locally (the app runs offline and the CSP only allows
+ * 'self'). unicode-range limits it to Arabic characters, so Latin text keeps the system font.
+ */
+
+@font-face {
+  font-family: 'Masarat Arabic';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-400-normal.woff2')
+    format('woff2');
+  unicode-range:
+    U+0600-06FF, U+0750-077F, U+0870-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+    U+FE70-FEFC;
+}
+
+@font-face {
+  font-family: 'Masarat Arabic';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-500-normal.woff2')
+    format('woff2');
+  unicode-range:
+    U+0600-06FF, U+0750-077F, U+0870-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+    U+FE70-FEFC;
+}
+
+@font-face {
+  font-family: 'Masarat Arabic';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-600-normal.woff2')
+    format('woff2');
+  unicode-range:
+    U+0600-06FF, U+0750-077F, U+0870-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+    U+FE70-FEFC;
+}
+
+@font-face {
+  font-family: 'Masarat Arabic';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-700-normal.woff2')
+    format('woff2');
+  unicode-range:
+    U+0600-06FF, U+0750-077F, U+0870-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+    U+FE70-FEFC;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html,
+  body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-stone-900);
+    /* Arabic face first: its unicode-range means only Arabic characters use it */
+    font-family:
+      'Masarat Arabic',
+      -apple-system,
+      BlinkMacSystemFont,
+      'Segoe UI',
+      Roboto,
+      Ubuntu,
+      Cantarell,
+      'Noto Sans',
+      sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    user-select: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #root {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  ul {
+    list-style: none;
+  }
+
+  button,
+  input,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  table {
+    border-collapse: collapse;
+  }
+
+  fieldset {
+    border: none;
+    min-width: 0;
+  }
+
+  legend {
+    padding: 0;
+  }
+
+  button {
+    cursor: pointer;
+    background: none;
+    border: none;
+  }
+
+  input {
+    user-select: text;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .card {
+    background-color: #ffffff;
+    border: 1px solid var(--color-stone-200);
+    border-radius: var(--radius-xl);
+    box-shadow: 0 1px 2px rgb(28 25 23 / 0.04);
+  }
+
+  .label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-stone-700);
+  }
+
+  .field-hint {
+    font-size: 12px;
+    color: var(--color-stone-500);
+  }
+
+  .input {
+    width: 100%;
+    height: 40px;
+    padding-inline: 12px;
+    border: 1px solid var(--color-stone-300);
+    border-radius: var(--radius-md);
+    background-color: #ffffff;
+    color: var(--color-stone-900);
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
+  }
+
+  select.input {
+    padding-inline-end: 8px;
+  }
+
+  .input-invalid,
+  .input-invalid:hover {
+    border-color: var(--color-red-500);
+  }
+
+  .input::placeholder {
+    color: var(--color-stone-400);
+  }
+
+  .input:hover {
+    border-color: var(--color-stone-400);
+  }
+
+  .input:focus {
+    outline: none;
+    border-color: var(--color-brand-600);
+    box-shadow: 0 0 0 3px var(--color-brand-100);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 40px;
+    padding-inline: 16px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition:
+      background-color 0.15s,
+      border-color 0.15s,
+      color 0.15s;
+  }
+
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .btn-sm {
+    height: 34px;
+    padding-inline: 12px;
+    font-size: 13px;
+  }
+
+  .btn-primary {
+    background-color: var(--color-brand-700);
+    color: #ffffff;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background-color: var(--color-brand-800);
+  }
+
+  .btn-secondary {
+    background-color: #ffffff;
+    border-color: var(--color-stone-300);
+    color: var(--color-stone-800);
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    background-color: var(--color-stone-50);
+    border-color: var(--color-stone-400);
+  }
+
+  .btn-danger {
+    background-color: var(--color-red-700);
+    color: #ffffff;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background-color: var(--color-red-800);
+  }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-md);
+    color: var(--color-stone-500);
+    transition:
+      background-color 0.15s,
+      color 0.15s;
+  }
+
+  .icon-btn:hover:not(:disabled) {
+    background-color: var(--color-stone-100);
+    color: var(--color-stone-900);
+  }
+
+  .icon-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+  }
+
+  .data-table {
+    width: 100%;
+    font-size: 14px;
+  }
+
+  .data-table th {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--color-stone-200);
+    background-color: var(--color-stone-50);
+    color: var(--color-stone-500);
+    font-size: 12px;
+    font-weight: 500;
+    text-align: start;
+    white-space: nowrap;
+  }
+
+  .data-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-stone-100);
+    vertical-align: middle;
+  }
+
+  .data-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .link {
+    color: var(--color-brand-700);
+    font-weight: 500;
+  }
+
+  .link:hover {
+    text-decoration: underline;
+  }
+
+  .alert-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-red-200);
+    border-radius: var(--radius-md);
+    background-color: var(--color-red-50);
+    color: var(--color-red-800);
+    font-size: 13px;
+  }
+
+  .alert-success {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-brand-200);
+    border-radius: var(--radius-md);
+    background-color: var(--color-brand-50);
+    color: var(--color-brand-800);
+    font-size: 13px;
+  }
+}
+
+/*
+ * Certificate PDF: printToPDF renders the whole window, so print only the open certificate.
+ * The dialog is portalled into <body>; everything else is removed from layout (not just hidden)
+ * so it can't add pages. Unlayered on purpose, so it overrides the dialog's utility classes.
+ */
+@page {
+  size: A4;
+  margin: 10mm;
+}
+
+@media print {
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+    background: #ffffff;
+  }
+
+  body > :not(.print-dialog) {
+    display: none !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  /* Not fixed: fixed boxes repeat on every printed page */
+  .print-dialog {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .print-dialog::backdrop {
+    background: transparent;
+  }
+
+  /* Each sheet is exactly one page (the documents paginate themselves; see usePagedRows) */
+  .print-sheets {
+    gap: 0;
+  }
+
+  .print-sheet {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    break-inside: avoid;
+  }
+
+  /* ~, not +: the manifest's hidden measuring copy sits between the documents */
+  .print-sheet ~ .print-sheet {
+    break-before: page;
+  }
+}

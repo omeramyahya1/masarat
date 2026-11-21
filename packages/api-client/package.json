@@ -1,0 +1,16 @@
+{
+  "name": "@masarat/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Typed client the owner and government portals use to call the Masarat API",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@masarat/shared": "workspace:*"
+  }
+}

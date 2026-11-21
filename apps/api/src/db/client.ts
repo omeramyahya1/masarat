@@ -11,6 +11,8 @@ class DatabaseClient {
   public sqlite: Database.Database | null = null
   public db: AppDatabase | null = null
 
+  // Private so the only instance is getInstance()'s
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
   private constructor() {}
 
   public static getInstance(): DatabaseClient {

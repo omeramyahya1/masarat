@@ -22,7 +22,12 @@ import {
   type BucketSize,
   type DashboardView
 } from '@masarat/shared/analytics'
-import type { BreakdownRow, CargoSlice, DashboardData, RevenuePoint } from '@masarat/shared/dashboard'
+import type {
+  BreakdownRow,
+  CargoSlice,
+  DashboardData,
+  RevenuePoint
+} from '@masarat/shared/dashboard'
 import { inFilteredTrips } from './analyticsQuery'
 
 const RECENT_BILLS = 10

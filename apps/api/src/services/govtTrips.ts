@@ -1,6 +1,6 @@
 // The government's trip search: by E-Sali bill ID, receipt or manifest number, trip number,
 // plate, company or city name, and by route
-import { and, desc, eq, like, or, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, or, sql, type SQL } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { certificates, cities, getDb, manifests, payments, users, vehicles } from '../db'
 import {
@@ -10,14 +10,10 @@ import {
 } from '@masarat/shared/billing'
 import type { FleetResult } from '@masarat/shared/fleet'
 import { plateSearchKey } from '@masarat/shared/plate'
+import { contains, escapeLike, plateKeyOf } from './sqlText'
 
 const origin = alias(cities, 'search_origin')
 const destination = alias(cities, 'search_destination')
-
-// Case-insensitive LIKE with the user's text taken literally
-const escapeLike = (value: string): string => value.replace(/[\\%_]/g, (c) => `\\${c}`)
-const contains = (column: Parameters<typeof like>[0], text: string): SQL =>
-  sql`${column} ILIKE ${`%${escapeLike(text)}%`} ESCAPE '\\'`
 
 // What the text can mean, most specific first
 function textConditions(raw: string): SQL | undefined {
@@ -30,7 +26,7 @@ function textConditions(raw: string): SQL | undefined {
   const plateKey = plateSearchKey(text)
   const plate =
     plateKey.length >= 2
-      ? sql`replace(replace(upper(${vehicles.plateNumber}), ' ', ''), '/', '') LIKE ${`%${escapeLike(plateKey)}%`} ESCAPE '\\'`
+      ? sql`${plateKeyOf(vehicles.plateNumber)} LIKE ${`%${escapeLike(plateKey)}%`} ESCAPE '\\'`
       : undefined
 
   // An E-Sali bill ID (22 digits) or the start of one

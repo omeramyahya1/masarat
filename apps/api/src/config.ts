@@ -2,6 +2,11 @@
 // development (run from apps/api); see .env.example.
 import { resolve } from 'path'
 
+// Dates are Sudan's: a trip date is local midnight, and months group in local time. The host's own
+// zone must not matter, so the process and the database session both use this one.
+const timeZone = process.env.TZ || 'Africa/Khartoum'
+process.env.TZ = timeZone
+
 const url = (name: string, fallback: string): string =>
   (process.env[name] ?? fallback).replace(/\/+$/, '')
 
@@ -17,6 +22,7 @@ export const config = {
   storageDir: resolve(process.env.STORAGE_DIR ?? 'storage'),
   // Seeds the demo fleet companies and enables the demo-only actions; off in production
   demoMode: process.env.DEMO_MODE === 'true',
+  timeZone,
 
   // The three web apps: masarat.com (login), owner.masarat.com and govt.masarat.com. Only these
   // origins may call the API with the session cookie.

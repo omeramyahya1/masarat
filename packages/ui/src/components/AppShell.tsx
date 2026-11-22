@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoaderCircle, LogOut, Route, UserRound, WifiOff } from 'lucide-react'
-import type { AuthUser, UserRole } from '@masarat/shared/auth'
+import type { AuthUser } from '@masarat/shared/auth'
+import type { UserKind } from '@masarat/shared/permissions'
 import { api, SIGNED_OUT_EVENT } from '@masarat/api-client'
 import { PORTAL_URLS, SITE_URL, changePasswordUrl, loginUrl } from '../lib/urls'
+import { AccountContext, useRoleName } from '../lib/account'
 import LanguageToggle from './LanguageToggle'
 
 interface AppShellProps {
-  // The portal's role: owner.masarat.com or govt.masarat.com
-  role: UserRole
+  // Whose portal: owner.masarat.com (companies) or govt.masarat.com
+  kind: UserKind
   version: string
   children: (user: AuthUser, onUserChange: (user: AuthUser) => void) => React.ReactNode
 }
@@ -18,8 +20,9 @@ type State = { status: 'loading' } | { status: 'offline' } | { status: 'ready'; 
 // The header and the signed-in user bar, shared by both portals. Logging in happens on
 // masarat.com: a visitor without a session is sent there and comes back once signed in, and a
 // user of the other portal is sent to theirs.
-function AppShell({ role, version, children }: AppShellProps): React.JSX.Element {
+function AppShell({ kind, version, children }: AppShellProps): React.JSX.Element {
   const { t } = useTranslation()
+  const roleName = useRoleName()
   const [state, setState] = useState<State>({ status: 'loading' })
 
   // Bumped by "Try again" when the API couldn't be reached
@@ -32,11 +35,11 @@ function AppShell({ role, version, children }: AppShellProps): React.JSX.Element
         const here = window.location.href
         if (!user) window.location.assign(loginUrl(here))
         else if (user.mustChangePassword) window.location.assign(changePasswordUrl(here))
-        else if (user.role !== role) window.location.assign(PORTAL_URLS[user.role])
+        else if (user.kind !== kind) window.location.assign(PORTAL_URLS[user.kind])
         else setState({ status: 'ready', user })
       })
       .catch(() => setState({ status: 'offline' }))
-  }, [role, attempt])
+  }, [kind, attempt])
 
   const retry = (): void => {
     setState({ status: 'loading' })
@@ -75,7 +78,7 @@ function AppShell({ role, version, children }: AppShellProps): React.JSX.Element
                 {t('app.version', { version })}
               </span>
             </div>
-            <div className="text-xs text-stone-500">{t(`panels.${role}.title`)}</div>
+            <div className="text-xs text-stone-500">{t(`panels.${kind}.title`)}</div>
           </div>
         </div>
         <LanguageToggle />
@@ -91,7 +94,21 @@ function AppShell({ role, version, children }: AppShellProps): React.JSX.Element
                 </div>
                 <div className="leading-tight">
                   <div className="font-medium text-stone-900">{state.user.fullName}</div>
-                  <div className="text-xs text-stone-500">{state.user.username}</div>
+                  <div className="text-xs text-stone-500">
+                    <bdi>{state.user.username}</bdi> · {roleName(state.user.role)}
+                    {state.user.branch && (
+                      <>
+                        {' · '}
+                        <bdi>{state.user.branch.name}</bdi>
+                      </>
+                    )}
+                    {state.user.company && (
+                      <>
+                        {' · '}
+                        <bdi>{state.user.company.name}</bdi>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
               <button type="button" className="btn btn-secondary btn-sm" onClick={handleLogOut}>
@@ -99,7 +116,9 @@ function AppShell({ role, version, children }: AppShellProps): React.JSX.Element
                 {t('home.logOut')}
               </button>
             </div>
-            {children(state.user, (user) => setState({ status: 'ready', user }))}
+            <AccountContext.Provider value={state.user}>
+              {children(state.user, (user) => setState({ status: 'ready', user }))}
+            </AccountContext.Provider>
           </div>
         ) : state.status === 'offline' ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">

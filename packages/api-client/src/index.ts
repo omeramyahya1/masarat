@@ -2,19 +2,27 @@
 // shape follows the Electron MVP's window.api, except where the desktop did things natively: files
 // are uploaded and downloaded, and documents print from the browser.
 import type {
+  AuthErrorCode,
   AuthResult,
   AuthUser,
   ChangePasswordInput,
+  CompanyInput,
+  CompanyProfile,
   LogInInput,
   ProfileInput,
   SignUpInput
 } from '@masarat/shared/auth'
 import type {
-  GovtUserRecord,
-  GovtUserResult,
+  BranchInput,
+  BranchRecord,
   IssuedPassword,
-  NewGovtUserInput
-} from '@masarat/shared/govtUsers'
+  MemberRecord,
+  MemberResult,
+  MemberRoleInput,
+  NewMemberInput,
+  RoleInput,
+  RoleRecord
+} from '@masarat/shared/members'
 import type {
   DocumentType,
   DriverInput,
@@ -37,7 +45,7 @@ import type {
   TripDetails
 } from '@masarat/shared/billing'
 import type { DashboardData } from '@masarat/shared/dashboard'
-import type { AnalyticsFilters, DashboardView, OwnerOption } from '@masarat/shared/analytics'
+import type { AnalyticsFilters, DashboardView, CompanyOption } from '@masarat/shared/analytics'
 import type { ExportInput, ExportRows } from '@masarat/shared/exports'
 import type { TaxRatesInput, TaxSettingsView } from '@masarat/shared/tax'
 
@@ -54,7 +62,8 @@ export interface FleetAPI {
 
 export interface TripsAPI {
   getReferenceData: () => Promise<FleetResult<TripReferenceData>>
-  // One page of the owner's trips, searched, filtered, sorted and grouped by the API
+  // One page of the company's trips (a branch member's: their branch's), searched, filtered,
+  // sorted and grouped by the API
   list: (query: TripListQuery) => Promise<FleetResult<Page<TripRecord>>>
   // Earlier senders, receivers and packing types, for the trip form
   suggestions: () => Promise<FleetResult<TripSuggestions>>
@@ -81,31 +90,52 @@ export interface DownloadedFile {
 }
 
 export interface DocumentsAPI {
-  // Uploads a file the owner chose; it's staged until the trip is saved
+  // Uploads a file the member chose; it's staged until the trip is saved
   upload: (docType: DocumentType, file: File) => Promise<FleetResult<StagedDocument>>
   // A saved attachment, for the preview
   file: (documentId: number) => Promise<FleetResult<DownloadedFile>>
 }
 
-// Government admins only
-export interface GovtUsersAPI {
-  list: () => Promise<GovtUserResult<GovtUserRecord[]>>
-  create: (input: NewGovtUserInput) => Promise<GovtUserResult<IssuedPassword>>
-  disable: (id: number) => Promise<GovtUserResult<GovtUserRecord>>
-  enable: (id: number) => Promise<GovtUserResult<GovtUserRecord>>
-  resetPassword: (id: number) => Promise<GovtUserResult<IssuedPassword>>
-  setAdmin: (id: number, isAdmin: boolean) => Promise<GovtUserResult<GovtUserRecord>>
+// The accounts an admin manages: a company's Team (members.manage), or the government's Users
+// (govt.users). The same calls on either side.
+export interface MembersAPI {
+  list: () => Promise<MemberResult<MemberRecord[]>>
+  // The roles that can be given
+  roles: () => Promise<MemberResult<RoleRecord[]>>
+  create: (input: NewMemberInput) => Promise<MemberResult<IssuedPassword>>
+  disable: (id: number) => Promise<MemberResult<MemberRecord>>
+  enable: (id: number) => Promise<MemberResult<MemberRecord>>
+  resetPassword: (id: number) => Promise<MemberResult<IssuedPassword>>
+  changeRole: (id: number, input: MemberRoleInput) => Promise<MemberResult<MemberRecord>>
+}
+
+// The company's own administration
+export interface CompanyAPI {
+  // company.profile: the name, address and TIN printed on its manifests
+  update: (
+    input: CompanyInput
+  ) => Promise<{ ok: true; data: CompanyProfile } | { ok: false; error: AuthErrorCode }>
+  // Every member can list them
+  branches: () => Promise<MemberResult<BranchRecord[]>>
+  addBranch: (input: BranchInput) => Promise<MemberResult<BranchRecord>>
+  updateBranch: (id: number, input: BranchInput) => Promise<MemberResult<BranchRecord>>
+  // roles.manage; a built-in role can't be deleted, the company admin's can't be edited
+  roles: () => Promise<MemberResult<RoleRecord[]>>
+  addRole: (input: RoleInput) => Promise<MemberResult<RoleRecord>>
+  updateRole: (id: number, input: RoleInput) => Promise<MemberResult<RoleRecord>>
+  deleteRole: (id: number) => Promise<MemberResult<null>>
+  members: MembersAPI
 }
 
 export interface GovtAPI {
-  users: GovtUsersAPI
+  users: MembersAPI
   getReferenceData: () => Promise<FleetResult<TripReferenceData>>
   dashboard: (filters: AnalyticsFilters, view: DashboardView) => Promise<FleetResult<DashboardData>>
-  listOwners: () => Promise<FleetResult<OwnerOption[]>>
-  // Trips of every owner by bill ID, receipt/manifest number, trip number, plate, name or route
+  listCompanies: () => Promise<FleetResult<CompanyOption[]>>
+  // Trips of every company by bill ID, receipt/manifest number, trip number, plate, name or route
   // One page of the matches (input.page, input.pageSize)
   search: (input: GovtSearchInput) => Promise<FleetResult<Page<GovtSearchResult>>>
-  // Any owner's trip, read-only
+  // Any company's trip, read-only
   getTrip: (manifestId: number) => Promise<FleetResult<TripDetails>>
   // Any trip's attachment, for the preview
   documentFile: (documentId: number) => Promise<FleetResult<DownloadedFile>>
@@ -115,18 +145,18 @@ export interface GovtAPI {
   getTaxSettings: () => Promise<FleetResult<TaxSettingsView>>
   // Basis points per tax; each change is logged under the signed-in government user
   updateTaxRates: (input: TaxRatesInput) => Promise<FleetResult<TaxSettingsView>>
-  // Demo only: rebuilds the seeded demo owners' data
+  // Demo only: rebuilds the seeded demo companies' data
   regenerateDemoData: () => Promise<FleetResult<null>>
 }
 
 export interface AuthAPI {
-  // Fleet owners only
+  // Creates a company and signs in as its admin
   signUp: (input: SignUpInput) => Promise<AuthResult>
   logIn: (input: LogInInput) => Promise<AuthResult>
   logOut: () => Promise<void>
   // The signed-in user, or null
   getSession: () => Promise<AuthUser | null>
-  // The signed-in fleet owner's own details (name, phone, company, address, TIN)
+  // The signed-in user's own name and phone
   updateProfile: (input: ProfileInput) => Promise<AuthResult>
   // Also replaces a temporary password; signs out the user's other sessions
   changePassword: (input: ChangePasswordInput) => Promise<AuthResult>
@@ -146,6 +176,7 @@ export interface MasaratApi {
   config: ConfigAPI
   verify: VerifyAPI
   auth: AuthAPI
+  company: CompanyAPI
   fleet: FleetAPI
   trips: TripsAPI
   billing: BillingAPI
@@ -277,20 +308,33 @@ const auth: AuthAPI = {
   changePassword: (input) => request('POST', '/auth/change-password', input)
 }
 
-const users: GovtUsersAPI = {
-  list: () => request('GET', '/govt/users'),
-  create: (input) => request('POST', '/govt/users', input),
-  disable: (id) => request('POST', `/govt/users/${id}/disable`),
-  enable: (id) => request('POST', `/govt/users/${id}/enable`),
-  resetPassword: (id) => request('POST', `/govt/users/${id}/reset-password`),
-  setAdmin: (id, isAdmin) => request('POST', `/govt/users/${id}/admin`, { isAdmin })
+const membersAt = (base: string): MembersAPI => ({
+  list: () => request('GET', base),
+  roles: () => request('GET', `${base}/roles`),
+  create: (input) => request('POST', base, input),
+  disable: (id) => request('POST', `${base}/${id}/disable`),
+  enable: (id) => request('POST', `${base}/${id}/enable`),
+  resetPassword: (id) => request('POST', `${base}/${id}/reset-password`),
+  changeRole: (id, input) => request('PUT', `${base}/${id}/role`, input)
+})
+
+const company: CompanyAPI = {
+  update: (input) => request('PUT', '/company', input),
+  branches: () => request('GET', '/branches'),
+  addBranch: (input) => request('POST', '/branches', input),
+  updateBranch: (id, input) => request('PUT', `/branches/${id}`, input),
+  roles: () => request('GET', '/roles'),
+  addRole: (input) => request('POST', '/roles', input),
+  updateRole: (id, input) => request('PUT', `/roles/${id}`, input),
+  deleteRole: (id) => request('DELETE', `/roles/${id}`),
+  members: membersAt('/members')
 }
 
 const govt: GovtAPI = {
-  users,
+  users: membersAt('/govt/users'),
   getReferenceData: () => request('GET', '/govt/reference'),
   dashboard: (filters, view) => request('POST', '/govt/dashboard', { filters, view }),
-  listOwners: () => request('GET', '/govt/owners'),
+  listCompanies: () => request('GET', '/govt/companies'),
   search: (input) => request('GET', `/govt/search${queryString(input)}`),
   getTrip: (id) => request('GET', `/govt/trips/${id}`),
   documentFile: (id) => file(`/govt/documents/${id}/file`),
@@ -323,6 +367,7 @@ export const api: MasaratApi = {
   config,
   verify,
   auth,
+  company,
   fleet,
   trips,
   billing,

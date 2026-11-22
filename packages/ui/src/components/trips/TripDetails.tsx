@@ -24,8 +24,9 @@ import {
   type TripRecord,
   type TripReferenceData
 } from '@masarat/shared/fleet'
-import type { AuthUser } from '@masarat/shared/auth'
 import type { TripDetails as TripDetailsData } from '@masarat/shared/billing'
+import { formatSudanPhone } from '@masarat/shared/phone'
+import { useAccount, useCan } from '../../lib/account'
 import { useFormat } from '../../lib/format'
 import { useMountedRef } from '../../lib/useMountedRef'
 import { FormAlert } from '../form/fields'
@@ -72,11 +73,11 @@ interface TripDetailsProps {
   tripId: number
   reference: TripReferenceData
   onBack: () => void
-  // The government's view of any owner's trip: nothing can be changed, and it shows whose trip it is
+  // The government's view of any company's trip: nothing can be changed, and it shows whose trip
+  // it is
   readOnly?: boolean
-  // The signed-in owner, whose address and TIN the bill needs (owner view)
-  owner?: AuthUser
-  onGoToProfile?: () => void
+  // Opens the company's details, which the bill needs (its address and TIN)
+  onGoToCompany?: () => void
   // Opens the form on this trip (drafts only)
   onEdit?: (trip: TripRecord) => void
   // The draft was deleted
@@ -92,8 +93,7 @@ function TripDetails({
   reference,
   onBack,
   readOnly = false,
-  owner,
-  onGoToProfile = noop,
+  onGoToCompany = noop,
   onEdit = noop,
   onDeleted = noop,
   onChanged = noop
@@ -101,6 +101,11 @@ function TripDetails({
   const { t } = useTranslation()
   const format = useFormat()
   const mounted = useMountedRef()
+  const { company } = useAccount()
+  const can = useCan()
+  // What the member's role lets them do here (the government's view changes nothing)
+  const canEdit = !readOnly && can('trips.edit')
+  const canBill = !readOnly && can('trips.bill')
   const [details, setDetails] = useState<TripDetailsData | null>(null)
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [pending, setPending] = useState<Action | null>(null)
@@ -188,7 +193,7 @@ function TripDetails({
     pending === action && <LoaderCircle size={16} className="animate-spin" />
   // What the draft still needs before its bill can be generated
   const missing =
-    !readOnly && owner && trip.status === 'draft' ? missingForBilling(trip, owner) : []
+    !readOnly && company && trip.status === 'draft' ? missingForBilling(trip, company) : []
   const missingProfile = missing.some((m) => m === 'carrier_address' || m === 'carrier_tin')
   const missingTrip = missing.some((m) => m !== 'carrier_address' && m !== 'carrier_tin')
 
@@ -211,7 +216,7 @@ function TripDetails({
             {t('trips.details.subtitle', { date: format.date(trip.createdAt) })}
           </p>
         </div>
-        {!readOnly && trip.status === 'draft' && (
+        {canEdit && trip.status === 'draft' && (
           <div className="flex gap-2">
             <button
               type="button"
@@ -234,7 +239,7 @@ function TripDetails({
           </div>
         )}
         {/* Demo control: kept out of the way so the main view looks like the real product */}
-        {!readOnly && trip.status === 'billed' && payment && (
+        {canBill && trip.status === 'billed' && payment && (
           <Menu
             label={t('trips.details.moreActions')}
             items={[
@@ -266,14 +271,20 @@ function TripDetails({
           </h3>
           <dl className="divide-y divide-stone-100 text-sm">
             {readOnly && (
-              <Row label={t('trips.details.owner')}>
+              <Row label={t('trips.details.company')}>
+                <bdi>{details.company.name}</bdi>
+              </Row>
+            )}
+            <Row label={t('trips.details.branch')}>
+              <bdi>{trip.branchName}</bdi>
+            </Row>
+            {readOnly && details.bookedBy && (
+              <Row label={t('trips.details.bookedBy')}>
                 <span className="inline-flex flex-col items-end">
-                  <bdi>{details.owner.companyName}</bdi>
-                  {details.owner.companyName !== details.owner.fullName && (
-                    <bdi className="text-xs font-normal text-stone-500">
-                      {details.owner.fullName}
-                    </bdi>
-                  )}
+                  <bdi>{details.bookedBy.fullName}</bdi>
+                  <bdi dir="ltr" className="text-xs font-normal text-stone-500 tabular-nums">
+                    {formatSudanPhone(details.bookedBy.phone)}
+                  </bdi>
                 </span>
               </Row>
             )}
@@ -471,20 +482,20 @@ function TripDetails({
                     ))}
                   </ul>
                   <div className="flex flex-wrap gap-3">
-                    {missingTrip && (
+                    {missingTrip && canEdit && (
                       <button type="button" className="link text-sm" onClick={() => onEdit(trip)}>
                         {t('billing.missing.editTrip')}
                       </button>
                     )}
-                    {missingProfile && (
-                      <button type="button" className="link text-sm" onClick={onGoToProfile}>
+                    {missingProfile && can('company.profile') && (
+                      <button type="button" className="link text-sm" onClick={onGoToCompany}>
                         {t('billing.missing.openProfile')}
                       </button>
                     )}
                   </div>
                 </div>
               )}
-              {!readOnly && (
+              {canBill && (
                 <button
                   type="button"
                   className="btn btn-primary"
@@ -529,7 +540,7 @@ function TripDetails({
                   {t('billing.pending.issuedAt', { date: format.dateTime(payment.createdAt) })}
                 </span>
               </div>
-              {!readOnly && (
+              {canBill && (
                 <>
                   <p className="text-sm text-stone-600">{t('billing.pending.hint')}</p>
                   {notPaid && <FormAlert message={t('billing.pending.notPaid')} />}

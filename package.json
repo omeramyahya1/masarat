@@ -6,11 +6,14 @@
   "type": "module",
   "workspaces": [
     "apps/api",
+    "apps/site",
     "apps/*-portal",
     "packages/*"
   ],
   "scripts": {
+    "dev": "bun --filter './apps/*' dev",
     "dev:api": "bun --filter @masarat/api dev",
+    "dev:site": "bun --filter @masarat/site dev",
     "dev:owner": "bun --filter @masarat/owner-portal dev",
     "dev:govt": "bun --filter @masarat/govt-portal dev",
     "dev:demo": "cd apps/desktop-demo && bun run dev",

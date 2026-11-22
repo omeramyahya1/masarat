@@ -4,15 +4,18 @@ import {
   MAX_ADDRESS_LENGTH,
   MAX_TIN_LENGTH,
   PASSWORD_MIN_LENGTH,
-  type AuthUser,
-  type UserRole
+  type AuthUser
 } from '@masarat/shared/auth'
-import { FormError, PasswordField, SubmitButton, TextField } from './fields'
-import { useAuthSubmit } from './useAuthSubmit'
+import {
+  FormError,
+  PasswordField,
+  SubmitButton,
+  TextField
+} from '@masarat/ui/components/auth/fields'
+import { useAuthSubmit } from '@masarat/ui/components/auth/useAuthSubmit'
 import { api } from '@masarat/api-client'
 
 interface SignUpFormProps {
-  role: UserRole
   onAuthenticated: (user: AuthUser) => void
 }
 
@@ -29,7 +32,8 @@ const EMPTY_FORM = {
 
 type FormState = typeof EMPTY_FORM
 
-function SignUpForm({ role, onAuthenticated }: SignUpFormProps): React.JSX.Element {
+// Fleet owners only: government accounts are created by a government admin
+function SignUpForm({ onAuthenticated }: SignUpFormProps): React.JSX.Element {
   const { t } = useTranslation()
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const { error, pending, setError, submit } = useAuthSubmit(onAuthenticated)
@@ -54,7 +58,6 @@ function SignUpForm({ role, onAuthenticated }: SignUpFormProps): React.JSX.Eleme
     const { fullName, username, phone, companyName, address, tin, password } = form
     submit(() =>
       api.auth.signUp({
-        role,
         fullName,
         username,
         phone,
@@ -91,34 +94,30 @@ function SignUpForm({ role, onAuthenticated }: SignUpFormProps): React.JSX.Eleme
           optional
           {...bind('phone')}
         />
-        {role === 'owner' && (
-          <TextField
-            label={t('auth.fields.companyName')}
-            autoComplete="organization"
-            optional
-            {...bind('companyName')}
-          />
-        )}
+        <TextField
+          label={t('auth.fields.companyName')}
+          autoComplete="organization"
+          optional
+          {...bind('companyName')}
+        />
       </div>
-      {role === 'owner' && (
-        <div className="grid grid-cols-2 gap-4">
-          <TextField
-            label={t('auth.fields.address')}
-            maxLength={MAX_ADDRESS_LENGTH}
-            autoComplete="street-address"
-            optional
-            {...bind('address')}
-          />
-          <TextField
-            label={t('auth.fields.tin')}
-            maxLength={MAX_TIN_LENGTH}
-            autoComplete="off"
-            ltr
-            optional
-            {...bind('tin')}
-          />
-        </div>
-      )}
+      <div className="grid grid-cols-2 gap-4">
+        <TextField
+          label={t('auth.fields.address')}
+          maxLength={MAX_ADDRESS_LENGTH}
+          autoComplete="street-address"
+          optional
+          {...bind('address')}
+        />
+        <TextField
+          label={t('auth.fields.tin')}
+          maxLength={MAX_TIN_LENGTH}
+          autoComplete="off"
+          ltr
+          optional
+          {...bind('tin')}
+        />
+      </div>
       <PasswordField
         label={t('auth.fields.password')}
         hint={t('auth.fields.passwordHint', { min: PASSWORD_MIN_LENGTH })}

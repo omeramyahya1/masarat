@@ -27,14 +27,16 @@
     "login": {
       "title": "Log in to your account",
       "submit": "Log in",
-      "noAccount": "Don't have an account?",
-      "switch": "Create one"
+      "noAccount": "A fleet owner without an account?",
+      "switch": "Register your fleet",
+      "govtNote": "Government accounts are created by your administrator."
     },
     "signup": {
-      "title": "Create an account",
+      "title": "Register your fleet",
       "submit": "Create account",
       "haveAccount": "Already have an account?",
-      "switch": "Log in"
+      "switch": "Log in",
+      "subtitle": "Create a fleet owner account to register trips and pay their transport tax."
     },
     "fields": {
       "fullName": "Full name",
@@ -59,15 +61,30 @@
       "password_mismatch": "Passwords do not match.",
       "username_taken": "This username is already taken.",
       "invalid_credentials": "Incorrect username or password.",
-      "wrong_panel": "This account belongs to the other panel. Switch panels to log in.",
-      "cancelled": "Sign-in was cancelled. Please try again.",
       "invalid_tin": "The TIN can be at most 30 characters.",
       "address_too_long": "The address can be at most 200 characters.",
       "not_signed_in": "Your session has ended. Please log in again.",
-      "unknown": "Something went wrong. Please try again."
+      "unknown": "Something went wrong. Please try again.",
+      "too_many_attempts": "Too many failed attempts. Please wait 15 minutes and try again.",
+      "account_disabled": "This account has been disabled. Contact your administrator.",
+      "wrong_password": "The current password is incorrect.",
+      "same_password": "The new password must be different from the current one.",
+      "password_change_required": "Please choose your own password first.",
+      "forbidden": "You don't have access to this."
     },
     "demoAccounts": {
-      "title": "Demo accounts"
+      "title": "Demo accounts",
+      "hint": "Demo mode: choose an account to fill in the form."
+    },
+    "changePassword": {
+      "title": "Choose your own password",
+      "body": "Your account has a temporary password. Choose a new one to continue.",
+      "titleVoluntary": "Change your password",
+      "current": "Current or temporary password",
+      "new": "New password",
+      "confirm": "Confirm new password",
+      "submit": "Save password",
+      "logOut": "Log out"
     }
   },
   "home": {
@@ -275,7 +292,9 @@
       "invalid_document": "Choose a PDF, JPG or PNG file for one of this trip's document types.",
       "document_too_large": "The file is larger than 20 MB.",
       "scan_conflict": "This document doesn't match the shipment read from the trip's other documents (a certificate of origin is only for imports, an authorization only for imports and exports). Check the file, or remove the other documents and scan again.",
-      "zero_bill": "This trip's taxes and fees come to 0 SDG, so there is no bill to pay. The tax rates and fees need to be reviewed by the tax administration before this trip can be authorized."
+      "zero_bill": "This trip's taxes and fees come to 0 SDG, so there is no bill to pay. The tax rates and fees need to be reviewed by the tax administration before this trip can be authorized.",
+      "forbidden": "You don't have access to this.",
+      "password_change_required": "Please choose your own password first."
     },
     "groupSummary": "{{count}} vehicles",
     "list": {
@@ -877,6 +896,96 @@
       "exportData": "Export data",
       "dataSaved": "Saved: {{rows}}.",
       "rowCount": "{{dataset}} {{count}} rows"
+    },
+    "users": {
+      "tab": "Users",
+      "title": "Government accounts",
+      "subtitle": "Create accounts for your staff and manage who can use the government portal. Admins can manage these accounts.",
+      "new": "New account",
+      "you": "You",
+      "empty": "No government accounts yet.",
+      "columns": {
+        "name": "Name",
+        "username": "Username",
+        "phone": "Phone",
+        "role": "Role",
+        "status": "Status",
+        "created": "Created"
+      },
+      "roles": {
+        "admin": "Admin",
+        "staff": "Staff"
+      },
+      "statuses": {
+        "active": "Active",
+        "disabled": "Disabled",
+        "mustChange": "Temporary password"
+      },
+      "actions": {
+        "menu": "Actions for {{name}}",
+        "disable": "Disable",
+        "enable": "Enable",
+        "resetPassword": "Reset password",
+        "makeAdmin": "Make admin",
+        "removeAdmin": "Remove admin"
+      },
+      "confirm": {
+        "disable": {
+          "title": "Disable {{name}}?",
+          "body": "They are signed out at once and can't log in until the account is enabled again. Their records stay.",
+          "submit": "Disable"
+        },
+        "enable": {
+          "title": "Enable {{name}}?",
+          "body": "They will be able to log in again with their current password.",
+          "submit": "Enable"
+        },
+        "resetPassword": {
+          "title": "Reset {{name}}'s password?",
+          "body": "They are signed out and get a temporary password, which they must replace at their next login.",
+          "submit": "Reset password"
+        },
+        "makeAdmin": {
+          "title": "Make {{name}} an admin?",
+          "body": "Admins can create, disable and manage every government account.",
+          "submit": "Make admin"
+        },
+        "removeAdmin": {
+          "title": "Remove {{name}} as admin?",
+          "body": "They keep their account but can no longer manage government accounts.",
+          "submit": "Remove admin"
+        }
+      },
+      "form": {
+        "title": "New government account",
+        "fullName": "Full name",
+        "username": "Username",
+        "phone": "Phone number",
+        "isAdmin": "Admin: can manage government accounts",
+        "submit": "Create account"
+      },
+      "issued": {
+        "createdTitle": "Account created",
+        "resetTitle": "Password reset",
+        "body": "Give {{name}} this temporary password. It is shown only once; they must replace it when they first log in.",
+        "username": "Username",
+        "password": "Temporary password",
+        "copy": "Copy",
+        "copied": "Copied",
+        "done": "Done"
+      },
+      "errors": {
+        "missing_fields": "Please fill in all required fields.",
+        "invalid_username": "Usernames must be 3 to 32 characters using lowercase letters, numbers, dots or underscores.",
+        "username_taken": "This username is already taken.",
+        "user_not_found": "This account could not be found.",
+        "last_admin": "There must always be at least one active admin.",
+        "cannot_change_self": "You can't change your own account here.",
+        "not_signed_in": "Your session has ended. Please log in again.",
+        "forbidden": "Only admins can manage government accounts.",
+        "password_change_required": "Please choose your own password first.",
+        "unknown": "Something went wrong. Please try again."
+      }
     }
   },
   "states": {
@@ -1002,5 +1111,57 @@
     "clear": "Clear search and filters",
     "noMatches": "Nothing matches the search and filters.",
     "noDriver": "No driver"
+  },
+  "shell": {
+    "loading": "Loading…",
+    "offline": "Masarat can't be reached right now. Check your connection and try again.",
+    "retry": "Try again"
+  },
+  "site": {
+    "nav": {
+      "login": "Log in",
+      "signup": "Register your fleet",
+      "home": "Masarat home"
+    },
+    "hero": {
+      "eyebrow": "Electronic manifests and transport tax",
+      "title": "Pay transport tax and get your manifest in minutes",
+      "subtitle": "Masarat prices a trip's taxes and fees, issues an E-Sali bill you can pay from any bank, and then gives you the payment receipt and the authorized manifest, each with a QR code checkpoint officers can scan.",
+      "login": "Log in",
+      "signup": "Register your fleet"
+    },
+    "owners": {
+      "title": "For fleet owners",
+      "p1": "Register trips with their vehicle, route, cargo, driver and documents",
+      "p2": "See the trip cost, taxes and fees before you pay",
+      "p3": "Pay the E-Sali bill from Bankak or any banking app",
+      "p4": "Download the payment receipt and the authorized manifest"
+    },
+    "govt": {
+      "title": "For government",
+      "p1": "Follow revenue, bills and trips across every fleet owner",
+      "p2": "Find any trip by bill ID, manifest number, plate or name",
+      "p3": "Set the tax percentages and fees, with every change logged",
+      "p4": "Export reports and data for review and audit"
+    },
+    "steps": {
+      "title": "How it works",
+      "s1": {
+        "title": "Create the trip",
+        "body": "Enter the vehicle, route and cargo. Masarat calculates the trip cost, taxes and fees."
+      },
+      "s2": {
+        "title": "Pay the bill",
+        "body": "Generate an E-Sali bill ID and pay it from Bankak or any other bank."
+      },
+      "s3": {
+        "title": "Get your documents",
+        "body": "Once payment is confirmed, download the receipt and the authorized manifest, each with a QR code."
+      }
+    },
+    "footer": {
+      "tagline": "Electronic manifest and transport tax system",
+      "rights": "© {{year}} Masarat"
+    }
   }
 }

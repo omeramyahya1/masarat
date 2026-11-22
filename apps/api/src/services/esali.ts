@@ -11,8 +11,8 @@ export interface EsaliBillStatus {
 }
 
 export interface EsaliGateway {
-  createBill(input: { amount: number }): { billId: string }
-  getBillStatus(billId: string): EsaliBillStatus | null
+  createBill(input: { amount: number }): Promise<{ billId: string }>
+  getBillStatus(billId: string): Promise<EsaliBillStatus | null>
 }
 
 const pad = (n: number, width: number): string => String(n).padStart(width, '0')
@@ -27,23 +27,25 @@ export function newBillId(now = new Date(), digits = randomDigits()): string {
 }
 
 class MockEsaliGateway implements EsaliGateway {
-  createBill({ amount }: { amount: number }): { billId: string } {
-    const db = getDb()
+  async createBill({ amount }: { amount: number }): Promise<{ billId: string }> {
+    // A bill ID already taken is skipped (the unique index makes the insert a no-op)
     for (;;) {
       const billId = newBillId()
-      const taken = db
-        .select({ id: esaliSimBills.id })
-        .from(esaliSimBills)
-        .where(eq(esaliSimBills.billId, billId))
-        .get()
-      if (taken) continue
-      db.insert(esaliSimBills).values({ billId, amount }).run()
-      return { billId }
+      const [created] = await getDb()
+        .insert(esaliSimBills)
+        .values({ billId, amount })
+        .onConflictDoNothing()
+        .returning({ billId: esaliSimBills.billId })
+      if (created) return created
     }
   }
 
-  getBillStatus(billId: string): EsaliBillStatus | null {
-    const bill = getDb().select().from(esaliSimBills).where(eq(esaliSimBills.billId, billId)).get()
+  async getBillStatus(billId: string): Promise<EsaliBillStatus | null> {
+    const [bill] = await getDb()
+      .select()
+      .from(esaliSimBills)
+      .where(eq(esaliSimBills.billId, billId))
+      .limit(1)
     if (!bill) return null
     if (bill.status !== 'paid') return { status: 'pending' }
     return {
@@ -54,26 +56,37 @@ class MockEsaliGateway implements EsaliGateway {
   }
 
   // Demo only: stands in for the user paying the bill from a mobile banking app
-  simulatePayment(billId: string): boolean {
+  async simulatePayment(billId: string): Promise<boolean> {
     const db = getDb()
-    const bill = db.select().from(esaliSimBills).where(eq(esaliSimBills.billId, billId)).get()
+    const [bill] = await db
+      .select()
+      .from(esaliSimBills)
+      .where(eq(esaliSimBills.billId, billId))
+      .limit(1)
     if (!bill) return false
     if (bill.status === 'paid') return true
+    const refTaken = async (ref: string): Promise<boolean> => {
+      const [sim] = await db
+        .select({ id: esaliSimBills.id })
+        .from(esaliSimBills)
+        .where(eq(esaliSimBills.paymentRef, ref))
+        .limit(1)
+      if (sim) return true
+      const [paid] = await db
+        .select({ id: payments.id })
+        .from(payments)
+        .where(eq(payments.paymentRef, ref))
+        .limit(1)
+      return Boolean(paid)
+    }
     let paymentRef: string
     do {
       paymentRef = `BNK${pad(randomInt(0, 1_000_000_000), 9)}`
-    } while (
-      db
-        .select({ id: esaliSimBills.id })
-        .from(esaliSimBills)
-        .where(eq(esaliSimBills.paymentRef, paymentRef))
-        .get() ||
-      db.select({ id: payments.id }).from(payments).where(eq(payments.paymentRef, paymentRef)).get()
-    )
-    db.update(esaliSimBills)
+    } while (await refTaken(paymentRef))
+    await db
+      .update(esaliSimBills)
       .set({ status: 'paid', paymentRef, paidAt: new Date() })
       .where(eq(esaliSimBills.billId, billId))
-      .run()
     return true
   }
 }

@@ -1,0 +1,21 @@
+# Local Postgres for development: `bun run db:up` (podman compose or docker compose)
+# Host port 5433, so it doesn't clash with another local Postgres on 5432
+services:
+  postgres:
+    image: public.ecr.aws/docker/library/postgres:18
+    environment:
+      POSTGRES_USER: masarat
+      POSTGRES_PASSWORD: masarat
+      POSTGRES_DB: masarat
+    ports:
+      - '5433:5432'
+    volumes:
+      - masarat-pg:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U masarat -d masarat']
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+volumes:
+  masarat-pg:

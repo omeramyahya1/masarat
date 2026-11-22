@@ -40,9 +40,12 @@ type OwnedTrip = TripRow & {
 
 // The manifest with its vehicle and owner, if it belongs to this owner. A null owner is the
 // government, which may open any trip.
-function findOwnedTrip(ownerId: number | null, manifestId: unknown): OwnedTrip | undefined {
+async function findOwnedTrip(
+  ownerId: number | null,
+  manifestId: unknown
+): Promise<OwnedTrip | undefined> {
   if (typeof manifestId !== 'number') return undefined
-  return getDb()
+  const [trip] = await getDb()
     .select(ownedTripColumns)
     .from(manifests)
     .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
@@ -53,11 +56,18 @@ function findOwnedTrip(ownerId: number | null, manifestId: unknown): OwnedTrip |
         ownerId === null ? undefined : eq(vehicles.ownerId, ownerId)
       )
     )
-    .get()
+    .limit(1)
+  return trip
 }
 
-const paymentOf = (manifestId: number): Payment | undefined =>
-  getDb().select().from(payments).where(eq(payments.manifestId, manifestId)).get()
+async function paymentOf(manifestId: number): Promise<Payment | undefined> {
+  const [payment] = await getDb()
+    .select()
+    .from(payments)
+    .where(eq(payments.manifestId, manifestId))
+    .limit(1)
+  return payment
+}
 
 const documentNo = (prefix: string, manifestId: number, issuedAt: Date): string =>
   `${prefix}-${issuedAt.getFullYear()}-${String(manifestId).padStart(6, '0')}`
@@ -96,16 +106,16 @@ export async function getTripDetails(
   ownerId: number | null,
   manifestId: number
 ): Promise<FleetResult<TripDetails>> {
-  const row = findOwnedTrip(ownerId, manifestId)
+  const row = await findOwnedTrip(ownerId, manifestId)
   if (!row) return { ok: false, error: 'manifest_not_found' }
   const { vehicleCapacity, ownerCompany, ownerName, ownerPhone, ...trip } = row
 
-  const payment = paymentOf(trip.id)
-  const certificate = getDb()
+  const payment = await paymentOf(trip.id)
+  const [certificate] = await getDb()
     .select()
     .from(certificates)
     .where(eq(certificates.manifestId, trip.id))
-    .get()
+    .limit(1)
 
   const paymentRecord: PaymentRecord | null = payment
     ? {
@@ -138,7 +148,7 @@ export async function getTripDetails(
   return {
     ok: true,
     data: {
-      trip: toTripRecord(trip),
+      trip: await toTripRecord(trip),
       owner: { companyName: ownerCompany || ownerName, fullName: ownerName, phone: ownerPhone },
       vehicleCapacity,
       payment: paymentRecord,
@@ -152,30 +162,32 @@ export async function generateBill(
   ownerId: number,
   manifestId: number
 ): Promise<FleetResult<TripDetails>> {
-  const trip = findOwnedTrip(ownerId, manifestId)
+  const trip = await findOwnedTrip(ownerId, manifestId)
   if (!trip) return { ok: false, error: 'manifest_not_found' }
   // Asking twice returns the bill already issued instead of creating a second one
-  if (paymentOf(trip.id)) return getTripDetails(ownerId, trip.id)
+  if (await paymentOf(trip.id)) return getTripDetails(ownerId, trip.id)
   if (trip.status !== 'draft') return { ok: false, error: 'already_billed' }
 
   // The manifest has to be complete, including the owner's carrier details
   const db = getDb()
-  const owner = db.select().from(users).where(eq(users.id, ownerId)).get()
-  const driver = trip.driverId === null ? undefined : findOwnedDriver(ownerId, trip.driverId)
-  if (!owner || !driver || missingForBilling(toTripRecord(trip), owner).length > 0) {
+  const [owner] = await db.select().from(users).where(eq(users.id, ownerId)).limit(1)
+  const driver = trip.driverId === null ? undefined : await findOwnedDriver(ownerId, trip.driverId)
+  if (!owner || !driver || missingForBilling(await toTripRecord(trip), owner).length > 0) {
     return { ok: false, error: 'incomplete_manifest' }
   }
 
   // Billed at today's tax percentages and fees (they may have changed since the draft was
   // saved); the lines are frozen from here on, and so are the carrier and driver details
-  const taxes = calculateTaxes(trip.tripCost, getTaxSettings(db), getFeeSettings(db))
+  const taxes = calculateTaxes(trip.tripCost, await getTaxSettings(db), await getFeeSettings(db))
   // With every rate and fee at 0 there is nothing to pay; E-Sali isn't asked for a bill
   if (taxes.total <= 0) return { ok: false, error: 'zero_bill' }
-  const { billId } = esali.createBill({ amount: taxes.total })
-  db.transaction((tx) => {
-    writeTaxes(tx, trip.id, taxes.lines)
-    tx.insert(payments).values({ manifestId: trip.id, billId, amount: taxes.total }).run()
-    tx.update(manifests)
+  const { billId } = await esali.createBill({ amount: taxes.total })
+  await db.transaction(async (tx) => {
+    await writeTaxes(tx, trip.id, taxes.lines)
+    // manifest_id is unique, so a second bill for the trip fails here and rolls everything back
+    await tx.insert(payments).values({ manifestId: trip.id, billId, amount: taxes.total })
+    await tx
+      .update(manifests)
       .set({
         status: 'billed',
         taxAmount: taxes.total,
@@ -186,7 +198,6 @@ export async function generateBill(
         driverPhone: driver.phone
       })
       .where(eq(manifests.id, trip.id))
-      .run()
   })
   return getTripDetails(ownerId, trip.id)
 }
@@ -197,18 +208,19 @@ export async function refreshBillStatus(
   ownerId: number,
   manifestId: number
 ): Promise<FleetResult<TripDetails>> {
-  const trip = findOwnedTrip(ownerId, manifestId)
+  const trip = await findOwnedTrip(ownerId, manifestId)
   if (!trip) return { ok: false, error: 'manifest_not_found' }
-  const payment = paymentOf(trip.id)
+  const payment = await paymentOf(trip.id)
   if (!payment) return { ok: false, error: 'not_billed' }
 
   if (payment.status !== 'paid') {
-    const bill = esali.getBillStatus(payment.billId)
+    const bill = await esali.getBillStatus(payment.billId)
     if (bill?.status === 'paid') {
       const paidAt = bill.paidAt ?? new Date()
       const issuedAt = new Date()
-      getDb().transaction((tx) => {
-        tx.update(payments)
+      await getDb().transaction(async (tx) => {
+        await tx
+          .update(payments)
           .set({
             status: 'paid',
             paidAt,
@@ -216,8 +228,8 @@ export async function refreshBillStatus(
             bank: 'E-Sali'
           })
           .where(eq(payments.id, payment.id))
-          .run()
-        tx.insert(certificates)
+        await tx
+          .insert(certificates)
           .values({
             manifestId: trip.id,
             certificateNo: certificateNoFor(trip.id, issuedAt),
@@ -227,8 +239,7 @@ export async function refreshBillStatus(
             validUntil: validUntilFor(trip.tripDate)
           })
           .onConflictDoNothing()
-          .run()
-        tx.update(manifests).set({ status: 'certified' }).where(eq(manifests.id, trip.id)).run()
+        await tx.update(manifests).set({ status: 'certified' }).where(eq(manifests.id, trip.id))
       })
     }
   }
@@ -236,11 +247,14 @@ export async function refreshBillStatus(
 }
 
 // Demo only: pays the trip's bill at the simulated E-Sali. Our records change on the next refresh.
-export function simulatePayment(ownerId: number, manifestId: number): FleetResult<null> {
-  const trip = findOwnedTrip(ownerId, manifestId)
+export async function simulatePayment(
+  ownerId: number,
+  manifestId: number
+): Promise<FleetResult<null>> {
+  const trip = await findOwnedTrip(ownerId, manifestId)
   if (!trip) return { ok: false, error: 'manifest_not_found' }
-  const payment = paymentOf(trip.id)
+  const payment = await paymentOf(trip.id)
   if (!payment) return { ok: false, error: 'not_billed' }
-  esali.simulatePayment(payment.billId)
+  await esali.simulatePayment(payment.billId)
   return { ok: true, data: null }
 }

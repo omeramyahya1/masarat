@@ -101,10 +101,14 @@ export async function signUp(input: SignUpInput): Promise<AuthResult> {
 
   const generation = nextGeneration(input.role)
   const db = getDb()
-  const existing = db.select({ id: users.id }).from(users).where(eq(users.username, username)).get()
+  const [existing] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.username, username))
+    .limit(1)
   if (existing) return { ok: false, error: 'username_taken' }
 
-  const created = db
+  const [created] = await db
     .insert(users)
     .values({
       role: input.role,
@@ -117,7 +121,6 @@ export async function signUp(input: SignUpInput): Promise<AuthResult> {
       tin: tin || null
     })
     .returning()
-    .get()
 
   return commitSession(generation, toAuthUser(created))
 }
@@ -131,16 +134,16 @@ export async function logIn(input: LogInInput): Promise<AuthResult> {
   }
 
   const generation = nextGeneration(input.role)
-  const found = getDb().select().from(users).where(eq(users.username, username)).get()
+  const [found] = await getDb().select().from(users).where(eq(users.username, username)).limit(1)
   if (!found || !(await verifyPassword(password, found.passwordHash))) {
     return { ok: false, error: 'invalid_credentials' }
   }
   // The account may have been deleted while the password was checked (demo data regenerated)
-  const stillExists = getDb()
+  const [stillExists] = await getDb()
     .select({ id: users.id })
     .from(users)
     .where(eq(users.id, found.id))
-    .get()
+    .limit(1)
   if (!stillExists) return { ok: false, error: 'invalid_credentials' }
   // Only reported after the password checks out, so it doesn't reveal which usernames exist
   if (found.role !== input.role) return { ok: false, error: 'wrong_panel' }
@@ -149,7 +152,7 @@ export async function logIn(input: LogInInput): Promise<AuthResult> {
 }
 
 // The signed-in fleet owner edits their own details; the session is updated to match
-export function updateProfile(input: ProfileInput): AuthResult {
+export async function updateProfile(input: ProfileInput): Promise<AuthResult> {
   const owner = sessions.get('owner')
   if (!owner) return { ok: false, error: 'not_signed_in' }
   const fullName = asText(input?.fullName)
@@ -159,7 +162,7 @@ export function updateProfile(input: ProfileInput): AuthResult {
   const carrierError = checkCarrierDetails(address, tin)
   if (carrierError) return { ok: false, error: carrierError }
 
-  const updated = getDb()
+  const [updated] = await getDb()
     .update(users)
     .set({
       fullName,
@@ -170,7 +173,6 @@ export function updateProfile(input: ProfileInput): AuthResult {
     })
     .where(eq(users.id, owner.id))
     .returning()
-    .get()
   if (!updated) return { ok: false, error: 'not_signed_in' }
   const user = toAuthUser(updated)
   sessions.set('owner', user)

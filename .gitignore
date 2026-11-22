@@ -8,6 +8,7 @@ out
 .vscode
 
 .env*
+!.env.example
 
 prompt.txt
 
@@ -21,3 +22,5 @@ masarat.db*
 
 # API file storage (trip attachments) in development
 storage/
+docs/system_docs
+apps/api/test/.storage/

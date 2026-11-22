@@ -236,7 +236,7 @@ export async function scanDocument(
     const staged = findStaged(source.token)
     file = staged ? { path: stagedPath(staged), fileName: staged.fileName } : undefined
   } else if (source && 'id' in source) {
-    file = findOwnedDocumentFile(ownerId, source.id)
+    file = await findOwnedDocumentFile(ownerId, source.id)
   }
   if (!file) return { ok: false, error: 'invalid_document' }
   const scenario = typeof input.scenario === 'number' ? input.scenario : null

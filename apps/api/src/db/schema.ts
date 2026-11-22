@@ -1,13 +1,15 @@
 import { sql } from 'drizzle-orm'
 import {
-  sqliteTable,
+  pgTable,
   text,
   integer,
-  real,
+  doublePrecision,
+  boolean,
+  timestamp,
   index,
   check,
   uniqueIndex
-} from 'drizzle-orm/sqlite-core'
+} from 'drizzle-orm/pg-core'
 import {
   VEHICLE_TYPES,
   QUANTITY_UNITS,
@@ -35,23 +37,21 @@ export {
   LINE_CODES
 }
 
-// SQLite does not enforce text enums, so each one is backed by a CHECK constraint
+// Text enums are backed by a CHECK constraint each, so adding a value is a plain migration
 const inList = (values: readonly string[]): ReturnType<typeof sql.raw> =>
   sql.raw(values.map((v) => `'${v}'`).join(', '))
 
 // Shared columns
-const id = integer('id').primaryKey({ autoIncrement: true })
+const id = integer('id').primaryKey().generatedAlwaysAsIdentity()
 const timestamps = {
-  createdAt: integer('created_at', { mode: 'timestamp' })
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
     .notNull()
-    .default(sql`(unixepoch())`),
-  updatedAt: integer('updated_at', { mode: 'timestamp' })
-    .notNull()
-    .default(sql`(unixepoch())`)
+    .defaultNow()
     .$onUpdate(() => new Date())
 }
 
-export const users = sqliteTable(
+export const users = pgTable(
   'users',
   {
     id,
@@ -65,14 +65,14 @@ export const users = sqliteTable(
     address: text('address'),
     tin: text('tin'),
     // Seeded demo accounts (see services/demoData.ts); "Regenerate demo data" only touches these
-    isDemo: integer('is_demo', { mode: 'boolean' }).notNull().default(false),
+    isDemo: boolean('is_demo').notNull().default(false),
     ...timestamps
   },
   (t) => [check('users_role_check', sql`${t.role} IN (${inList(USER_ROLES)})`)]
 )
 
 // A fleet owner's drivers, picked on each trip (the manifest keeps a copy of the name and phone)
-export const drivers = sqliteTable(
+export const drivers = pgTable(
   'drivers',
   {
     id,
@@ -86,19 +86,19 @@ export const drivers = sqliteTable(
   (t) => [uniqueIndex('drivers_owner_phone_idx').on(t.ownerId, t.phone)]
 )
 
-// Seeded from src/main/sd.csv (see drizzle/0001_seed_reference_data.sql)
-export const cities = sqliteTable('cities', {
+// Seeded by drizzle/0001_reference_data.sql
+export const cities = pgTable('cities', {
   id,
   name: text('name').notNull().unique(),
   // Arabic display name; the UI falls back to `name` when it's missing
   nameAr: text('name_ar'),
   state: text('state').notNull(),
-  lat: real('lat').notNull(),
-  lng: real('lng').notNull(),
+  lat: doublePrecision('lat').notNull(),
+  lng: doublePrecision('lng').notNull(),
   ...timestamps
 })
 
-export const vehicles = sqliteTable(
+export const vehicles = pgTable(
   'vehicles',
   {
     id,
@@ -109,7 +109,7 @@ export const vehicles = sqliteTable(
     // رقم الترخيص. Required by the UI and services; null only for vehicles added before it existed
     registrationNo: text('registration_no'),
     vehicleType: text('vehicle_type', { enum: VEHICLE_TYPES }).notNull(),
-    capacity: real('capacity').notNull(),
+    capacity: doublePrecision('capacity').notNull(),
     capacityUnit: text('capacity_unit', { enum: QUANTITY_UNITS }).notNull(),
     ...timestamps
   },
@@ -123,7 +123,7 @@ export const vehicles = sqliteTable(
 
 // Trip cost rates: cost = ratePerKm * distanceKm * (quantity / perQuantity)
 // e.g. 2000 SDG per km per 1 ton, or per 1000 liters. The taxes are percentages of that cost.
-export const taxRates = sqliteTable(
+export const taxRates = pgTable(
   'tax_rates',
   {
     id,
@@ -140,7 +140,7 @@ export const taxRates = sqliteTable(
 )
 
 // The owner is derived via vehicle_id -> vehicles.owner_id
-export const manifests = sqliteTable(
+export const manifests = pgTable(
   'manifests',
   {
     id,
@@ -156,11 +156,11 @@ export const manifests = sqliteTable(
     // The main cargo type (the item type with the largest cost) and its rate; each item keeps its own
     cargoType: text('cargo_type', { enum: CARGO_TYPES }).notNull(),
     // Total of the cargo items, in the vehicle's unit
-    cargoQuantity: real('cargo_quantity').notNull(),
+    cargoQuantity: doublePrecision('cargo_quantity').notNull(),
     cargoUnit: text('cargo_unit', { enum: QUANTITY_UNITS }).notNull(),
-    tripDate: integer('trip_date', { mode: 'timestamp' }).notNull(),
+    tripDate: timestamp('trip_date', { withTimezone: true }).notNull(),
     // Snapshot of the calculation, so later rate changes don't rewrite history
-    distanceKm: real('distance_km').notNull(),
+    distanceKm: doublePrecision('distance_km').notNull(),
     ratePerKm: integer('rate_per_km').notNull(),
     tripCost: integer('trip_cost').notNull(),
     // Sum of the trip's manifest_taxes lines: the amount billed
@@ -199,7 +199,7 @@ export const manifests = sqliteTable(
 
 // What a manifest carries; quantities in the item's own unit (converted for the capacity check).
 // Each item has its own cargo type, priced at its rate; the trip cost is the sum of the costs.
-export const manifestCargoItems = sqliteTable(
+export const manifestCargoItems = pgTable(
   'manifest_cargo_items',
   {
     id,
@@ -209,7 +209,7 @@ export const manifestCargoItems = sqliteTable(
     position: integer('position').notNull(),
     name: text('name').notNull(),
     // The weight (or volume): drives the trip cost and the capacity check
-    quantity: real('quantity').notNull(),
+    quantity: doublePrecision('quantity').notNull(),
     unit: text('unit', { enum: ITEM_UNITS }).notNull(),
     cargoType: text('cargo_type', { enum: CARGO_TYPES }).notNull(),
     // Snapshot of the rate and the resulting cost, like the manifest's
@@ -236,7 +236,7 @@ export const manifestCargoItems = sqliteTable(
 )
 
 // Trailer plates pulled by the vehicle on a trip, in order
-export const manifestTrailers = sqliteTable(
+export const manifestTrailers = pgTable(
   'manifest_trailers',
   {
     id,
@@ -252,7 +252,7 @@ export const manifestTrailers = sqliteTable(
 
 // Supporting documents attached to a trip (invoice, packing list, …). The files live in the app's
 // data folder under documents/<manifest id>/<stored name>.
-export const tripDocuments = sqliteTable(
+export const tripDocuments = pgTable(
   'trip_documents',
   {
     id,
@@ -274,7 +274,7 @@ export const tripDocuments = sqliteTable(
 
 // Current tax percentages, in basis points (1700 = 17%), and fixed fees, in whole SDG. A tax row
 // has rate_bps, a fee row has amount. Editable by government users.
-export const taxSettings = sqliteTable(
+export const taxSettings = pgTable(
   'tax_settings',
   {
     id,
@@ -294,7 +294,7 @@ export const taxSettings = sqliteTable(
 )
 
 // Audit log of tax percentage and fee changes. Values are basis points for a tax, SDG for a fee.
-export const taxSettingChanges = sqliteTable('tax_setting_changes', {
+export const taxSettingChanges = pgTable('tax_setting_changes', {
   id,
   code: text('code', { enum: LINE_CODES }).notNull(),
   oldValue: integer('old_value').notNull(),
@@ -302,14 +302,12 @@ export const taxSettingChanges = sqliteTable('tax_setting_changes', {
   changedBy: integer('changed_by')
     .notNull()
     .references(() => users.id, { onDelete: 'restrict' }),
-  changedAt: integer('changed_at', { mode: 'timestamp' })
-    .notNull()
-    .default(sql`(unixepoch())`)
+  changedAt: timestamp('changed_at', { withTimezone: true }).notNull().defaultNow()
 })
 
 // The taxes and fees applied to a manifest, frozen when its bill is issued. rate_bps is null for
 // a fee.
-export const manifestTaxes = sqliteTable(
+export const manifestTaxes = pgTable(
   'manifest_taxes',
   {
     id,
@@ -328,7 +326,7 @@ export const manifestTaxes = sqliteTable(
 )
 
 // One bill per manifest for the MVP. Amounts are whole SDG.
-export const payments = sqliteTable(
+export const payments = pgTable(
   'payments',
   {
     id,
@@ -342,7 +340,7 @@ export const payments = sqliteTable(
     status: text('status', { enum: PAYMENT_STATUSES }).notNull().default('pending'),
     bank: text('bank'),
     paymentRef: text('payment_ref').unique(),
-    paidAt: integer('paid_at', { mode: 'timestamp' }),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
     ...timestamps
   },
   (t) => [
@@ -353,7 +351,7 @@ export const payments = sqliteTable(
 
 // Issued once a manifest's bill is paid: the payment receipt and the authorized manifest
 // (تصريح الحركة)
-export const certificates = sqliteTable('certificates', {
+export const certificates = pgTable('certificates', {
   id,
   manifestId: integer('manifest_id')
     .notNull()
@@ -365,17 +363,15 @@ export const certificates = sqliteTable('certificates', {
   manifestNo: text('manifest_no').notNull().unique(),
   // Random, unguessable value encoded in the QR; looked up by the public verify screen
   qrToken: text('qr_token').notNull().unique(),
-  issuedAt: integer('issued_at', { mode: 'timestamp' })
-    .notNull()
-    .default(sql`(unixepoch())`),
-  validUntil: integer('valid_until', { mode: 'timestamp' }).notNull(),
+  issuedAt: timestamp('issued_at', { withTimezone: true }).notNull().defaultNow(),
+  validUntil: timestamp('valid_until', { withTimezone: true }).notNull(),
   ...timestamps
 })
 
 // SIMULATION ONLY: stands in for E-Sali's own records of the bills it issued, so a simulated
 // payment survives restarts and only reaches `payments` when the app checks the bill's status.
 // Drop this table once the real E-Sali API is integrated.
-export const esaliSimBills = sqliteTable(
+export const esaliSimBills = pgTable(
   'esali_sim_bills',
   {
     id,
@@ -383,7 +379,7 @@ export const esaliSimBills = sqliteTable(
     amount: integer('amount').notNull(),
     status: text('status', { enum: PAYMENT_STATUSES }).notNull().default('pending'),
     paymentRef: text('payment_ref').unique(),
-    paidAt: integer('paid_at', { mode: 'timestamp' }),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
     ...timestamps
   },
   (t) => [check('esali_sim_bills_status_check', sql`${t.status} IN (${inList(PAYMENT_STATUSES)})`)]

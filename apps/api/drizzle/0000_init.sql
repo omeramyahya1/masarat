@@ -1,117 +1,250 @@
-CREATE TABLE `certificates` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`manifest_id` integer NOT NULL,
-	`certificate_no` text NOT NULL,
-	`qr_token` text NOT NULL,
-	`issued_at` integer DEFAULT (unixepoch()) NOT NULL,
-	`valid_until` integer NOT NULL,
-	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
-	`updated_at` integer DEFAULT (unixepoch()) NOT NULL,
-	FOREIGN KEY (`manifest_id`) REFERENCES `manifests`(`id`) ON UPDATE no action ON DELETE restrict
+CREATE TABLE "certificates" (
+	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "certificates_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
+	"manifest_id" integer NOT NULL,
+	"certificate_no" text NOT NULL,
+	"manifest_no" text NOT NULL,
+	"qr_token" text NOT NULL,
+	"issued_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"valid_until" timestamp with time zone NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "certificates_manifest_id_unique" UNIQUE("manifest_id"),
+	CONSTRAINT "certificates_certificate_no_unique" UNIQUE("certificate_no"),
+	CONSTRAINT "certificates_manifest_no_unique" UNIQUE("manifest_no"),
+	CONSTRAINT "certificates_qr_token_unique" UNIQUE("qr_token")
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `certificates_manifest_id_unique` ON `certificates` (`manifest_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `certificates_certificate_no_unique` ON `certificates` (`certificate_no`);--> statement-breakpoint
-CREATE UNIQUE INDEX `certificates_qr_token_unique` ON `certificates` (`qr_token`);--> statement-breakpoint
-CREATE TABLE `cities` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`name` text NOT NULL,
-	`state` text NOT NULL,
-	`lat` real NOT NULL,
-	`lng` real NOT NULL,
-	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
-	`updated_at` integer DEFAULT (unixepoch()) NOT NULL
+CREATE TABLE "cities" (
+	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "cities_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
+	"name" text NOT NULL,
+	"name_ar" text,
+	"state" text NOT NULL,
+	"lat" double precision NOT NULL,
+	"lng" double precision NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "cities_name_unique" UNIQUE("name")
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `cities_name_unique` ON `cities` (`name`);--> statement-breakpoint
-CREATE TABLE `manifests` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`vehicle_id` integer NOT NULL,
-	`origin_city_id` integer NOT NULL,
-	`destination_city_id` integer NOT NULL,
-	`cargo_type` text NOT NULL,
-	`cargo_quantity` real NOT NULL,
-	`cargo_unit` text NOT NULL,
-	`trip_date` integer NOT NULL,
-	`distance_km` real NOT NULL,
-	`rate_per_km` integer NOT NULL,
-	`tax_amount` integer NOT NULL,
-	`status` text DEFAULT 'draft' NOT NULL,
-	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
-	`updated_at` integer DEFAULT (unixepoch()) NOT NULL,
-	FOREIGN KEY (`vehicle_id`) REFERENCES `vehicles`(`id`) ON UPDATE no action ON DELETE restrict,
-	FOREIGN KEY (`origin_city_id`) REFERENCES `cities`(`id`) ON UPDATE no action ON DELETE restrict,
-	FOREIGN KEY (`destination_city_id`) REFERENCES `cities`(`id`) ON UPDATE no action ON DELETE restrict,
-	CONSTRAINT "manifests_route_check" CHECK("manifests"."origin_city_id" <> "manifests"."destination_city_id"),
-	CONSTRAINT "manifests_cargo_type_check" CHECK("manifests"."cargo_type" IN ('fuel', 'containers', 'general_cargo')),
-	CONSTRAINT "manifests_unit_check" CHECK("manifests"."cargo_unit" IN ('ton', 'liter')),
-	CONSTRAINT "manifests_status_check" CHECK("manifests"."status" IN ('draft', 'billed', 'paid', 'certified', 'cancelled')),
-	CONSTRAINT "manifests_quantity_check" CHECK("manifests"."cargo_quantity" > 0)
+CREATE TABLE "drivers" (
+	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "drivers_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
+	"owner_id" integer NOT NULL,
+	"name" text NOT NULL,
+	"phone" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX `manifests_vehicle_id_idx` ON `manifests` (`vehicle_id`);--> statement-breakpoint
-CREATE INDEX `manifests_status_idx` ON `manifests` (`status`);--> statement-breakpoint
-CREATE TABLE `payments` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`manifest_id` integer NOT NULL,
-	`bill_id` text NOT NULL,
-	`amount` integer NOT NULL,
-	`currency` text DEFAULT 'SDG' NOT NULL,
-	`status` text DEFAULT 'pending' NOT NULL,
-	`bank` text,
-	`payment_ref` text,
-	`paid_at` integer,
-	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
-	`updated_at` integer DEFAULT (unixepoch()) NOT NULL,
-	FOREIGN KEY (`manifest_id`) REFERENCES `manifests`(`id`) ON UPDATE no action ON DELETE restrict,
-	CONSTRAINT "payments_status_check" CHECK("payments"."status" IN ('pending', 'paid', 'expired', 'failed')),
-	CONSTRAINT "payments_amount_check" CHECK("payments"."amount" > 0)
+CREATE TABLE "esali_sim_bills" (
+	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "esali_sim_bills_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
+	"bill_id" text NOT NULL,
+	"amount" integer NOT NULL,
+	"status" text DEFAULT 'pending' NOT NULL,
+	"payment_ref" text,
+	"paid_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "esali_sim_bills_bill_id_unique" UNIQUE("bill_id"),
+	CONSTRAINT "esali_sim_bills_payment_ref_unique" UNIQUE("payment_ref"),
+	CONSTRAINT "esali_sim_bills_status_check" CHECK ("esali_sim_bills"."status" IN ('pending', 'paid', 'expired', 'failed'))
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `payments_manifest_id_unique` ON `payments` (`manifest_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `payments_bill_id_unique` ON `payments` (`bill_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `payments_payment_ref_unique` ON `payments` (`payment_ref`);--> statement-breakpoint
-CREATE TABLE `tax_rates` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`cargo_type` text NOT NULL,
-	`rate_per_km` integer NOT NULL,
-	`unit` text NOT NULL,
-	`per_quantity` integer NOT NULL,
-	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
-	`updated_at` integer DEFAULT (unixepoch()) NOT NULL,
-	CONSTRAINT "tax_rates_cargo_type_check" CHECK("tax_rates"."cargo_type" IN ('fuel', 'containers', 'general_cargo')),
-	CONSTRAINT "tax_rates_unit_check" CHECK("tax_rates"."unit" IN ('ton', 'liter'))
+CREATE TABLE "manifest_cargo_items" (
+	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "manifest_cargo_items_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
+	"manifest_id" integer NOT NULL,
+	"position" integer NOT NULL,
+	"name" text NOT NULL,
+	"quantity" double precision NOT NULL,
+	"unit" text NOT NULL,
+	"cargo_type" text NOT NULL,
+	"rate_per_km" integer NOT NULL,
+	"per_quantity" integer NOT NULL,
+	"cost" integer NOT NULL,
+	"packing_type" text,
+	"package_count" integer,
+	"notes" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "manifest_cargo_items_cargo_type_check" CHECK ("manifest_cargo_items"."cargo_type" IN ('fuel', 'liquids', 'containers', 'general_cargo')),
+	CONSTRAINT "manifest_cargo_items_unit_check" CHECK ("manifest_cargo_items"."unit" IN ('kg', 'ton', 'liter', 'm3')),
+	CONSTRAINT "manifest_cargo_items_package_count_check" CHECK ("manifest_cargo_items"."package_count" IS NULL OR "manifest_cargo_items"."package_count" > 0),
+	CONSTRAINT "manifest_cargo_items_quantity_check" CHECK ("manifest_cargo_items"."quantity" > 0)
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `tax_rates_cargo_type_unique` ON `tax_rates` (`cargo_type`);--> statement-breakpoint
-CREATE TABLE `users` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`username` text NOT NULL,
-	`password_hash` text NOT NULL,
-	`role` text NOT NULL,
-	`full_name` text NOT NULL,
-	`phone` text,
-	`company_name` text,
-	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
-	`updated_at` integer DEFAULT (unixepoch()) NOT NULL,
-	CONSTRAINT "users_role_check" CHECK("users"."role" IN ('owner', 'govt'))
+CREATE TABLE "manifest_taxes" (
+	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "manifest_taxes_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
+	"manifest_id" integer NOT NULL,
+	"code" text NOT NULL,
+	"rate_bps" integer,
+	"amount" integer NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "manifest_taxes_code_check" CHECK ("manifest_taxes"."code" IN ('vat', 'business_profit', 'locality', 'manifest_fee'))
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `users_username_unique` ON `users` (`username`);--> statement-breakpoint
-CREATE TABLE `vehicles` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`owner_id` integer NOT NULL,
-	`plate_number` text NOT NULL,
-	`vehicle_type` text NOT NULL,
-	`capacity` real NOT NULL,
-	`capacity_unit` text NOT NULL,
-	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
-	`updated_at` integer DEFAULT (unixepoch()) NOT NULL,
-	FOREIGN KEY (`owner_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE restrict,
-	CONSTRAINT "vehicles_type_check" CHECK("vehicles"."vehicle_type" IN ('heavy_duty_truck', 'lorry', 'light_duty_truck', 'jumbo_truck', 'tanker', 'container_truck')),
-	CONSTRAINT "vehicles_unit_check" CHECK("vehicles"."capacity_unit" IN ('ton', 'liter')),
-	CONSTRAINT "vehicles_capacity_check" CHECK("vehicles"."capacity" > 0)
+CREATE TABLE "manifest_trailers" (
+	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "manifest_trailers_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
+	"manifest_id" integer NOT NULL,
+	"position" integer NOT NULL,
+	"plate_number" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `vehicles_plate_number_unique` ON `vehicles` (`plate_number`);--> statement-breakpoint
-CREATE INDEX `vehicles_owner_id_idx` ON `vehicles` (`owner_id`);
+CREATE TABLE "manifests" (
+	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "manifests_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
+	"vehicle_id" integer NOT NULL,
+	"origin_city_id" integer NOT NULL,
+	"destination_city_id" integer NOT NULL,
+	"cargo_type" text NOT NULL,
+	"cargo_quantity" double precision NOT NULL,
+	"cargo_unit" text NOT NULL,
+	"trip_date" timestamp with time zone NOT NULL,
+	"distance_km" double precision NOT NULL,
+	"rate_per_km" integer NOT NULL,
+	"trip_cost" integer NOT NULL,
+	"tax_amount" integer NOT NULL,
+	"status" text DEFAULT 'draft' NOT NULL,
+	"trip_kind" text DEFAULT 'domestic' NOT NULL,
+	"driver_id" integer,
+	"driver_name" text,
+	"driver_phone" text,
+	"shipper_name" text,
+	"shipper_address" text,
+	"shipper_phone" text,
+	"receiver_name" text,
+	"receiver_address" text,
+	"receiver_phone" text,
+	"carrier_name" text,
+	"carrier_address" text,
+	"carrier_tin" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "manifests_trip_kind_check" CHECK ("manifests"."trip_kind" IN ('domestic', 'import', 'export')),
+	CONSTRAINT "manifests_route_check" CHECK ("manifests"."origin_city_id" <> "manifests"."destination_city_id"),
+	CONSTRAINT "manifests_cargo_type_check" CHECK ("manifests"."cargo_type" IN ('fuel', 'liquids', 'containers', 'general_cargo')),
+	CONSTRAINT "manifests_unit_check" CHECK ("manifests"."cargo_unit" IN ('ton', 'liter')),
+	CONSTRAINT "manifests_status_check" CHECK ("manifests"."status" IN ('draft', 'billed', 'paid', 'certified', 'cancelled')),
+	CONSTRAINT "manifests_quantity_check" CHECK ("manifests"."cargo_quantity" > 0)
+);
+--> statement-breakpoint
+CREATE TABLE "payments" (
+	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "payments_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
+	"manifest_id" integer NOT NULL,
+	"bill_id" text NOT NULL,
+	"amount" integer NOT NULL,
+	"currency" text DEFAULT 'SDG' NOT NULL,
+	"status" text DEFAULT 'pending' NOT NULL,
+	"bank" text,
+	"payment_ref" text,
+	"paid_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "payments_manifest_id_unique" UNIQUE("manifest_id"),
+	CONSTRAINT "payments_bill_id_unique" UNIQUE("bill_id"),
+	CONSTRAINT "payments_payment_ref_unique" UNIQUE("payment_ref"),
+	CONSTRAINT "payments_status_check" CHECK ("payments"."status" IN ('pending', 'paid', 'expired', 'failed')),
+	CONSTRAINT "payments_amount_check" CHECK ("payments"."amount" > 0)
+);
+--> statement-breakpoint
+CREATE TABLE "tax_rates" (
+	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "tax_rates_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
+	"cargo_type" text NOT NULL,
+	"rate_per_km" integer NOT NULL,
+	"unit" text NOT NULL,
+	"per_quantity" integer NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "tax_rates_cargo_type_unique" UNIQUE("cargo_type"),
+	CONSTRAINT "tax_rates_cargo_type_check" CHECK ("tax_rates"."cargo_type" IN ('fuel', 'liquids', 'containers', 'general_cargo')),
+	CONSTRAINT "tax_rates_unit_check" CHECK ("tax_rates"."unit" IN ('ton', 'liter'))
+);
+--> statement-breakpoint
+CREATE TABLE "tax_setting_changes" (
+	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "tax_setting_changes_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
+	"code" text NOT NULL,
+	"old_value" integer NOT NULL,
+	"new_value" integer NOT NULL,
+	"changed_by" integer NOT NULL,
+	"changed_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "tax_settings" (
+	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "tax_settings_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
+	"code" text NOT NULL,
+	"rate_bps" integer,
+	"amount" integer,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "tax_settings_code_unique" UNIQUE("code"),
+	CONSTRAINT "tax_settings_code_check" CHECK ("tax_settings"."code" IN ('vat', 'business_profit', 'locality', 'manifest_fee')),
+	CONSTRAINT "tax_settings_value_check" CHECK (("tax_settings"."code" IN ('vat', 'business_profit', 'locality') AND "tax_settings"."rate_bps" BETWEEN 0 AND 10000 AND "tax_settings"."amount" IS NULL)
+        OR ("tax_settings"."code" IN ('manifest_fee') AND "tax_settings"."amount" BETWEEN 0 AND 1000000 AND "tax_settings"."rate_bps" IS NULL))
+);
+--> statement-breakpoint
+CREATE TABLE "trip_documents" (
+	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "trip_documents_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
+	"manifest_id" integer NOT NULL,
+	"doc_type" text NOT NULL,
+	"file_name" text NOT NULL,
+	"stored_name" text NOT NULL,
+	"size" integer NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "trip_documents_type_check" CHECK ("trip_documents"."doc_type" IN ('commercial_invoice', 'packing_list', 'certificate_of_origin', 'trade_authorization'))
+);
+--> statement-breakpoint
+CREATE TABLE "users" (
+	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "users_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
+	"username" text NOT NULL,
+	"password_hash" text NOT NULL,
+	"role" text NOT NULL,
+	"full_name" text NOT NULL,
+	"phone" text,
+	"company_name" text,
+	"address" text,
+	"tin" text,
+	"is_demo" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "users_username_unique" UNIQUE("username"),
+	CONSTRAINT "users_role_check" CHECK ("users"."role" IN ('owner', 'govt'))
+);
+--> statement-breakpoint
+CREATE TABLE "vehicles" (
+	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "vehicles_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
+	"owner_id" integer NOT NULL,
+	"plate_number" text NOT NULL,
+	"registration_no" text,
+	"vehicle_type" text NOT NULL,
+	"capacity" double precision NOT NULL,
+	"capacity_unit" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "vehicles_plate_number_unique" UNIQUE("plate_number"),
+	CONSTRAINT "vehicles_type_check" CHECK ("vehicles"."vehicle_type" IN ('heavy_duty_truck', 'lorry', 'light_duty_truck', 'jumbo_truck', 'tanker', 'container_truck')),
+	CONSTRAINT "vehicles_unit_check" CHECK ("vehicles"."capacity_unit" IN ('ton', 'liter')),
+	CONSTRAINT "vehicles_capacity_check" CHECK ("vehicles"."capacity" > 0)
+);
+--> statement-breakpoint
+ALTER TABLE "certificates" ADD CONSTRAINT "certificates_manifest_id_manifests_id_fk" FOREIGN KEY ("manifest_id") REFERENCES "public"."manifests"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "drivers" ADD CONSTRAINT "drivers_owner_id_users_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "manifest_cargo_items" ADD CONSTRAINT "manifest_cargo_items_manifest_id_manifests_id_fk" FOREIGN KEY ("manifest_id") REFERENCES "public"."manifests"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "manifest_taxes" ADD CONSTRAINT "manifest_taxes_manifest_id_manifests_id_fk" FOREIGN KEY ("manifest_id") REFERENCES "public"."manifests"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "manifest_trailers" ADD CONSTRAINT "manifest_trailers_manifest_id_manifests_id_fk" FOREIGN KEY ("manifest_id") REFERENCES "public"."manifests"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "manifests" ADD CONSTRAINT "manifests_vehicle_id_vehicles_id_fk" FOREIGN KEY ("vehicle_id") REFERENCES "public"."vehicles"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "manifests" ADD CONSTRAINT "manifests_origin_city_id_cities_id_fk" FOREIGN KEY ("origin_city_id") REFERENCES "public"."cities"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "manifests" ADD CONSTRAINT "manifests_destination_city_id_cities_id_fk" FOREIGN KEY ("destination_city_id") REFERENCES "public"."cities"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "manifests" ADD CONSTRAINT "manifests_driver_id_drivers_id_fk" FOREIGN KEY ("driver_id") REFERENCES "public"."drivers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "payments" ADD CONSTRAINT "payments_manifest_id_manifests_id_fk" FOREIGN KEY ("manifest_id") REFERENCES "public"."manifests"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "tax_setting_changes" ADD CONSTRAINT "tax_setting_changes_changed_by_users_id_fk" FOREIGN KEY ("changed_by") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "trip_documents" ADD CONSTRAINT "trip_documents_manifest_id_manifests_id_fk" FOREIGN KEY ("manifest_id") REFERENCES "public"."manifests"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "vehicles" ADD CONSTRAINT "vehicles_owner_id_users_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "drivers_owner_phone_idx" ON "drivers" USING btree ("owner_id","phone");--> statement-breakpoint
+CREATE INDEX "manifest_cargo_items_manifest_id_idx" ON "manifest_cargo_items" USING btree ("manifest_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "manifest_taxes_manifest_code_idx" ON "manifest_taxes" USING btree ("manifest_id","code");--> statement-breakpoint
+CREATE INDEX "manifest_trailers_manifest_id_idx" ON "manifest_trailers" USING btree ("manifest_id");--> statement-breakpoint
+CREATE INDEX "manifests_vehicle_id_idx" ON "manifests" USING btree ("vehicle_id");--> statement-breakpoint
+CREATE INDEX "manifests_status_idx" ON "manifests" USING btree ("status");--> statement-breakpoint
+CREATE UNIQUE INDEX "trip_documents_manifest_type_idx" ON "trip_documents" USING btree ("manifest_id","doc_type");--> statement-breakpoint
+CREATE INDEX "vehicles_owner_id_idx" ON "vehicles" USING btree ("owner_id");

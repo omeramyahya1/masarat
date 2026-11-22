@@ -12,7 +12,7 @@ import {
 } from '@masarat/shared/fleet'
 import { normalizePlate } from '@masarat/shared/plate'
 
-// IPC input comes from the renderer, so treat every field as untrusted
+// Input comes from the browser, so treat every field as untrusted
 const isVehicleType = (value: unknown): value is VehicleType =>
   (VEHICLE_TYPES as readonly unknown[]).includes(value)
 const isUnit = (value: unknown): value is QuantityUnit =>
@@ -31,12 +31,11 @@ function toRecord(vehicle: Vehicle, tripCount: number): VehicleRecord {
   }
 }
 
-function tripCountOf(vehicleId: number): number {
-  const row = getDb()
+async function tripCountOf(vehicleId: number): Promise<number> {
+  const [row] = await getDb()
     .select({ value: count() })
     .from(manifests)
     .where(eq(manifests.vehicleId, vehicleId))
-    .get()
   return row?.value ?? 0
 }
 
@@ -71,84 +70,91 @@ function validate(input: VehicleInput): FleetResult<VehicleInput> {
   }
 }
 
-function plateTaken(plateNumber: string, exceptId?: number): boolean {
+async function plateTaken(plateNumber: string, exceptId?: number): Promise<boolean> {
   const condition =
     exceptId === undefined
       ? eq(vehicles.plateNumber, plateNumber)
       : and(eq(vehicles.plateNumber, plateNumber), ne(vehicles.id, exceptId))
-  return Boolean(getDb().select({ id: vehicles.id }).from(vehicles).where(condition).get())
+  const [taken] = await getDb().select({ id: vehicles.id }).from(vehicles).where(condition).limit(1)
+  return Boolean(taken)
 }
 
-function findOwned(ownerId: number, vehicleId: unknown): Vehicle | undefined {
+async function findOwned(ownerId: number, vehicleId: unknown): Promise<Vehicle | undefined> {
   if (typeof vehicleId !== 'number') return undefined
-  return getDb()
+  const [vehicle] = await getDb()
     .select()
     .from(vehicles)
     .where(and(eq(vehicles.id, vehicleId), eq(vehicles.ownerId, ownerId)))
-    .get()
+    .limit(1)
+  return vehicle
 }
 
-export function listVehicles(ownerId: number): VehicleRecord[] {
-  const rows = getDb()
+export async function listVehicles(ownerId: number): Promise<VehicleRecord[]> {
+  const rows = await getDb()
     .select({ vehicle: vehicles, tripCount: count(manifests.id) })
     .from(vehicles)
     .leftJoin(manifests, eq(manifests.vehicleId, vehicles.id))
     .where(eq(vehicles.ownerId, ownerId))
     .groupBy(vehicles.id)
     .orderBy(vehicles.createdAt, vehicles.id)
-    .all()
   return rows.map((row) => toRecord(row.vehicle, row.tripCount))
 }
 
-export function addVehicle(ownerId: number, input: VehicleInput): FleetResult<VehicleRecord> {
+export async function addVehicle(
+  ownerId: number,
+  input: VehicleInput
+): Promise<FleetResult<VehicleRecord>> {
   const checked = validate(input)
   if (!checked.ok) return checked
-  if (plateTaken(checked.data.plateNumber)) return { ok: false, error: 'plate_taken' }
+  if (await plateTaken(checked.data.plateNumber)) return { ok: false, error: 'plate_taken' }
 
-  const created = getDb()
+  const [created] = await getDb()
     .insert(vehicles)
     .values({ ownerId, ...checked.data })
     .returning()
-    .get()
   return { ok: true, data: toRecord(created, 0) }
 }
 
-export function updateVehicle(
+export async function updateVehicle(
   ownerId: number,
   vehicleId: number,
   input: VehicleInput
-): FleetResult<VehicleRecord> {
-  const existing = findOwned(ownerId, vehicleId)
+): Promise<FleetResult<VehicleRecord>> {
+  const existing = await findOwned(ownerId, vehicleId)
   if (!existing) return { ok: false, error: 'vehicle_not_found' }
   const checked = validate(input)
   if (!checked.ok) return checked
-  if (plateTaken(checked.data.plateNumber, existing.id)) return { ok: false, error: 'plate_taken' }
+  if (await plateTaken(checked.data.plateNumber, existing.id)) {
+    return { ok: false, error: 'plate_taken' }
+  }
   // Trips recorded their cargo in this vehicle's unit; changing it would contradict them
-  const conflictingTrip = getDb()
+  const [conflictingTrip] = await getDb()
     .select({ id: manifests.id })
     .from(manifests)
     .where(
       and(eq(manifests.vehicleId, existing.id), ne(manifests.cargoUnit, checked.data.capacityUnit))
     )
-    .get()
+    .limit(1)
   if (conflictingTrip) return { ok: false, error: 'unit_in_use' }
 
-  const updated = getDb()
+  const [updated] = await getDb()
     .update(vehicles)
     .set(checked.data)
     .where(eq(vehicles.id, existing.id))
     .returning()
-    .get()
-  return { ok: true, data: toRecord(updated, tripCountOf(existing.id)) }
+  return { ok: true, data: toRecord(updated, await tripCountOf(existing.id)) }
 }
 
-export function deleteVehicle(ownerId: number, vehicleId: number): FleetResult<null> {
-  const existing = findOwned(ownerId, vehicleId)
+export async function deleteVehicle(
+  ownerId: number,
+  vehicleId: number
+): Promise<FleetResult<null>> {
+  const existing = await findOwned(ownerId, vehicleId)
   if (!existing) return { ok: false, error: 'vehicle_not_found' }
   // manifests.vehicle_id is ON DELETE RESTRICT; report it instead of surfacing a constraint error
-  if (tripCountOf(existing.id) > 0) return { ok: false, error: 'vehicle_in_use' }
+  if ((await tripCountOf(existing.id)) > 0) return { ok: false, error: 'vehicle_in_use' }
 
-  getDb().delete(vehicles).where(eq(vehicles.id, existing.id)).run()
+  await getDb().delete(vehicles).where(eq(vehicles.id, existing.id))
   return { ok: true, data: null }
 }
 

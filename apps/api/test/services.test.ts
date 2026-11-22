@@ -360,6 +360,33 @@ describe('demo data', () => {
     await ensureDemoData()
     expect(await getDb().$count(manifests)).toBe(trips)
   }, 60_000)
+
+  test('two regenerations at once run one after the other', async () => {
+    const { regenerateDemoData } = await import('../src/services/demoData')
+    const before = await getDb().$count(manifests)
+    await Promise.all([regenerateDemoData(), regenerateDemoData()])
+    // Not two half-sets, nor one deleted by the other: the same demo data once
+    expect(await getDb().$count(manifests)).toBe(before)
+    const [{ value: companies }] = await getDb().execute<{ value: number }>(
+      sql`select count(*)::int as value from companies where is_demo`
+    )
+    expect(companies).toBe(4)
+  }, 120_000)
+})
+
+describe('Sudan time', () => {
+  test("wall-clock times are Sudan's, whatever the zone", async () => {
+    const { addMinutes, sudanInstant, suggestedSudanArrival, toSudanDateTime } =
+      await import('@masarat/shared/settings')
+    // 06:00 UTC is 08:00 in Khartoum (UTC+2)
+    const instant = Date.UTC(2026, 10, 20, 6, 0)
+    expect(toSudanDateTime(instant)).toBe('2026-11-20T08:00')
+    expect(sudanInstant('2026-11-20T08:00')).toBe(instant)
+    expect(addMinutes('2026-11-20T23:30', 45)).toBe('2026-11-21T00:15')
+    // 875 km at 70 km/h is 12.5 h
+    expect(suggestedSudanArrival('2026-11-20T08:00', 875, 70)).toBe('2026-11-20T20:30')
+    expect(sudanInstant('2026-11-31T08:00')).toBeNull()
+  })
 })
 
 describe('permissions', () => {

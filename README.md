@@ -44,7 +44,7 @@ bun run dev:govt    # http://localhost:5174
 
 With `DEMO_MODE=true` the API seeds the demo fleet companies on its first start, and the login
 page lists their accounts. A new deployment gets its first government admin from the server:
-`bun run --filter @masarat/api user:create-admin <username> "<full name>"`.
+`bun run --filter @masarat/api user:create-admin <username> <phone> "<full name>"`.
 
 ```bash
 bun run typecheck

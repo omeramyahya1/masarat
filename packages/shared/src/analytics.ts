@@ -65,7 +65,6 @@ export const BREAKDOWNS = [
   'cargoType',
   'vehicleType',
   'tripKind',
-  'category',
   'company'
 ] as const
 export type Breakdown = (typeof BREAKDOWNS)[number]

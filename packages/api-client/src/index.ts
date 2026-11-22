@@ -47,7 +47,9 @@ import type {
 import type { DashboardData } from '@masarat/shared/dashboard'
 import type { AnalyticsFilters, DashboardView, CompanyOption } from '@masarat/shared/analytics'
 import type { ExportInput, ExportRows } from '@masarat/shared/exports'
+import type { SystemSettings } from '@masarat/shared/settings'
 import type { ChargeInput, ChargesView } from '@masarat/shared/tax'
+import type { TemplateInput, TemplateRecord } from '@masarat/shared/templates'
 
 export interface FleetAPI {
   listVehicles: () => Promise<FleetResult<VehicleRecord[]>>
@@ -87,6 +89,14 @@ export interface BillingAPI {
 export interface DownloadedFile {
   blob: Blob
   fileName: string
+}
+
+// Passenger trip templates: listed with templates.use, kept with templates.manage
+export interface TemplatesAPI {
+  list: () => Promise<FleetResult<TemplateRecord[]>>
+  create: (input: TemplateInput) => Promise<FleetResult<TemplateRecord>>
+  update: (id: number, input: TemplateInput) => Promise<FleetResult<TemplateRecord>>
+  delete: (id: number) => Promise<FleetResult<null>>
 }
 
 export interface DocumentsAPI {
@@ -142,6 +152,9 @@ export interface GovtAPI {
   // Raw data (trips, bills, cargo items, tax lines): one Excel or CSV file, or a ZIP of several,
   // with the rows written per dataset
   exportData: (input: ExportInput) => Promise<FleetResult<DownloadedFile & { rows: ExportRows }>>
+  // The validity margin and average speeds (government admins)
+  settings: () => Promise<FleetResult<SystemSettings>>
+  updateSettings: (input: SystemSettings) => Promise<FleetResult<SystemSettings>>
   // The taxes and fees and their change log (government admins)
   charges: () => Promise<FleetResult<ChargesView>>
   // Each change is logged under the signed-in admin
@@ -181,6 +194,7 @@ export interface MasaratApi {
   company: CompanyAPI
   fleet: FleetAPI
   trips: TripsAPI
+  templates: TemplatesAPI
   billing: BillingAPI
   documents: DocumentsAPI
   govt: GovtAPI
@@ -279,6 +293,13 @@ const trips: TripsAPI = {
   delete: (id) => request('DELETE', `/trips/${id}`)
 }
 
+const templates: TemplatesAPI = {
+  list: () => request('GET', '/templates'),
+  create: (input) => request('POST', '/templates', input),
+  update: (id, input) => request('PUT', `/templates/${id}`, input),
+  delete: (id) => request('DELETE', `/templates/${id}`)
+}
+
 const billing: BillingAPI = {
   getTrip: (id) => request('GET', `/trips/${id}`),
   generate: (id) => request('POST', `/trips/${id}/bill`),
@@ -352,6 +373,8 @@ const govt: GovtAPI = {
     }
     return { ok: true, data: { blob, fileName, rows } }
   },
+  settings: () => request('GET', '/govt/settings'),
+  updateSettings: (input) => request('PUT', '/govt/settings', input),
   charges: () => request('GET', '/govt/charges'),
   addCharge: (input) => request('POST', '/govt/charges', input),
   updateCharge: (id, input) => request('PUT', `/govt/charges/${id}`, input),
@@ -373,6 +396,7 @@ export const api: MasaratApi = {
   company,
   fleet,
   trips,
+  templates,
   billing,
   documents,
   govt

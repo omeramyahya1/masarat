@@ -32,6 +32,8 @@ export const DOCUMENT_TYPES = [
 
 export type VehicleType = (typeof VEHICLE_TYPES)[number]
 export type QuantityUnit = (typeof QUANTITY_UNITS)[number]
+// What a truck or tanker is measured in (a bus is counted in seats)
+export type CargoUnit = Exclude<QuantityUnit, 'seat'>
 export type CargoType = (typeof CARGO_TYPES)[number]
 export type ManifestStatus = (typeof MANIFEST_STATUSES)[number]
 export type ItemUnit = (typeof ITEM_UNITS)[number]

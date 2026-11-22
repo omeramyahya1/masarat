@@ -15,6 +15,8 @@ Done: `GET /health`, `GET /config`, `POST /auth/login`, `POST /auth/signup` (a n
 admin), `POST /auth/logout`, `GET /auth/me`, `PATCH /auth/profile` (own name and phone),
 `POST /auth/change-password`.
 
+Passenger trip templates: `/templates` (`GET`: `templates.use`; `POST`, `PUT|DELETE /:id`: `templates.manage`).
+
 The company's administration: `PUT /company` (`company.profile`), `/branches` (`GET` any member,
 `POST`, `PUT /:id`: `branches.manage`), `/roles` (`GET`, `POST`, `PUT|DELETE /:id`:
 `roles.manage`), and `/members` (`members.manage`: `GET`, `GET /roles`, `POST`,
@@ -33,7 +35,7 @@ route.
 The government portal's routes are done: `/govt/reference`, `/govt/companies`,
 `POST /govt/dashboard` (`govt.dashboard`; filters and view as JSON), `GET /govt/search` (paged,
 `govt.search`), `/govt/trips/:id` and `/govt/documents/:id/file` (`govt.search` or
-`govt.dashboard`), `GET|POST /govt/charges` and `PUT /govt/charges/:id` (taxes and fees, `govt.charges`), `POST /govt/exports`
+`govt.dashboard`), `GET|POST /govt/charges` and `PUT /govt/charges/:id` (taxes and fees, `govt.charges`), `GET|PUT /govt/settings` (validity margin and average speeds, `govt.settings`), `POST /govt/exports`
 (`govt.exports`; one file or a ZIP) and `POST /govt/demo/regenerate` (demo mode). The report prints from the browser, so
 `govt:save-report-pdf` has no route.
 

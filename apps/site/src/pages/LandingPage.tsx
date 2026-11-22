@@ -16,7 +16,7 @@ const STEPS = ['s1', 's2', 's3'] as const
 function ManifestPreview(): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <div aria-hidden className="card mx-auto w-full max-w-sm rotate-1 p-5 shadow-lg">
+    <div aria-hidden className="card mx-auto w-full max-w-sm p-5 shadow-lg">
       <div className="mb-4 flex items-center justify-between border-b border-stone-200 pb-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-brand-800">
           <FileCheck2 size={18} />

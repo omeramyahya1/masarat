@@ -30,7 +30,12 @@ import type {
   VehicleRecord
 } from '@masarat/shared/fleet'
 import type { Page } from '@masarat/shared/paging'
-import type { GovtSearchInput, GovtSearchResult, TripDetails } from '@masarat/shared/billing'
+import type {
+  GovtSearchInput,
+  GovtSearchResult,
+  ManifestVerification,
+  TripDetails
+} from '@masarat/shared/billing'
 import type { DashboardData } from '@masarat/shared/dashboard'
 import type { AnalyticsFilters, DashboardView, OwnerOption } from '@masarat/shared/analytics'
 import type { ExportInput, ExportRows } from '@masarat/shared/exports'
@@ -135,8 +140,14 @@ export interface ConfigAPI {
   get: () => Promise<{ ok: true; data: { demoMode: boolean } }>
 }
 
+// Public: what a manifest's QR code opens
+export interface VerifyAPI {
+  get: (token: string) => Promise<FleetResult<ManifestVerification>>
+}
+
 export interface MasaratApi {
   config: ConfigAPI
+  verify: VerifyAPI
   auth: AuthAPI
   fleet: FleetAPI
   trips: TripsAPI
@@ -308,8 +319,13 @@ const config: ConfigAPI = {
   get: () => request('GET', '/config')
 }
 
+const verify: VerifyAPI = {
+  get: (token) => request('GET', `/verify/${encodeURIComponent(token)}`)
+}
+
 export const api: MasaratApi = {
   config,
+  verify,
   auth,
   fleet,
   trips,

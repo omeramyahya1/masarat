@@ -40,3 +40,8 @@ export function usePage(): [Page, (page: Page) => void] {
 // The portal page the user was sent here from, if any
 export const nextParam = (): string | null =>
   new URLSearchParams(window.location.search).get('next')
+
+// /verify/<token>: the page a manifest's QR code opens (handled apart from the other pages)
+export function verifyTokenOf(pathname: string): string | null {
+  return /^\/verify\/([^/]+)\/?$/.exec(pathname)?.[1] ?? null
+}

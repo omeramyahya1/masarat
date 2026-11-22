@@ -44,7 +44,7 @@ function ManifestPage({
   const dash = (value: string | null | undefined): string => value || '—'
   // Trips from before cargo items existed list their cargo type as a single line
   const cargo: CargoItem[] =
-    trip.items.length > 0
+    trip.items.length > 0 || !trip.cargoType || trip.cargoUnit === 'seat'
       ? trip.items
       : [
           {
@@ -106,7 +106,8 @@ function ManifestPage({
         <Field label={ar('certificate.manifest.unloadingPoint')}>
           {city(trip.destinationCityId)}
         </Field>
-        <Field label={ar('certificate.fields.tripDate')}>{fa.date(trip.tripDate)}</Field>
+        <Field label={ar('certificate.fields.departureAt')}>{fa.dateTime(trip.departureAt)}</Field>
+        <Field label={ar('certificate.fields.arrivalAt')}>{fa.dateTime(trip.arrivalAt)}</Field>
         <Field label={ar('certificate.manifest.tripKind')}>
           {ar(`tripKinds.${trip.tripKind}`)}
         </Field>

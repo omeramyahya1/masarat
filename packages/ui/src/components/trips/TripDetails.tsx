@@ -187,6 +187,7 @@ function TripDetails({
   }
 
   const { trip, payment, certificate } = details
+  const passengerTrip = trip.category === 'passenger'
   const cityById = (id: number): TripReferenceData['cities'][number] | undefined =>
     reference.cities.find((c) => c.id === id)
   const spinner = (action: Action): ReactNode =>
@@ -301,17 +302,19 @@ function TripDetails({
                 '—'
               )}
             </Row>
-            <Row label={t('trips.trailers.title')}>
-              {trip.trailers.length > 0 ? (
-                <span className="inline-flex flex-wrap justify-end gap-1.5">
-                  {trip.trailers.map((plate) => (
-                    <PlateBadge key={plate} plate={plate} />
-                  ))}
-                </span>
-              ) : (
-                t('trips.details.noTrailers')
-              )}
-            </Row>
+            {!passengerTrip && (
+              <Row label={t('trips.trailers.title')}>
+                {trip.trailers.length > 0 ? (
+                  <span className="inline-flex flex-wrap justify-end gap-1.5">
+                    {trip.trailers.map((plate) => (
+                      <PlateBadge key={plate} plate={plate} />
+                    ))}
+                  </span>
+                ) : (
+                  t('trips.details.noTrailers')
+                )}
+              </Row>
+            )}
             <Row label={t('trips.fields.driver')}>
               {trip.driverName ? (
                 <span className="inline-flex flex-col items-end">
@@ -324,7 +327,10 @@ function TripDetails({
                 '—'
               )}
             </Row>
-            <Row label={t('trips.fields.tripKind')}>{t(`tripKinds.${trip.tripKind}`)}</Row>
+            <Row label={t('trips.details.category')}>{t(`tripCategories.${trip.category}`)}</Row>
+            {!passengerTrip && (
+              <Row label={t('trips.fields.tripKind')}>{t(`tripKinds.${trip.tripKind}`)}</Row>
+            )}
             <Row label={t('trips.details.route')}>
               <span className="inline-flex items-center gap-1.5">
                 {format.city(cityById(trip.originCityId))}
@@ -332,13 +338,26 @@ function TripDetails({
                 {format.city(cityById(trip.destinationCityId))}
               </span>
             </Row>
-            <Row label={t('trips.details.cargo')}>
-              {format.list(tripCargoTypes(trip).map((c) => t(`cargoTypes.${c}`)))} ·{' '}
-              <span className="tabular-nums">
-                {format.quantity(trip.cargoQuantity, trip.cargoUnit)}
-              </span>
-            </Row>
-            <Row label={t('trips.details.tripDate')}>{format.date(trip.tripDate)}</Row>
+            {passengerTrip ? (
+              <Row label={t('trips.details.passengers')}>
+                <span className="tabular-nums">
+                  {t('trips.passengers.counts', {
+                    seated: format.number(trip.cargoQuantity),
+                    seats: format.number(details.vehicleCapacity),
+                    infants: format.number(trip.passengers.length - trip.cargoQuantity)
+                  })}
+                </span>
+              </Row>
+            ) : (
+              <Row label={t('trips.details.cargo')}>
+                {format.list(tripCargoTypes(trip).map((c) => t(`cargoTypes.${c}`)))} ·{' '}
+                <span className="tabular-nums">
+                  {format.quantity(trip.cargoQuantity, trip.cargoUnit)}
+                </span>
+              </Row>
+            )}
+            <Row label={t('trips.details.departureAt')}>{format.dateTime(trip.departureAt)}</Row>
+            <Row label={t('trips.details.arrivalAt')}>{format.dateTime(trip.arrivalAt)}</Row>
             <Row label={t('trips.details.distance')}>
               <span className="tabular-nums">
                 {t('units.km', { value: format.number(trip.distanceKm) })}
@@ -346,13 +365,17 @@ function TripDetails({
             </Row>
           </dl>
 
-          <h3 className="mt-6 mb-2 text-sm font-semibold text-stone-800">
-            {t('trips.form.partiesSection')}
-          </h3>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <PartyBlock title={t('trips.party.shipper')} party={trip.shipper} />
-            <PartyBlock title={t('trips.party.receiver')} party={trip.receiver} />
-          </div>
+          {!passengerTrip && (
+            <>
+              <h3 className="mt-6 mb-2 text-sm font-semibold text-stone-800">
+                {t('trips.form.partiesSection')}
+              </h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <PartyBlock title={t('trips.party.shipper')} party={trip.shipper} />
+                <PartyBlock title={t('trips.party.receiver')} party={trip.receiver} />
+              </div>
+            </>
+          )}
           {trip.carrier && (
             <div className="mt-3">
               <PartyBlock
@@ -369,84 +392,161 @@ function TripDetails({
             </div>
           )}
 
-          <h3 className="mt-6 mb-2 text-sm font-semibold text-stone-800">
-            {t('trips.documents.title')}
-          </h3>
-          {trip.documents.length > 0 ? (
-            <ul className="flex flex-col gap-2">
-              {trip.documents.map((document, index) => (
-                <li
-                  key={document.id}
-                  className="flex items-center gap-3 rounded-lg border border-stone-200 px-3 py-2 text-sm"
-                >
-                  <FileText size={16} className="shrink-0 text-stone-400" />
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="font-medium text-stone-800">
-                      {t(`documentTypes.${document.docType}`)}
-                    </span>
-                    <span className="truncate text-xs text-stone-500" dir="auto">
-                      {document.fileName} · {format.fileSize(document.size)}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    aria-label={t('trips.documents.openOf', {
-                      name: t(`documentTypes.${document.docType}`)
-                    })}
-                    onClick={() => setPreview(index)}
-                  >
-                    <Eye size={14} />
-                    {t('trips.documents.open')}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-stone-500">{t('trips.documents.empty')}</p>
+          {!passengerTrip && (
+            <>
+              <h3 className="mt-6 mb-2 text-sm font-semibold text-stone-800">
+                {t('trips.documents.title')}
+              </h3>
+              {trip.documents.length > 0 ? (
+                <ul className="flex flex-col gap-2">
+                  {trip.documents.map((document, index) => (
+                    <li
+                      key={document.id}
+                      className="flex items-center gap-3 rounded-lg border border-stone-200 px-3 py-2 text-sm"
+                    >
+                      <FileText size={16} className="shrink-0 text-stone-400" />
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <span className="font-medium text-stone-800">
+                          {t(`documentTypes.${document.docType}`)}
+                        </span>
+                        <span className="truncate text-xs text-stone-500" dir="auto">
+                          {document.fileName} · {format.fileSize(document.size)}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        aria-label={t('trips.documents.openOf', {
+                          name: t(`documentTypes.${document.docType}`)
+                        })}
+                        onClick={() => setPreview(index)}
+                      >
+                        <Eye size={14} />
+                        {t('trips.documents.open')}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-stone-500">{t('trips.documents.empty')}</p>
+              )}
+
+              <h3 className="mt-6 mb-2 text-sm font-semibold text-stone-800">
+                {t('trips.items.title')}
+              </h3>
+              {trip.items.length > 0 ? (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-stone-200 text-xs text-stone-500">
+                      <th className="w-8 py-2 text-start font-medium">#</th>
+                      <th className="py-2 text-start font-medium">{t('trips.items.name')}</th>
+                      <th className="py-2 text-start font-medium">{t('trips.items.type')}</th>
+                      <th className="py-2 text-start font-medium">
+                        {t('trips.items.packingType')}
+                      </th>
+                      <th className="py-2 text-end font-medium">{t('trips.items.packageCount')}</th>
+                      <th className="py-2 text-end font-medium">{t('trips.items.quantity')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100">
+                    {trip.items.map((item, index) => (
+                      <tr key={index}>
+                        <td className="py-2 text-stone-400 tabular-nums">
+                          {format.number(index + 1)}
+                        </td>
+                        <td className="py-2 text-stone-900">
+                          <bdi>{item.name}</bdi>
+                          {item.notes && (
+                            <bdi className="block text-xs text-stone-500">{item.notes}</bdi>
+                          )}
+                        </td>
+                        <td className="py-2 text-stone-600">{t(`cargoTypes.${item.cargoType}`)}</td>
+                        <td className="py-2 text-stone-600">
+                          {item.packingType ? <bdi>{item.packingType}</bdi> : '—'}
+                        </td>
+                        <td className="py-2 text-end tabular-nums">
+                          {item.packageCount !== null ? format.number(item.packageCount) : '—'}
+                        </td>
+                        <td className="py-2 text-end whitespace-nowrap tabular-nums">
+                          {format.quantity(item.quantity, item.unit)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="text-sm text-stone-500">{t('trips.items.none')}</p>
+              )}
+            </>
           )}
 
-          <h3 className="mt-6 mb-2 text-sm font-semibold text-stone-800">
-            {t('trips.items.title')}
-          </h3>
-          {trip.items.length > 0 ? (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-stone-200 text-xs text-stone-500">
-                  <th className="w-8 py-2 text-start font-medium">#</th>
-                  <th className="py-2 text-start font-medium">{t('trips.items.name')}</th>
-                  <th className="py-2 text-start font-medium">{t('trips.items.type')}</th>
-                  <th className="py-2 text-start font-medium">{t('trips.items.packingType')}</th>
-                  <th className="py-2 text-end font-medium">{t('trips.items.packageCount')}</th>
-                  <th className="py-2 text-end font-medium">{t('trips.items.quantity')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-100">
-                {trip.items.map((item, index) => (
-                  <tr key={index}>
-                    <td className="py-2 text-stone-400 tabular-nums">{format.number(index + 1)}</td>
-                    <td className="py-2 text-stone-900">
-                      <bdi>{item.name}</bdi>
-                      {item.notes && (
-                        <bdi className="block text-xs text-stone-500">{item.notes}</bdi>
-                      )}
-                    </td>
-                    <td className="py-2 text-stone-600">{t(`cargoTypes.${item.cargoType}`)}</td>
-                    <td className="py-2 text-stone-600">
-                      {item.packingType ? <bdi>{item.packingType}</bdi> : '—'}
-                    </td>
-                    <td className="py-2 text-end tabular-nums">
-                      {item.packageCount !== null ? format.number(item.packageCount) : '—'}
-                    </td>
-                    <td className="py-2 text-end whitespace-nowrap tabular-nums">
-                      {format.quantity(item.quantity, item.unit)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p className="text-sm text-stone-500">{t('trips.items.none')}</p>
+          {passengerTrip && (
+            <>
+              <h3 className="mt-6 mb-2 text-sm font-semibold text-stone-800">
+                {t('trips.form.passengersSection')}
+              </h3>
+              {trip.passengers.length > 0 ? (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-stone-200 text-xs text-stone-500">
+                      <th className="w-12 py-2 text-start font-medium">
+                        {t('trips.passengers.seat')}
+                      </th>
+                      <th className="py-2 text-start font-medium">{t('trips.passengers.name')}</th>
+                      <th className="py-2 text-start font-medium">
+                        {t('trips.passengers.idNumber')}
+                      </th>
+                      <th className="py-2 text-start font-medium">{t('trips.passengers.notes')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100">
+                    {[...trip.passengers]
+                      .sort(
+                        (a, b) => a.seatNo - b.seatNo || Number(a.isInfant) - Number(b.isInfant)
+                      )
+                      .map((p, index) => (
+                        <tr key={index} className={p.isInfant ? 'text-stone-500' : undefined}>
+                          <td className="py-2 tabular-nums">{format.number(p.seatNo)}</td>
+                          <td className="py-2 text-stone-900">
+                            <bdi>{p.fullName}</bdi>
+                            {p.isInfant && (
+                              <span className="ms-2 rounded bg-stone-100 px-1.5 text-[11px] text-stone-600">
+                                {t('trips.passengers.infant')}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2">
+                            {p.idType && p.idNumber ? (
+                              <span className="inline-flex flex-col">
+                                <span className="text-[11px] text-stone-500">
+                                  {t(`idTypes.${p.idType}`)}
+                                </span>
+                                <bdi dir="ltr" className="font-mono text-xs">
+                                  {p.idNumber}
+                                </bdi>
+                              </span>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="py-2 text-xs">
+                            <bdi>{p.notes ?? ''}</bdi>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="text-sm text-stone-500">{t('trips.passengers.empty')}</p>
+              )}
+              <p className="mt-2 text-xs text-stone-500">
+                {trip.ticketPrice !== null &&
+                  t('trips.passengers.fare', {
+                    price: format.currency(trip.ticketPrice),
+                    tickets: format.number(trip.cargoQuantity)
+                  })}
+              </p>
+            </>
           )}
 
           <h3 className="mt-6 mb-2 text-sm font-semibold text-stone-800">{t('trips.tax.title')}</h3>

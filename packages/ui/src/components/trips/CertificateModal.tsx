@@ -8,6 +8,7 @@ import { createFormatters } from '../../lib/format'
 import { printDocument } from '../../lib/printDocument'
 import Modal from '../ui/Modal'
 import ManifestPage from './ManifestPage'
+import PassengerManifestPage from './PassengerManifestPage'
 import ReceiptPage from './ReceiptPage'
 
 interface CertificateModalProps {
@@ -65,13 +66,24 @@ function CertificateModal({
           ar={ar}
           fa={fa}
         />
-        <ManifestPage
-          details={details}
-          certificate={certificate}
-          reference={reference}
-          ar={ar}
-          fa={fa}
-        />
+        {/* A bus trip's manifest lists its passengers; a truck's its cargo */}
+        {details.trip.category === 'passenger' ? (
+          <PassengerManifestPage
+            details={details}
+            certificate={certificate}
+            reference={reference}
+            ar={ar}
+            fa={fa}
+          />
+        ) : (
+          <ManifestPage
+            details={details}
+            certificate={certificate}
+            reference={reference}
+            ar={ar}
+            fa={fa}
+          />
+        )}
       </div>
     </Modal>,
     document.body

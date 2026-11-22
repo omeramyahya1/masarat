@@ -46,15 +46,26 @@ function ReceiptPage({
         <Field label={ar('certificate.fields.manifestNo')}>
           <Latin>{certificate.manifestNo}</Latin>
         </Field>
-        <Field label={ar('certificate.fields.tripDate')}>{fa.date(trip.tripDate)}</Field>
+        <Field label={ar('certificate.fields.departureAt')}>{fa.dateTime(trip.departureAt)}</Field>
         <Field label={ar('certificate.fields.origin')}>{city(trip.originCityId)}</Field>
         <Field label={ar('certificate.fields.destination')}>{city(trip.destinationCityId)}</Field>
-        <Field label={ar('certificate.fields.cargoType')}>
-          {fa.list(tripCargoTypes(trip).map((c) => ar(`cargoTypes.${c}`)))}
-        </Field>
-        <Field label={ar('certificate.fields.quantity')}>
-          {fa.quantity(trip.cargoQuantity, trip.cargoUnit)}
-        </Field>
+        {trip.category === 'passenger' ? (
+          <>
+            <Field label={ar('certificate.passengers.ticketPrice')}>
+              {trip.ticketPrice !== null ? fa.currency(trip.ticketPrice) : '—'}
+            </Field>
+            <Field label={ar('trips.tax.tickets')}>{fa.number(trip.cargoQuantity)}</Field>
+          </>
+        ) : (
+          <>
+            <Field label={ar('certificate.fields.cargoType')}>
+              {fa.list(tripCargoTypes(trip).map((c) => ar(`cargoTypes.${c}`)))}
+            </Field>
+            <Field label={ar('certificate.fields.quantity')}>
+              {fa.quantity(trip.cargoQuantity, trip.cargoUnit)}
+            </Field>
+          </>
+        )}
         <Field label={ar('certificate.fields.distance')}>
           {ar('units.km', { value: fa.number(trip.distanceKm) })}
         </Field>

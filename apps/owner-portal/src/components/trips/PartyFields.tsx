@@ -8,8 +8,6 @@ interface PartyFieldsProps {
   value: Party
   // Senders and receivers from earlier trips; picking a name fills in its address and phone
   suggestions: readonly Party[]
-  // Filled in from a scanned document and not edited since
-  highlighted?: boolean
   onChange: (value: Party) => void
 }
 
@@ -18,7 +16,6 @@ function PartyFields({
   legend,
   value,
   suggestions,
-  highlighted,
   onChange
 }: PartyFieldsProps): React.JSX.Element {
   const { t } = useTranslation()
@@ -39,9 +36,7 @@ function PartyFields({
   return (
     <fieldset>
       <legend className="mb-2 text-sm font-medium text-stone-700">{legend}</legend>
-      <div
-        className={`flex flex-col gap-3 rounded-lg ${highlighted ? 'bg-amber-50/70 p-3 ring-2 ring-amber-300' : ''}`}
-      >
+      <div className="flex flex-col gap-3 rounded-lg">
         <datalist id={listId}>
           {suggestions.map((party) => (
             <option key={`${party.name}|${party.address}|${party.phone}`} value={party.name}>

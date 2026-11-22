@@ -19,7 +19,7 @@ export const MANIFEST_STATUSES = ['draft', 'billed', 'paid', 'certified', 'cance
 export const PAYMENT_STATUSES = ['pending', 'paid', 'expired', 'failed'] as const
 // Domestic, or crossing the border (imports need a certificate of origin and an authorization)
 export const TRIP_KINDS = ['domestic', 'import', 'export'] as const
-// Supporting documents a trip can have attached (and scanned to fill in the form)
+// Supporting documents a trip can have attached
 export const DOCUMENT_TYPES = [
   'commercial_invoice',
   'packing_list',
@@ -337,7 +337,6 @@ export type FleetErrorCode =
   | 'incomplete_manifest'
   | 'invalid_document'
   | 'document_too_large'
-  | 'scan_conflict'
   | 'zero_bill'
   // The account may not do this (another role, not an admin, or a demo-only action)
   | 'forbidden'

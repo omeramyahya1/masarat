@@ -77,9 +77,11 @@ export async function listMembers(side: Side): Promise<MemberRecord[]> {
   return rows.map((row) => toRecord(row.user, row.role, row.branch))
 }
 
-// The role (one of this side's) and, for a branch role, the branch (an active one of the company)
+// The role (one of this side's) and, for a branch role, the branch (an active one of the company).
+// Run inside the transaction that writes the user: the role row stays locked until then, so its
+// scope can't change in between (updateRole takes the same lock).
 async function checkAssignment(
-  db: ReturnType<typeof getDb> | Tx,
+  db: Tx,
   side: Side,
   input: MemberRoleInput
 ): Promise<
@@ -91,7 +93,7 @@ async function checkAssignment(
     .select()
     .from(roles)
     .where(and(eq(roles.id, roleId), sideRoles(side)))
-    .limit(1)
+    .for('update')
   if (!role) return { ok: false, error: 'role_not_found' }
   if (role.scope !== 'branch' || side.kind !== 'company') return { ok: true, role, branchId: null }
 
@@ -123,34 +125,39 @@ export async function createMember(
   if (!USERNAME_PATTERN.test(username)) return { ok: false, error: 'invalid_username' }
   const phone = accountPhone(input.phone)
   if (!phone) return { ok: false, error: 'invalid_phone' }
-  const assignment = await checkAssignment(getDb(), side, input)
-  if (!assignment.ok) return assignment
   if (await phoneTaken(phone)) return { ok: false, error: 'phone_taken' }
 
   const password = temporaryPassword()
-  let created: User | undefined
+  const passwordHash = await hashPassword(password)
+  let result: MemberResult<User | null>
   try {
-    ;[created] = await getDb()
-      .insert(users)
-      .values({
-        kind: side.kind,
-        companyId: side.kind === 'company' ? side.companyId : null,
-        roleId: assignment.role.id,
-        branchId: assignment.branchId,
-        username,
-        fullName,
-        phone,
-        passwordHash: await hashPassword(password),
-        mustChangePassword: true
-      })
-      .onConflictDoNothing({ target: users.username })
-      .returning()
+    result = await getDb().transaction(async (tx) => {
+      const assignment = await checkAssignment(tx, side, input)
+      if (!assignment.ok) return assignment
+      const [created] = await tx
+        .insert(users)
+        .values({
+          kind: side.kind,
+          companyId: side.kind === 'company' ? side.companyId : null,
+          roleId: assignment.role.id,
+          branchId: assignment.branchId,
+          username,
+          fullName,
+          phone,
+          passwordHash,
+          mustChangePassword: true
+        })
+        .onConflictDoNothing({ target: users.username })
+        .returning()
+      return { ok: true, data: created ?? null }
+    })
   } catch (error) {
     if (isPhoneConflict(error)) return { ok: false, error: 'phone_taken' }
     throw error
   }
-  if (!created) return { ok: false, error: 'username_taken' }
-  return { ok: true, data: { user: await recordOf(created.id), temporaryPassword: password } }
+  if (!result.ok) return result
+  if (!result.data) return { ok: false, error: 'username_taken' }
+  return { ok: true, data: { user: await recordOf(result.data.id), temporaryPassword: password } }
 }
 
 // The side's admin role ids

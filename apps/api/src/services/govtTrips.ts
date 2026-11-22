@@ -1,13 +1,10 @@
 // The government's trip search: by E-Sali bill ID, receipt or manifest number, trip number,
 // plate, company or city name, and by route
-import { and, desc, eq, or, sql, type SQL } from 'drizzle-orm'
+import { and, count, desc, eq, or, sql, type SQL } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { certificates, cities, getDb, manifests, payments, users, vehicles } from '../db'
-import {
-  MAX_SEARCH_RESULTS,
-  type GovtSearchInput,
-  type GovtSearchResult
-} from '@masarat/shared/billing'
+import type { GovtSearchInput, GovtSearchResult } from '@masarat/shared/billing'
+import { DEFAULT_PAGE_SIZE, isPageSize, type Page } from '@masarat/shared/paging'
 import type { FleetResult } from '@masarat/shared/fleet'
 import { plateSearchKey } from '@masarat/shared/plate'
 import { contains, escapeLike, plateKeyOf } from './sqlText'
@@ -68,9 +65,10 @@ function textConditions(raw: string): SQL | undefined {
   )
 }
 
+// One page of the matches, newest first, with how many there are in all
 export async function searchTrips(
   input: GovtSearchInput
-): Promise<FleetResult<GovtSearchResult[]>> {
+): Promise<FleetResult<Page<GovtSearchResult>>> {
   const query = typeof input?.query === 'string' ? input.query.slice(0, 80) : ''
   const originCityId = typeof input?.originCityId === 'number' ? input.originCityId : null
   const destinationCityId =
@@ -80,7 +78,29 @@ export async function searchTrips(
     return { ok: false, error: 'missing_fields' }
   }
 
-  const rows = await getDb()
+  const where = and(
+    text,
+    originCityId === null ? undefined : eq(manifests.originCityId, originCityId),
+    destinationCityId === null ? undefined : eq(manifests.destinationCityId, destinationCityId)
+  )
+  const db = getDb()
+  const [{ total }] = await db
+    .select({ total: count() })
+    .from(manifests)
+    .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
+    .innerJoin(users, eq(vehicles.ownerId, users.id))
+    .innerJoin(origin, eq(manifests.originCityId, origin.id))
+    .innerJoin(destination, eq(manifests.destinationCityId, destination.id))
+    .leftJoin(payments, eq(payments.manifestId, manifests.id))
+    .leftJoin(certificates, eq(certificates.manifestId, manifests.id))
+    .where(where)
+  const pageSize = isPageSize(input?.pageSize) ? input.pageSize : DEFAULT_PAGE_SIZE
+  const pages = Math.max(1, Math.ceil(total / pageSize))
+  const requested =
+    Number.isInteger(input?.page) && (input.page as number) > 0 ? (input.page as number) : 1
+  const page = Math.min(requested, pages)
+
+  const rows = await db
     .select({
       manifestId: manifests.id,
       manifestNo: certificates.manifestNo,
@@ -101,22 +121,24 @@ export async function searchTrips(
     .innerJoin(destination, eq(manifests.destinationCityId, destination.id))
     .leftJoin(payments, eq(payments.manifestId, manifests.id))
     .leftJoin(certificates, eq(certificates.manifestId, manifests.id))
-    .where(
-      and(
-        text,
-        originCityId === null ? undefined : eq(manifests.originCityId, originCityId),
-        destinationCityId === null ? undefined : eq(manifests.destinationCityId, destinationCityId)
-      )
-    )
+    .where(where)
     .orderBy(desc(manifests.tripDate), desc(manifests.id))
-    .limit(MAX_SEARCH_RESULTS)
+    .limit(pageSize)
+    .offset((page - 1) * pageSize)
 
   return {
     ok: true,
-    data: rows.map(({ companyName, fullName, tripDate, ...row }) => ({
-      ...row,
-      companyName: companyName || fullName,
-      tripDate: tripDate.getTime()
-    }))
+    data: {
+      rows: rows.map(({ companyName, fullName, tripDate, ...row }) => ({
+        ...row,
+        companyName: companyName || fullName,
+        tripDate: tripDate.getTime()
+      })),
+      total,
+      // The search has no unfiltered list behind it
+      overall: total,
+      page,
+      pageSize
+    }
   }
 }

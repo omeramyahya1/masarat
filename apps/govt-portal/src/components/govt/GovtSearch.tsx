@@ -2,16 +2,18 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoaderCircle, SearchX } from 'lucide-react'
 import type { GovtSearchInput, GovtSearchResult } from '@masarat/shared/billing'
-import { MAX_SEARCH_RESULTS } from '@masarat/shared/billing'
+import { DEFAULT_PAGE_SIZE, type Page, type PageSize } from '@masarat/shared/paging'
 import type { CityRecord, FleetErrorCode } from '@masarat/shared/fleet'
 import { useFormat } from '@masarat/ui/lib/format'
 import { FormAlert } from '@masarat/ui/components/form/fields'
 import PlateBadge from '@masarat/ui/components/fleet/PlateBadge'
 import { STATUS_STYLES } from '@masarat/ui/components/trips/statusStyles'
+import Pagination from '@masarat/ui/components/ui/Pagination'
 import { RouteLabel } from './parts'
 import { api } from '@masarat/api-client'
 
-// Trips of every owner matching the government search
+// Trips of every owner matching the government search, a page at a time (newest first). A new
+// search mounts a new one (keyed by its input), so it starts on page 1.
 function GovtSearch({
   input,
   cities,
@@ -23,13 +25,15 @@ function GovtSearch({
 }): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
-  const [results, setResults] = useState<GovtSearchResult[] | null>(null)
+  const [results, setResults] = useState<Page<GovtSearchResult> | null>(null)
   const [error, setError] = useState<FleetErrorCode | null>(null)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE)
 
   useEffect(() => {
     let current = true
     api.govt
-      .search(input)
+      .search({ ...input, page, pageSize })
       .then((result) => {
         if (!current) return
         if (result.ok) {
@@ -42,7 +46,7 @@ function GovtSearch({
     return (): void => {
       current = false
     }
-  }, [input])
+  }, [input, page, pageSize])
 
   if (error) return <FormAlert message={t(`fleet.errors.${error}`)} />
   if (!results) {
@@ -58,13 +62,11 @@ function GovtSearch({
       <div>
         <h2 className="text-lg font-semibold text-stone-900">{t('govt.search.resultsTitle')}</h2>
         <p className="text-sm text-stone-500">
-          {results.length >= MAX_SEARCH_RESULTS
-            ? t('govt.search.manyResults', { count: format.number(MAX_SEARCH_RESULTS) })
-            : t('govt.search.resultCount', { count: format.number(results.length) })}
+          {t('govt.search.resultCount', { count: format.number(results.total) })}
         </p>
       </div>
 
-      {results.length === 0 ? (
+      {results.total === 0 ? (
         <div className="card flex flex-col items-center gap-3 px-6 py-14 text-center">
           <SearchX size={28} className="text-stone-400" />
           <p className="max-w-sm text-sm text-stone-500">{t('govt.search.noResults')}</p>
@@ -84,7 +86,7 @@ function GovtSearch({
               </tr>
             </thead>
             <tbody>
-              {results.map((trip) => (
+              {results.rows.map((trip) => (
                 <tr
                   key={trip.manifestId}
                   className="cursor-pointer hover:bg-stone-50"
@@ -145,6 +147,16 @@ function GovtSearch({
           </table>
         </div>
       )}
+      <Pagination
+        page={results.page}
+        pageSize={results.pageSize}
+        total={results.total}
+        onPage={setPage}
+        onPageSize={(size) => {
+          setPageSize(size)
+          setPage(1)
+        }}
+      />
     </section>
   )
 }

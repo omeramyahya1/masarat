@@ -76,7 +76,12 @@ function GovtWorkspace({ user }: { user: AuthUser }): React.JSX.Element {
         )}
         {search && (
           <div hidden={openTrip !== null}>
-            <GovtSearch input={search} cities={reference?.cities ?? []} onOpenTrip={setOpenTrip} />
+            <GovtSearch
+              key={JSON.stringify(search)}
+              input={search}
+              cities={reference?.cities ?? []}
+              onOpenTrip={setOpenTrip}
+            />
           </div>
         )}
         <div hidden={openTrip !== null || search !== null}>

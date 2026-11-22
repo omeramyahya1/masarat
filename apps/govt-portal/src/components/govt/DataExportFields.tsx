@@ -12,7 +12,7 @@ import {
   type ExportDataset,
   type ExportFormat,
   type ExportLabels,
-  type ExportResult,
+  type ExportRows,
   type ExportStatus
 } from '@masarat/shared/exports'
 import {
@@ -29,6 +29,7 @@ import { LINE_CODES } from '@masarat/shared/tax'
 import { useFormat } from '@masarat/ui/lib/format'
 import { useMountedRef } from '@masarat/ui/lib/useMountedRef'
 import { FormAlert } from '@masarat/ui/components/form/fields'
+import { saveFile } from '@masarat/ui/lib/saveFile'
 import { api } from '@masarat/api-client'
 
 // Labels for a list of stored values, from one translation group
@@ -57,9 +58,10 @@ function DataExportFields({
   const [formats, setFormats] = useState<ReadonlySet<ExportFormat>>(() => new Set(['xlsx']))
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<FleetErrorCode | null>(null)
-  const [result, setResult] = useState<ExportResult | null>(null)
+  // Rows per dataset of the last file downloaded
+  const [result, setResult] = useState<ExportRows | null>(null)
 
-  // Everything the main process writes into the files, in Arabic
+  // Everything the API writes into the files, in Arabic
   const labels = useMemo<ExportLabels>(() => {
     const ar = i18n.getFixedT('ar')
     const states = [...new Set(cities.map((c) => c.state))]
@@ -109,9 +111,13 @@ function DataExportFields({
         formats: EXPORT_FORMATS.filter((f) => formats.has(f)),
         labels
       })
-      if (!mounted.current) return
-      if (response.ok) setResult(response.data)
-      else setError(response.error)
+      if (!response.ok) {
+        if (mounted.current) setError(response.error)
+        return
+      }
+      // Saved even if the dialog was closed meanwhile
+      saveFile(response.data)
+      if (mounted.current) setResult(response.data.rows)
     } catch {
       if (mounted.current) setError('unknown')
     } finally {
@@ -206,15 +212,15 @@ function DataExportFields({
       </fieldset>
 
       {error && <FormAlert message={t(`fleet.errors.${error}`)} />}
-      {result?.saved && (
+      {result && (
         <FormAlert
           tone="success"
           message={t('govt.export.dataSaved', {
             rows: format.list(
-              EXPORT_DATASETS.filter((d) => result.rows[d] !== undefined).map((d) =>
+              EXPORT_DATASETS.filter((d) => result[d] !== undefined).map((d) =>
                 t('govt.export.rowCount', {
                   dataset: t(`govt.export.datasets.${d}`),
-                  count: format.number(result.rows[d] ?? 0)
+                  count: format.number(result[d] ?? 0)
                 })
               )
             )

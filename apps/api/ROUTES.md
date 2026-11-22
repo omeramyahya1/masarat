@@ -1,8 +1,8 @@
-# API routes to build
+# API routes
 
 The Electron MVP talked to its main process over IPC (`apps/desktop-demo/src/main/index.ts`).
-Each channel below becomes an HTTP endpoint here. The service functions already exist in
-`src/services/`. What's missing is the routes, sessions and the portals' `api` client.
+Each channel is now an HTTP endpoint here (`src/routes/`), calling the same service functions
+(`src/services/`). New routes follow the same pattern.
 
 **Sessions** are done (`src/http/middleware.ts`): `session` puts the signed-in user on the
 request as `c.get('user')`, and `requireUser()`, `requireRole('owner' | 'govt')` and
@@ -18,16 +18,13 @@ The owner portal's routes are done too: `/vehicles`, `/drivers` (CRUD), `/trips`
 and `/documents` (`POST /` multipart upload, `POST /scan`, `GET /:id/file`). Saving the
 certificate as PDF is the browser's print dialog, so `certificates:save-pdf` has no route.
 
-| Group | IPC channel                                                        | Service function                                  | Who              |
-| ----- | ------------------------------------------------------------------ | ------------------------------------------------- | ---------------- |
-| govt  | `govt:get-reference-data`, `govt:list-owners`                      | `services/trips.ts`, `services/analyticsQuery.ts` | govt             |
-| govt  | `govt:dashboard`                                                   | `services/dashboard.ts`                           | govt             |
-| govt  | `govt:search`, `govt:get-trip`                                     | `services/govtTrips.ts`, `services/billing.ts`    | govt             |
-| govt  | `govt:open-document` → **download**                                | `services/documents.ts`                           | govt             |
-| govt  | `govt:export-data` → **download** (`exportData` returns the files) | `services/exports.ts`                             | govt             |
-| govt  | `govt:save-report-pdf` → done in the browser                       | none                                              | govt             |
-| govt  | `govt:get-tax-settings`, `govt:update-tax-rates`                   | `services/taxes.ts`                               | govt             |
-| govt  | `govt:regenerate-demo`                                             | `services/demoData.ts`                            | govt (demo only) |
+The government portal's routes are done: `/govt/reference`, `/govt/owners`, `POST /govt/dashboard`
+(filters and view as JSON), `GET /govt/search` (paged), `/govt/trips/:id`,
+`/govt/documents/:id/file`, `GET|PUT /govt/tax-settings`, `POST /govt/exports` (one file or a ZIP)
+and `POST /govt/demo/regenerate` (demo mode). The report prints from the browser, so
+`govt:save-report-pdf` has no route.
+
+Every IPC channel of the demo now has its route.
 
 These are dropped on the web: `updater:*`, `app:get-version` (the portals get the version at build
 time) and `ping`.

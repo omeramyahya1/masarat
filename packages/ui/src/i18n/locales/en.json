@@ -831,7 +831,6 @@
       "clear": "Clear search",
       "resultsTitle": "Search results",
       "resultCount": "{{count}} trips found",
-      "manyResults": "Showing the latest {{count}} trips. Narrow the search to see others.",
       "noResults": "No trips match this search.",
       "openTrip": "Open trip #{{id}}",
       "columns": {
@@ -865,10 +864,9 @@
         "breakdown": "Breakdown",
         "progress": "Trip progress"
       },
-      "reportNote": "The report opens as a preview with the official letterhead; download it from there as a PDF.",
+      "reportNote": "The report opens as a preview with the official letterhead; print it or save it as a PDF from there.",
       "previewReport": "Preview report",
       "reportPreview": "Report preview",
-      "reportSaved": "Report saved.",
       "dataOptions": "Data",
       "datasetsLabel": "Datasets",
       "datasets": {
@@ -896,9 +894,9 @@
         "csv": "CSV"
       },
       "dataNote": "Excel writes one sheet per dataset; CSV is UTF-8 and opens in Excel.",
-      "csvFolder": "Several files (CSV for several datasets, or Excel and CSV together): choose a folder, and each file is saved in it.",
+      "csvFolder": "Several files (CSV for several datasets, or Excel and CSV together) download as one ZIP file.",
       "exportData": "Export data",
-      "dataSaved": "Saved: {{rows}}.",
+      "dataSaved": "Downloaded: {{rows}}.",
       "rowCount": "{{dataset}} {{count}} rows"
     },
     "users": {

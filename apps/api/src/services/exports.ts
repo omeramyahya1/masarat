@@ -21,7 +21,7 @@ import {
   EXPORT_COLUMNS,
   type ExportDataset,
   type ExportInput,
-  type ExportResult
+  type ExportRows
 } from '@masarat/shared/exports'
 import type { FleetResult } from '@masarat/shared/fleet'
 import { inFilteredTrips } from './analyticsQuery'
@@ -291,7 +291,7 @@ export interface ExportFile {
 // Builds the export: an Excel workbook and/or one CSV per dataset
 export async function exportData(
   input: ExportInput
-): Promise<FleetResult<{ files: ExportFile[]; rows: ExportResult['rows'] }>> {
+): Promise<FleetResult<{ files: ExportFile[]; archiveName: string; rows: ExportRows }>> {
   const data = await buildRows(input, await selectTripIds(input))
   const rows = Object.fromEntries(input.datasets.map((d) => [d, data[d].length]))
   const { from, to } = resolveRange(input.filters.range, new Date())
@@ -309,5 +309,6 @@ export async function exportData(
       })
     }
   }
-  return { ok: true, data: { files, rows } }
+  // Several files go to the browser as one ZIP of this name
+  return { ok: true, data: { files, archiveName: `masarat-export-${span}.zip`, rows } }
 }

@@ -38,8 +38,9 @@ export interface CertificateRecord {
 
 export interface TripDetails {
   trip: TripRecord
-  // The fleet owner the trip belongs to (shown in the government's view of a trip)
-  owner: { companyName: string; fullName: string; phone: string | null }
+  // The company the trip belongs to, and the member who booked it (shown in the government's view)
+  company: { id: number; name: string }
+  bookedBy: { fullName: string; phone: string } | null
   vehicleCapacity: number
   payment: PaymentRecord | null
   certificate: CertificateRecord | null

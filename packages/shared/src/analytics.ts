@@ -27,8 +27,8 @@ export interface AnalyticsFilters {
   cargoType?: CargoType | null
   vehicleType?: VehicleType | null
   tripKind?: TripKind | null
-  // A fleet owner (users.id)
-  ownerId?: number | null
+  // A transport company (companies.id)
+  companyId?: number | null
 }
 
 export const DEFAULT_FILTERS: AnalyticsFilters = { range: { preset: '30d' } }
@@ -42,7 +42,7 @@ export const FILTER_KEYS = [
   'cargoType',
   'vehicleType',
   'tripKind',
-  'ownerId'
+  'companyId'
 ] as const
 export type FilterKey = (typeof FILTER_KEYS)[number]
 
@@ -60,7 +60,7 @@ export const BREAKDOWNS = [
   'cargoType',
   'vehicleType',
   'tripKind',
-  'owner'
+  'company'
 ] as const
 export type Breakdown = (typeof BREAKDOWNS)[number]
 
@@ -203,7 +203,7 @@ export function isAnalyticsFilters(value: unknown): value is AnalyticsFilters {
     optional(f.cargoType, (v) => isOneOf(CARGO_TYPES, v)) &&
     optional(f.vehicleType, (v) => isOneOf(VEHICLE_TYPES, v)) &&
     optional(f.tripKind, (v) => isOneOf(TRIP_KINDS, v)) &&
-    optional(f.ownerId, isId)
+    optional(f.companyId, isId)
   )
 }
 
@@ -217,9 +217,9 @@ export function isDashboardView(value: unknown): value is DashboardView {
   )
 }
 
-// A fleet owner, for the owner filter
-export interface OwnerOption {
+// A transport company, for the company filter
+export interface CompanyOption {
   id: number
-  // Company name, or the owner's name when there is none
+  // The company's name
   name: string
 }

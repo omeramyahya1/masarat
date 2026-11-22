@@ -19,7 +19,7 @@ export interface DashboardKpis {
   // Paid amount / billed amount for bills issued in the period, 0..1; null when nothing was billed
   collectionRate: number | null
   vehicles: number
-  fleetOwners: number
+  companies: number
 }
 
 export interface RevenuePoint {
@@ -42,7 +42,7 @@ export interface TaxSlice {
 }
 
 // One group of the breakdown card: a route, a state, a cargo type, … Routes carry their cities;
-// owners their name; the other dimensions their key (a state name, a cargo type code, …)
+// companies their name; the other dimensions their key (a state name, a cargo type code, …)
 export interface BreakdownRow {
   key: string
   originCityId?: number

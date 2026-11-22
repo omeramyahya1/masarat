@@ -198,6 +198,51 @@ describe('passenger trips', () => {
 })
 
 describe('the government and passenger trips', () => {
+  test('CSV cells a spreadsheet would run as formulas stay text; Excel dates are Sudan time', async () => {
+    const { b } = await signedIn('owner.one', 'company_admin', OWNER)
+    const ids = await setup(b)
+    const formula = '=HYPERLINK("http://evil.example","x")'
+    const trip = await b.call(
+      'POST',
+      '/trips',
+      busTrip(ids, {
+        passengers: [
+          {
+            fullName: formula,
+            idType: null,
+            idNumber: null,
+            seatNo: 1,
+            isInfant: false,
+            notes: '+1+1'
+          }
+        ]
+      })
+    )
+    expect(trip.status).toBe(200)
+    const { b: govt } = await signedIn('chief', 'govt_admin')
+    const input = {
+      filters: { range: { preset: 'custom', from: '2026-11-01', to: '2026-11-30' } },
+      dateBasis: 'trip',
+      status: 'all',
+      datasets: ['passengers'],
+      formats: ['csv'],
+      labels: { columns: {}, sheets: {}, values: {} }
+    }
+    const csv = strFromU8(new Uint8Array((await govt.call('POST', '/govt/exports', input)).body))
+    expect(csv).toContain(`"'=HYPERLINK(""http://evil.example"",""x"")"`)
+    expect(csv).toContain(",'+1+1")
+    // The seat stays a number
+    expect(csv.split('\r\n')[1]).toContain(',1,')
+
+    const xlsx = await govt.call('POST', '/govt/exports', { ...input, formats: ['xlsx'] })
+    const { default: ExcelJS } = await import('exceljs')
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(xlsx.body)
+    // Departure 07:00 Sudan time: the cell holds 07:00 (Excel has no zones)
+    const departure = workbook.worksheets[0].getRow(2).getCell(3).value as Date
+    expect(departure.toISOString()).toBe('2026-11-20T07:00:00.000Z')
+  })
+
   test('search by an exact ID number, through its index', async () => {
     const { b } = await signedIn('owner.one', 'company_admin', OWNER)
     const ids = await setup(b)

@@ -672,12 +672,19 @@ async function findOwnedTripRow(
 }
 
 // The manifest's status, read with a row lock so a concurrent save, delete or bill waits
-async function lockedStatus(tx: Tx, manifestId: number): Promise<string | undefined> {
+// Locked through the member's scope too: a trip moved to another branch meanwhile is no longer
+// theirs to change (undefined, answered as not found)
+async function lockedStatus(
+  tx: Tx,
+  scope: CompanyScope,
+  manifestId: number
+): Promise<string | undefined> {
   const [current] = await tx
     .select({ status: manifests.status })
     .from(manifests)
-    .where(eq(manifests.id, manifestId))
-    .for('update')
+    .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
+    .where(and(eq(manifests.id, manifestId), tripScopeCondition(scope)))
+    .for('update', { of: manifests })
   return current?.status
 }
 
@@ -727,8 +734,11 @@ export async function updateTrip(
 
   // Attachments the trip no longer has; their files are removed once the rows are gone
   const removed = await getDb().transaction(async (tx) => {
-    // Re-checked inside the transaction so a bill issued meanwhile can't be overwritten
-    if ((await lockedStatus(tx, existing.id)) !== 'draft') return null
+    // Re-checked inside the transaction so a bill issued meanwhile can't be overwritten, nor a trip
+    // that left the member's scope
+    const status = await lockedStatus(tx, scope, existing.id)
+    if (status === undefined) return 'not_found' as const
+    if (status !== 'draft') return null
     await tx.update(manifests).set(manifest).where(eq(manifests.id, existing.id))
     await writeItems(tx, existing.id, items)
     await writePassengers(tx, existing.id, passengers)
@@ -751,6 +761,7 @@ export async function updateTrip(
     await insertDocuments(tx, existing.id, documents.add)
     return dropped.map((d) => d.storedName)
   })
+  if (removed === 'not_found') return failure('manifest_not_found')
   if (removed) {
     removeStoredFiles(existing.id, removed)
     moveStaged(existing.id, documents.add)
@@ -771,8 +782,11 @@ export async function deleteTrip(
   if (existing.status !== 'draft') return failure('not_draft')
 
   const deleted = await getDb().transaction(async (tx) => {
-    // Re-checked inside the transaction so a bill issued meanwhile isn't lost
-    if ((await lockedStatus(tx, existing.id)) !== 'draft') return false
+    // Re-checked inside the transaction so a bill issued meanwhile isn't lost, nor a trip that
+    // left the member's scope deleted
+    const status = await lockedStatus(tx, scope, existing.id)
+    if (status === undefined) return 'not_found' as const
+    if (status !== 'draft') return false
     await tx.delete(manifestCargoItems).where(eq(manifestCargoItems.manifestId, existing.id))
     await tx.delete(tripPassengers).where(eq(tripPassengers.manifestId, existing.id))
     await tx.delete(manifestCharges).where(eq(manifestCharges.manifestId, existing.id))
@@ -781,6 +795,7 @@ export async function deleteTrip(
     await tx.delete(manifests).where(eq(manifests.id, existing.id))
     return true
   })
+  if (deleted === 'not_found') return failure('manifest_not_found')
   if (!deleted) return failure('not_draft')
   // The trip is gone either way; a folder left behind is removed on the next startup
   try {

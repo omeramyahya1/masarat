@@ -75,11 +75,6 @@ function validate(
 const isNameTaken = (error: unknown): boolean =>
   isUniqueViolation(error, 'roles_company_name_unique')
 
-async function membersOf(roleId: number): Promise<number> {
-  const [row] = await getDb().select({ value: count() }).from(users).where(eq(users.roleId, roleId))
-  return row?.value ?? 0
-}
-
 async function findCompanyRole(companyId: number, roleId: number): Promise<Role | undefined> {
   const [role] = await getDb()
     .select()
@@ -123,23 +118,36 @@ export async function updateRole(
   if (isLockedRole(existing)) return { ok: false, error: 'role_locked' }
   const checked = validate(input)
   if (!checked.ok) return checked
-  const members = await membersOf(roleId)
-  // Members of a branch role have a branch, those of a company role don't: reassign them first
-  if (checked.scope !== existing.scope && members > 0) return { ok: false, error: 'role_in_use' }
   try {
-    const role = await getDb().transaction(async (tx) => {
-      const [updated] = await tx
-        .update(roles)
-        .set({ name: checked.name, scope: checked.scope })
-        .where(eq(roles.id, roleId))
-        .returning()
-      await tx.delete(rolePermissions).where(eq(rolePermissions.roleId, roleId))
-      await tx
-        .insert(rolePermissions)
-        .values(checked.permissions.map((permission) => ({ roleId, permission })))
-      return updated
-    })
-    return { ok: true, data: await toRecord(role, members) }
+    const result = await getDb().transaction(
+      async (tx): Promise<MemberResult<{ role: Role; members: number }>> => {
+        // The role row stays locked until the change is written, so nobody is given the role
+        // meanwhile (assigning a role takes the same lock, see checkAssignment in members.ts)
+        const [current] = await tx.select().from(roles).where(eq(roles.id, roleId)).for('update')
+        const [{ value: members }] = await tx
+          .select({ value: count() })
+          .from(users)
+          .where(eq(users.roleId, roleId))
+        // Members of a branch role have a branch, those of a company role don't: reassign them first
+        if (checked.scope !== current.scope && members > 0) {
+          return { ok: false, error: 'role_in_use' }
+        }
+        const [updated] = await tx
+          .update(roles)
+          .set({ name: checked.name, scope: checked.scope })
+          .where(eq(roles.id, roleId))
+          .returning()
+        await tx.delete(rolePermissions).where(eq(rolePermissions.roleId, roleId))
+        await tx
+          .insert(rolePermissions)
+          .values(checked.permissions.map((permission) => ({ roleId, permission })))
+        return { ok: true, data: { role: updated, members } }
+      }
+    )
+    // Read once committed: the role's permissions come from the rows just written
+    return result.ok
+      ? { ok: true, data: await toRecord(result.data.role, result.data.members) }
+      : result
   } catch (error) {
     if (isNameTaken(error)) return { ok: false, error: 'role_name_taken' }
     throw error
@@ -151,7 +159,15 @@ export async function deleteRole(companyId: number, roleId: number): Promise<Mem
   const existing = await findCompanyRole(companyId, roleId)
   if (!existing) return { ok: false, error: 'role_not_found' }
   if (existing.key !== null) return { ok: false, error: 'role_locked' }
-  if ((await membersOf(roleId)) > 0) return { ok: false, error: 'role_in_use' }
-  await getDb().delete(roles).where(eq(roles.id, roleId))
-  return { ok: true, data: null }
+  return getDb().transaction(async (tx): Promise<MemberResult<null>> => {
+    // Locked like updateRole, so nobody is given the role while it's deleted
+    await tx.select({ id: roles.id }).from(roles).where(eq(roles.id, roleId)).for('update')
+    const [{ value: members }] = await tx
+      .select({ value: count() })
+      .from(users)
+      .where(eq(users.roleId, roleId))
+    if (members > 0) return { ok: false, error: 'role_in_use' }
+    await tx.delete(roles).where(eq(roles.id, roleId))
+    return { ok: true, data: null }
+  })
 }

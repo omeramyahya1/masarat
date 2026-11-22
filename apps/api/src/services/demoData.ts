@@ -4,7 +4,7 @@
 // deletes only them and what hangs off them.
 import { randomBytes } from 'crypto'
 import { log } from '../log'
-import { and, eq, inArray, isNull } from 'drizzle-orm'
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import {
   branches,
   certificates,
@@ -1115,16 +1115,33 @@ async function deleteDemoCompanies(): Promise<void> {
 
 // On startup: seed once if there are no demo companies yet, and make sure the demo government
 // accounts exist
+// Seeding and regenerating take this Postgres advisory lock for their whole run (the check, the
+// delete, the seed and the clean-up after a failure), so two at once (two API processes starting,
+// two admins regenerating) run one after the other instead of deleting each other's data. It's a
+// transaction lock held by an otherwise idle transaction: the work itself uses other connections.
+const DEMO_DATA_LOCK = 20261122
+
+async function withDemoDataLock(work: () => Promise<void>): Promise<void> {
+  await getDb().transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(${DEMO_DATA_LOCK})`)
+    await work()
+  })
+}
+
 export async function ensureDemoData(): Promise<void> {
-  if ((await demoCompanyIds()).length === 0) await seedCompanies()
-  await createGovtAccounts()
+  await withDemoDataLock(async () => {
+    if ((await demoCompanyIds()).length === 0) await seedCompanies()
+    await createGovtAccounts()
+  })
 }
 
 // Government panel "Regenerate demo data": rebuilds the demo companies; other companies' data
 // stays
 export async function regenerateDemoData(): Promise<void> {
   if (!config.demoMode) throw new Error('Demo data can only be regenerated in demo mode')
-  await deleteDemoCompanies()
-  await seedCompanies()
-  await createGovtAccounts()
+  await withDemoDataLock(async () => {
+    await deleteDemoCompanies()
+    await seedCompanies()
+    await createGovtAccounts()
+  })
 }

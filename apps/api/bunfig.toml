@@ -1,0 +1,3 @@
+[test]
+# Points the API at the masarat_test database and migrates it before any test file loads
+preload = ["./test/setup.ts"]

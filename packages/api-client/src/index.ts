@@ -1,7 +1,6 @@
 // The typed client the web apps use to reach the API, over fetch with the session cookie. Its
 // shape follows the Electron MVP's window.api, except where the desktop did things natively: files
 // are uploaded and downloaded, and documents print from the browser.
-// TODO(web): the government's calls other than govt.users still reject with "not wired yet".
 import type {
   AuthResult,
   AuthUser,
@@ -34,7 +33,7 @@ import type { Page } from '@masarat/shared/paging'
 import type { GovtSearchInput, GovtSearchResult, TripDetails } from '@masarat/shared/billing'
 import type { DashboardData } from '@masarat/shared/dashboard'
 import type { AnalyticsFilters, DashboardView, OwnerOption } from '@masarat/shared/analytics'
-import type { ExportInput, ExportResult } from '@masarat/shared/exports'
+import type { ExportInput, ExportRows } from '@masarat/shared/exports'
 import type { OcrResult, ScanInput } from '@masarat/shared/ocr'
 import type { TaxRatesInput, TaxSettingsView } from '@masarat/shared/tax'
 
@@ -102,15 +101,15 @@ export interface GovtAPI {
   dashboard: (filters: AnalyticsFilters, view: DashboardView) => Promise<FleetResult<DashboardData>>
   listOwners: () => Promise<FleetResult<OwnerOption[]>>
   // Trips of every owner by bill ID, receipt/manifest number, trip number, plate, name or route
-  search: (input: GovtSearchInput) => Promise<FleetResult<GovtSearchResult[]>>
+  // One page of the matches (input.page, input.pageSize)
+  search: (input: GovtSearchInput) => Promise<FleetResult<Page<GovtSearchResult>>>
   // Any owner's trip, read-only
   getTrip: (manifestId: number) => Promise<FleetResult<TripDetails>>
   // Any trip's attachment, for the preview
   documentFile: (documentId: number) => Promise<FleetResult<DownloadedFile>>
-  // Prints the open report (its print styles) to a PDF the user saves
-  saveReportPdf: (fileName: string) => Promise<FleetResult<{ saved: boolean }>>
-  // Raw data (trips, bills, cargo items, tax lines) as an Excel workbook or CSV files
-  exportData: (input: ExportInput) => Promise<FleetResult<ExportResult>>
+  // Raw data (trips, bills, cargo items, tax lines): one Excel or CSV file, or a ZIP of several,
+  // with the rows written per dataset
+  exportData: (input: ExportInput) => Promise<FleetResult<DownloadedFile & { rows: ExportRows }>>
   getTaxSettings: () => Promise<FleetResult<TaxSettingsView>>
   // Basis points per tax; each change is logged under the signed-in government user
   updateTaxRates: (input: TaxRatesInput) => Promise<FleetResult<TaxSettingsView>>
@@ -192,10 +191,21 @@ async function download(
   method: string,
   path: string,
   body?: unknown
-): Promise<FleetResult<DownloadedFile>> {
+): Promise<FleetResult<DownloadedFile & { response: Response }>> {
   const response = await send(method, path, body)
-  if (!response.ok) return (await response.json()) as FleetResult<DownloadedFile>
-  return { ok: true, data: { blob: await response.blob(), fileName: fileNameOf(response, 'file') } }
+  if (!response.ok) return (await response.json()) as FleetResult<never>
+  return {
+    ok: true,
+    data: { blob: await response.blob(), fileName: fileNameOf(response, 'file'), response }
+  }
+}
+
+// A download without its response, which only the export reads
+async function file(path: string): Promise<FleetResult<DownloadedFile>> {
+  const result = await download('GET', path)
+  return result.ok
+    ? { ok: true, data: { blob: result.data.blob, fileName: result.data.fileName } }
+    : result
 }
 
 // Query string from the set values; arrays and objects aren't used here
@@ -242,7 +252,7 @@ const documents: DocumentsAPI = {
     form.set('file', file)
     return request('POST', '/documents', form)
   },
-  file: (id) => download('GET', `/documents/${id}/file`),
+  file: (id) => file(`/documents/${id}/file`),
   scan: (input) => request('POST', '/documents/scan', input)
 }
 
@@ -269,19 +279,33 @@ const users: GovtUsersAPI = {
   setAdmin: (id, isAdmin) => request('POST', `/govt/users/${id}/admin`, { isAdmin })
 }
 
-const config: ConfigAPI = {
-  get: () => request('GET', '/config')
+const govt: GovtAPI = {
+  users,
+  getReferenceData: () => request('GET', '/govt/reference'),
+  dashboard: (filters, view) => request('POST', '/govt/dashboard', { filters, view }),
+  listOwners: () => request('GET', '/govt/owners'),
+  search: (input) => request('GET', `/govt/search${queryString(input)}`),
+  getTrip: (id) => request('GET', `/govt/trips/${id}`),
+  documentFile: (id) => file(`/govt/documents/${id}/file`),
+  exportData: async (input) => {
+    const result = await download('POST', '/govt/exports', input)
+    if (!result.ok) return result
+    const { blob, fileName, response } = result.data
+    let rows: ExportRows = {}
+    try {
+      rows = JSON.parse(response.headers.get('x-export-rows') ?? '{}') as ExportRows
+    } catch {
+      // The counts are only for the dialog's summary
+    }
+    return { ok: true, data: { blob, fileName, rows } }
+  },
+  getTaxSettings: () => request('GET', '/govt/tax-settings'),
+  updateTaxRates: (input) => request('PUT', '/govt/tax-settings', input),
+  regenerateDemoData: () => request('POST', '/govt/demo/regenerate')
 }
 
-// Calls without a route yet reject until they're wired
-const notWired = (path: string): Promise<never> =>
-  Promise.reject(new Error(`api.${path} is not wired to the API yet`))
-
-function group<T extends object>(name: string, wired: Partial<T> = {}): T {
-  return new Proxy(wired, {
-    get: (target, method: string) =>
-      method in target ? target[method as keyof typeof target] : () => notWired(`${name}.${method}`)
-  }) as T
+const config: ConfigAPI = {
+  get: () => request('GET', '/config')
 }
 
 export const api: MasaratApi = {
@@ -291,5 +315,5 @@ export const api: MasaratApi = {
   trips,
   billing,
   documents,
-  govt: group<GovtAPI>('govt', { users })
+  govt
 }

@@ -1,6 +1,6 @@
 {
   "name": "masarat",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Masarat: electronic transport manifests and tax collection for Sudan",
   "type": "module",

@@ -9,15 +9,16 @@ The production version is being built for the web. The original Electron MVP is 
 
 ## Layout
 
-| Workspace | What it is |
-|---|---|
-| `apps/api` | Hono API on Bun, shared by both portals |
-| `apps/owner-portal` | Fleet owner portal, `owner.masarat.com` (Vite + React) |
-| `apps/govt-portal` | Government portal, `govt.masarat.com` (Vite + React) |
-| `packages/shared` | Domain rules: plates, trip cost and taxes, bill IDs, analytics filters |
-| `packages/ui` | React components, i18n (English / Arabic) and styles both portals use |
-| `packages/api-client` | Typed client the portals use to call the API |
-| `apps/desktop-demo` | The Electron MVP (separate bun project, frozen) |
+| Workspace             | What it is                                                                |
+| --------------------- | ------------------------------------------------------------------------- |
+| `apps/api`            | Hono API on Bun, `api.masarat.com`                                        |
+| `apps/site`           | Landing page, login and fleet owner sign-up, `masarat.com` (Vite + React) |
+| `apps/owner-portal`   | Fleet owner portal, `owner.masarat.com` (Vite + React)                    |
+| `apps/govt-portal`    | Government portal, `govt.masarat.com` (Vite + React)                      |
+| `packages/shared`     | Domain rules: plates, trip cost and taxes, bill IDs, analytics filters    |
+| `packages/ui`         | React components, i18n (English / Arabic) and styles the web apps use     |
+| `packages/api-client` | Typed client the web apps use to call the API                             |
+| `apps/desktop-demo`   | The Electron MVP (separate bun project, frozen)                           |
 
 ## Setup
 
@@ -34,22 +35,27 @@ bun run db:migrate                       # applies apps/api/drizzle
 ## Development
 
 ```bash
+bun run dev         # everything below at once
 bun run dev:api     # http://localhost:3000
+bun run dev:site    # http://localhost:5175  ← start here: log in
 bun run dev:owner   # http://localhost:5173
 bun run dev:govt    # http://localhost:5174
 ```
 
-With `DEMO_MODE=true` the API seeds the demo fleet companies on its first start.
+With `DEMO_MODE=true` the API seeds the demo fleet companies on its first start, and the login
+page lists their accounts. A new deployment gets its first government admin from the server:
+`bun run --filter @masarat/api user:create-admin <username> "<full name>"`.
 
 ```bash
 bun run typecheck
 bun run lint
 bun run test        # API service tests, against a masarat_test database
-bun run build       # both portals
+bun run build       # the three web apps
 ```
 
-The portals aren't wired to the API yet: they show their login page, and API calls fail with
-"not wired yet". `apps/api/ROUTES.md` lists the endpoints to build.
+Login, sessions and the government Users section work end to end. The portals' other features
+aren't wired to the API yet: their calls fail with "not wired yet". `apps/api/ROUTES.md` lists
+the endpoints to build.
 
 ## Desktop demo
 

@@ -4,7 +4,7 @@ import GovtWorkspace from './components/govt/GovtWorkspace'
 function App(): React.JSX.Element {
   return (
     <AppShell role="govt" version={__APP_VERSION__}>
-      {() => <GovtWorkspace />}
+      {(user) => <GovtWorkspace user={user} />}
     </AppShell>
   )
 }

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { LogOut, Route, UserRound } from 'lucide-react'
+import { LoaderCircle, LogOut, Route, UserRound, WifiOff } from 'lucide-react'
 import type { AuthUser, UserRole } from '@masarat/shared/auth'
-import { api } from '@masarat/api-client'
-import AuthPanel from './auth/AuthPanel'
+import { api, SIGNED_OUT_EVENT } from '@masarat/api-client'
+import { PORTAL_URLS, SITE_URL, changePasswordUrl, loginUrl } from '../lib/urls'
 import LanguageToggle from './LanguageToggle'
 
 interface AppShellProps {
@@ -13,22 +13,49 @@ interface AppShellProps {
   children: (user: AuthUser, onUserChange: (user: AuthUser) => void) => React.ReactNode
 }
 
-// The header, the login page and the signed-in user bar, shared by both portals
+type State = { status: 'loading' } | { status: 'offline' } | { status: 'ready'; user: AuthUser }
+
+// The header and the signed-in user bar, shared by both portals. Logging in happens on
+// masarat.com: a visitor without a session is sent there and comes back once signed in, and a
+// user of the other portal is sent to theirs.
 function AppShell({ role, version, children }: AppShellProps): React.JSX.Element {
   const { t } = useTranslation()
-  const [user, setUser] = useState<AuthUser | null>(null)
+  const [state, setState] = useState<State>({ status: 'loading' })
 
-  // Restore the session after a reload
+  // Bumped by "Try again" when the API couldn't be reached
+  const [attempt, setAttempt] = useState(0)
+
   useEffect(() => {
     api.auth
-      .getSession(role)
-      .then(setUser)
-      .catch(() => setUser(null))
-  }, [role])
+      .getSession()
+      .then((user) => {
+        const here = window.location.href
+        if (!user) window.location.assign(loginUrl(here))
+        else if (user.mustChangePassword) window.location.assign(changePasswordUrl(here))
+        else if (user.role !== role) window.location.assign(PORTAL_URLS[user.role])
+        else setState({ status: 'ready', user })
+      })
+      .catch(() => setState({ status: 'offline' }))
+  }, [role, attempt])
+
+  const retry = (): void => {
+    setState({ status: 'loading' })
+    setAttempt((n) => n + 1)
+  }
+
+  // Any API call that finds the session ended (expired, signed out elsewhere, account disabled)
+  useEffect(() => {
+    const onSignedOut = (): void => window.location.assign(loginUrl(window.location.href))
+    window.addEventListener(SIGNED_OUT_EVENT, onSignedOut)
+    return () => window.removeEventListener(SIGNED_OUT_EVENT, onSignedOut)
+  }, [])
 
   const handleLogOut = async (): Promise<void> => {
-    await api.auth.logOut(role)
-    setUser(null)
+    try {
+      await api.auth.logOut()
+    } finally {
+      window.location.assign(SITE_URL)
+    }
   }
 
   return (
@@ -55,7 +82,7 @@ function AppShell({ role, version, children }: AppShellProps): React.JSX.Element
       </header>
 
       <main className="flex flex-1 flex-col overflow-auto">
-        {user ? (
+        {state.status === 'ready' ? (
           <div className="flex flex-1 flex-col">
             <div className="flex items-center justify-between border-b border-stone-200 bg-white px-6 py-3">
               <div className="flex items-center gap-3">
@@ -63,8 +90,8 @@ function AppShell({ role, version, children }: AppShellProps): React.JSX.Element
                   <UserRound size={18} />
                 </div>
                 <div className="leading-tight">
-                  <div className="font-medium text-stone-900">{user.fullName}</div>
-                  <div className="text-xs text-stone-500">{user.username}</div>
+                  <div className="font-medium text-stone-900">{state.user.fullName}</div>
+                  <div className="text-xs text-stone-500">{state.user.username}</div>
                 </div>
               </div>
               <button type="button" className="btn btn-secondary btn-sm" onClick={handleLogOut}>
@@ -72,10 +99,24 @@ function AppShell({ role, version, children }: AppShellProps): React.JSX.Element
                 {t('home.logOut')}
               </button>
             </div>
-            {children(user, setUser)}
+            {children(state.user, (user) => setState({ status: 'ready', user }))}
+          </div>
+        ) : state.status === 'offline' ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+            <WifiOff size={28} className="text-stone-400" />
+            <p className="text-sm text-stone-600">{t('shell.offline')}</p>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={retry}>
+              {t('shell.retry')}
+            </button>
           </div>
         ) : (
-          <AuthPanel role={role} onAuthenticated={setUser} />
+          <div
+            className="flex flex-1 items-center justify-center"
+            role="status"
+            aria-label={t('shell.loading')}
+          >
+            <LoaderCircle size={28} className="animate-spin text-brand-700" />
+          </div>
         )}
       </main>
     </>

@@ -1,4 +1,4 @@
-// Demo accounts, created by the demo data seeder (src/main/services/demoData.ts) and listed on the
+// Demo accounts, created by the demo data seeder (apps/api/src/services/demoData.ts) and listed on the
 // login pages so the presenter can sign in with one click. Static on purpose: this is a demo.
 import type { UserRole } from './auth'
 
@@ -63,5 +63,6 @@ export const DEMO_GOVT_ACCOUNT: DemoAccount = {
   tin: null
 }
 
-export const demoAccountsFor = (role: UserRole): readonly DemoAccount[] =>
-  role === 'owner' ? DEMO_OWNER_ACCOUNTS : [DEMO_GOVT_ACCOUNT]
+// Listed on the masarat.com login page when the API runs in demo mode. The government account is
+// an admin, so the Users section can be shown.
+export const DEMO_ACCOUNTS: readonly DemoAccount[] = [...DEMO_OWNER_ACCOUNTS, DEMO_GOVT_ACCOUNT]

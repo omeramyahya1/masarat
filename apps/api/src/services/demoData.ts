@@ -38,7 +38,8 @@ import {
   calculateTaxes,
   estimateRoadKm
 } from '@masarat/shared/tax'
-import { dropSessionsOf, hashPassword } from './auth'
+import { hashPassword } from './auth'
+import { config } from '../config'
 import { certificateNoFor, manifestNoFor, validUntilFor } from './billing'
 import { removeTripFolder } from './documents'
 import { newBillId } from './esali'
@@ -359,7 +360,9 @@ async function createAccount(account: DemoAccount): Promise<number | null> {
       companyName: account.companyName,
       address: account.address,
       tin: account.tin,
-      isDemo: true
+      isDemo: true,
+      // The demo government account can show the Users section
+      isAdmin: account.role === 'govt'
     })
     .returning({ id: users.id })
   return created.id
@@ -734,7 +737,7 @@ async function demoOwnerIds(): Promise<number[]> {
 async function deleteDemoOwners(): Promise<void> {
   const ownerIds = await demoOwnerIds()
   if (ownerIds.length === 0) return
-  dropSessionsOf(new Set(ownerIds))
+  // Their sessions go with the accounts (sessions.user_id cascades)
 
   // Folders of demo trips that had attachments, removed once the rows are gone for good
   const folders = await getDb().transaction(async (tx) => {
@@ -788,6 +791,7 @@ export async function ensureDemoData(): Promise<void> {
 
 // Government panel "Regenerate demo data": rebuilds the demo owners' data; hand-made data stays
 export async function regenerateDemoData(): Promise<void> {
+  if (!config.demoMode) throw new Error('Demo data can only be regenerated in demo mode')
   await deleteDemoOwners()
   await seedOwners()
   await createAccount(DEMO_GOVT_ACCOUNT)

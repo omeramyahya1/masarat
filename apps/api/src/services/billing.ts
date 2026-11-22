@@ -13,6 +13,7 @@ import {
   type PaymentRecord,
   type TripDetails
 } from '@masarat/shared/billing'
+import { config } from '../config'
 import { findOwnedDriver } from './drivers'
 import { esali } from './esali'
 import {
@@ -251,6 +252,7 @@ export async function simulatePayment(
   ownerId: number,
   manifestId: number
 ): Promise<FleetResult<null>> {
+  if (!config.demoMode) return { ok: false, error: 'forbidden' }
   const trip = await findOwnedTrip(ownerId, manifestId)
   if (!trip) return { ok: false, error: 'manifest_not_found' }
   const payment = await paymentOf(trip.id)

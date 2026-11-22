@@ -337,6 +337,10 @@ export type FleetErrorCode =
   | 'document_too_large'
   | 'scan_conflict'
   | 'zero_bill'
+  // The account may not do this (another role, not an admin, or a demo-only action)
+  | 'forbidden'
+  // The account must replace its temporary password first
+  | 'password_change_required'
   | 'unknown'
 
 export type FleetResult<T> = { ok: true; data: T } | { ok: false; error: FleetErrorCode }

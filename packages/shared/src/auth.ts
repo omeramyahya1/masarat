@@ -1,4 +1,4 @@
-// Types and rules shared by the main process (auth service) and the renderer (auth forms)
+// Types and rules shared by the API (auth services) and the web apps (auth forms)
 
 export type UserRole = 'owner' | 'govt'
 
@@ -12,10 +12,14 @@ export interface AuthUser {
   // Fleet owners' carrier details, printed on their manifests
   address: string | null
   tin: string | null
+  // Government accounts that manage the other government accounts
+  isAdmin: boolean
+  // Set on an account an admin created or reset: it has to pick its own password first
+  mustChangePassword: boolean
 }
 
+// Only fleet owners sign themselves up; government accounts are created by an admin
 export interface SignUpInput {
-  role: UserRole
   fullName: string
   username: string
   password: string
@@ -35,9 +39,13 @@ export interface ProfileInput {
 }
 
 export interface LogInInput {
-  role: UserRole
   username: string
   password: string
+}
+
+export interface ChangePasswordInput {
+  currentPassword: string
+  newPassword: string
 }
 
 export type AuthErrorCode =
@@ -46,8 +54,12 @@ export type AuthErrorCode =
   | 'weak_password'
   | 'username_taken'
   | 'invalid_credentials'
-  | 'wrong_panel'
-  | 'cancelled'
+  | 'too_many_attempts'
+  | 'account_disabled'
+  | 'wrong_password'
+  | 'same_password'
+  | 'password_change_required'
+  | 'forbidden'
   | 'invalid_tin'
   | 'address_too_long'
   | 'not_signed_in'

@@ -4,12 +4,17 @@ The Electron MVP talked to its main process over IPC (`apps/desktop-demo/src/mai
 Each channel below becomes an HTTP endpoint here. The service functions already exist in
 `src/services/`. What's missing is the routes, sessions and the portals' `api` client.
 
-**Sessions** are still the desktop model: `services/auth.ts` keeps one signed-in user per role
-in memory. The web needs per-request sessions (cookie or token) passed into each service.
+**Sessions** are done (`src/http/middleware.ts`): `session` puts the signed-in user on the
+request as `c.get('user')`, and `requireUser()`, `requireRole('owner' | 'govt')` and
+`requireAdmin` guard a route. Each new route passes the user's id to its service (owner services
+take `ownerId`; the government's read-only ones take `null`). Results go out with `send(c, result)`.
+
+Done: `GET /health`, `GET /config`, `POST /auth/login`, `POST /auth/signup` (fleet owners),
+`POST /auth/logout`, `GET /auth/me`, `PATCH /auth/profile` (owner), `POST /auth/change-password`,
+and `/govt/users` (`GET`, `POST`, `POST /:id/{disable,enable,reset-password,admin}`; admins).
 
 | Group        | IPC channel                                                                                                   | Service function                                  | Who              |
 | ------------ | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ---------------- |
-| auth         | `auth:sign-up`, `auth:log-in`, `auth:log-out`, `auth:get-session`, `auth:update-profile`                      | `services/auth.ts`                                | both portals     |
 | fleet        | `fleet:list-vehicles`, `fleet:add-vehicle`, `fleet:update-vehicle`, `fleet:delete-vehicle`                    | `services/fleet.ts`                               | owner            |
 | fleet        | `fleet:list-drivers`, `fleet:add-driver`, `fleet:update-driver`, `fleet:delete-driver`                        | `services/drivers.ts`                             | owner            |
 | trips        | `trips:get-reference-data`, `trips:list`, `trips:suggestions`, `trips:create`, `trips:update`, `trips:delete` | `services/trips.ts`                               | owner            |

@@ -94,11 +94,11 @@ export interface ExportInput {
   labels: ExportLabels
 }
 
-// Rows written per dataset; saved is false when the user cancelled the save dialog
-export interface ExportResult {
-  saved: boolean
-  rows: Partial<Record<ExportDataset, number>>
-}
+// Rows written per dataset
+export type ExportRows = Partial<Record<ExportDataset, number>>
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 
 const isOneOf = <T>(list: readonly T[], value: unknown): value is T =>
   (list as readonly unknown[]).includes(value)
@@ -116,7 +116,9 @@ export function isExportOptions(value: unknown): value is Omit<ExportInput, 'fil
     Array.isArray(v.datasets) &&
     v.datasets.length > 0 &&
     v.datasets.every((d) => isOneOf(EXPORT_DATASETS, d)) &&
-    Boolean(v.labels) &&
-    typeof v.labels === 'object'
+    isObject(v.labels) &&
+    isObject(v.labels.columns) &&
+    isObject(v.labels.sheets) &&
+    isObject(v.labels.values)
   )
 }

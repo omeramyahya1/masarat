@@ -158,9 +158,9 @@ describe('government', () => {
 
   test('search ignores case and finds plates in Arabic digits', async () => {
     const byCompany = await searchTrips({ query: 'nile TEST' })
-    expect(byCompany.ok && byCompany.data.length).toBeGreaterThan(0)
+    expect(byCompany.ok && byCompany.data.rows.length).toBeGreaterThan(0)
     const byPlate = await searchTrips({ query: '٣٤٥٦٧' })
-    expect(byPlate.ok && byPlate.data.length).toBeGreaterThan(0)
+    expect(byPlate.ok && byPlate.data.rows.length).toBeGreaterThan(0)
   })
 
   test('tax changes are logged under the government user', async () => {

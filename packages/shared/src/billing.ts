@@ -58,6 +58,9 @@ export interface GovtSearchInput {
   query: string
   originCityId?: number | null
   destinationCityId?: number | null
+  // 1-based; 50 per page unless 25 or 100 is asked for
+  page?: number
+  pageSize?: number
 }
 
 export interface GovtSearchResult {
@@ -72,5 +75,3 @@ export interface GovtSearchResult {
   amount: number
   status: TripRecord['status']
 }
-
-export const MAX_SEARCH_RESULTS = 100

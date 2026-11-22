@@ -8,38 +8,52 @@ It started as an **Electron MVP / demo** for the relevant government agency (kep
 
 ## App shape
 
-Two web portals and one API, each on its own subdomain:
+Three web apps and one API, each on its own (sub)domain:
 
-1. **Fleet Owner portal** (`apps/owner-portal`, `owner.masarat.com`): used by transport/fleet operators.
-2. **Government portal** (`apps/govt-portal`, `govt.masarat.com`): used by government staff. It has the dashboard, search, tax settings and exports.
-3. **API** (`apps/api`): one Hono app on Bun that both portals call.
+1. **Site** (`apps/site`, `masarat.com`): the public landing page, **login for everyone**, fleet owner sign-up, and the forced password change. A signed-in user is sent to their portal.
+2. **Fleet Owner portal** (`apps/owner-portal`, `owner.masarat.com`): used by transport/fleet operators.
+3. **Government portal** (`apps/govt-portal`, `govt.masarat.com`): used by government staff. It has the dashboard, search, tax settings, exports and (admins only) *Users*.
+4. **API** (`apps/api`, `api.masarat.com`): one Hono app on Bun that all three call.
 
-The Electron demo showed both panels in one window with a toggle. The portals don't have one.
+The Electron demo showed both panels in one window with a toggle. The web apps don't: the account's role decides the portal.
+
+## Login and sessions
+
+- **One login, on masarat.com** (`apps/site`): username and password only; the account's role picks the portal. After login the site goes to `?next=` when it's a page of the user's own portal (`destinationFor` in `packages/ui/src/lib/urls.ts`; anything else would be an open redirect), otherwise to the portal's home. A signed-in user who opens masarat.com is sent straight on.
+- **The portals have no login page.** `AppShell` asks `GET /auth/me`; without a session it sends the browser to `masarat.com/login?next=<this page>`, a user of the other role to their own portal, and a user with a temporary password to `masarat.com/change-password`. Any API call that answers 401 fires `SIGNED_OUT_EVENT` (`@masarat/api-client`), which does the same. Logout returns to masarat.com.
+- **Sessions** (`services/sessions.ts`, `sessions` table): a random 32-byte token in the `masarat_session` cookie (HttpOnly, SameSite=Lax, Secure over HTTPS, `Domain=COOKIE_DOMAIN` = `.masarat.com` in production so every subdomain sends it; unset locally, where one host-only cookie on `localhost` covers every port). Only the token's SHA-256 is stored. A session ends after **2 h idle** or **12 h** in all, and at once when the account is disabled or its password reset. Changing your own password signs out your other sessions. Expired rows are purged on startup and hourly.
+- **Passwords**: Argon2id (`Bun.password`). Older scrypt hashes still verify and are rehashed at the next login.
+- **Rate limit** (`login_attempts`): 5 failures per username or 20 per IP in 15 minutes give `too_many_attempts`. A wrong password and an unknown username answer the same (`invalid_credentials`, timed alike); `account_disabled` is only told after the password checks out.
+- **CSRF and CORS** (`src/http/middleware.ts`, `src/app.ts`): requests that change something must carry an `Origin` that is one of `SITE_URL`, `OWNER_URL`, `GOVT_URL`; CORS allows exactly those, with credentials.
+- **Sign-up is for fleet owners only.** Government accounts are created by a **government admin** (`users.is_admin`, government only) in Government portal → *Users* (`services/govtUsers.ts`, `components/govt/users/`): create (a 12-character temporary password shown once), disable / enable, reset password, make / remove admin. An admin can't change their own account there, and there is always one active admin (the admin rows are locked, so two admins demoting each other at once can't both succeed). Accounts with a temporary password (`must_change_password`) can only call `/auth/me`, `/auth/change-password` and `/auth/logout` until they pick their own.
+- **The first admin** of a new deployment comes from the server: `bun run --filter @masarat/api user:create-admin <username> "<full name>"` prints its temporary password. The demo government account is an admin.
+- **Demo mode** (`DEMO_MODE=true`, never in production): seeds the demo data, shows the demo accounts on the login page (`GET /config`), and allows the demo-only actions (simulated payment, regenerate demo data).
 
 ## Production status
 
-This is step 1 of the move to the web: the code is reorganized but **not wired up yet**.
+Login works end to end; the portals' features are **not wired up yet**.
 
-- `apps/api` only serves `GET /health`. `apps/api/ROUTES.md` lists the endpoints still to build, one per Electron IPC channel. The services are there, async and on Postgres, but sessions are still the desktop model (one user per role, in memory).
-- `@masarat/api-client` has the API's typed shape (the old `window.api`), but every call rejects with "not wired yet". So the portals render their login pages and nothing more.
-- The database is **Postgres**. Auth and sessions, file storage and deployment are still open questions for the production brainstorm.
+- `apps/api` serves `/health`, `/config`, `/auth/*` and `/govt/users/*`. `apps/api/ROUTES.md` lists the endpoints still to build, one per Electron IPC channel. Their services are there, async and on Postgres; each route takes the user from the session (`c.get('user')`) and passes their id to the service.
+- `@masarat/api-client` has the API's typed shape (mostly the old `window.api`). `config`, `auth` and `govt.users` are wired; every other call rejects with "not wired yet". So after login the portals show their sections, which can't load their data yet.
+- The database is **Postgres**. File storage and deployment are still open questions for the production brainstorm.
 - **The data model is being revised.** The rules below describe the behaviour carried over from the MVP.
 - IPC channel names in the rules below (`documents:pick`, `govt:get-trip`, …) are the demo's, and each one becomes an API route. Anything the desktop did with native dialogs or `printToPDF` (picking files, opening files, saving PDFs, export save dialogs) still has to be redone for the browser. On the API side that's already started: uploads go through `stageDocument`, and `exportData` returns the files.
 
 ## Repo layout
 
-Bun workspaces (`apps/api`, `apps/*-portal`, `packages/*`):
+Bun workspaces (`apps/api`, `apps/site`, `apps/*-portal`, `packages/*`):
 
 - `packages/shared` (`@masarat/shared/<module>`): domain rules in plain TS (plates, trip cost and taxes, bill IDs, analytics filters, demo accounts), used by the API and both portals.
 - `packages/ui` (`@masarat/ui/<path>`, a path alias in `tsconfig.base.json` and in each portal's `vite.config.ts`): the React code both portals use:
-  - `AppShell` (header, login, user bar)
-  - `auth/`, `ui/`, `form/`, `PlateBadge`
+  - `AppShell` (header, session check and redirects, user bar)
+  - `auth/` (form fields, `useAuthSubmit`), `ui/`, `form/`, `PlateBadge`
   - the read-only trip view and documents (`trips/TripDetails`, `CertificateModal`, `ReceiptPage`, `ManifestPage`, …)
-  - `lib/`, `i18n/` (both locale files), and `assets/main.css`, which each portal imports from `main.tsx` and which adds `packages/ui` to Tailwind's sources
-- `packages/api-client` (`@masarat/api-client`): the `api` object and its `MasaratApi` type.
+  - `lib/` (`urls.ts`: the web apps' URLs and `destinationFor`), `i18n/` (both locale files, for all three web apps), and `assets/main.css`, which each portal imports from `main.tsx` and which adds `packages/ui` to Tailwind's sources
+- `packages/api-client` (`@masarat/api-client`): the `api` object and its `MasaratApi` type, calling the API with `fetch` and the session cookie (`VITE_API_URL`).
+- `apps/site/src`: `App.tsx` (session check and redirects), `router.ts` (four paths: `/`, `/login`, `/signup`, `/change-password`; the host must serve `index.html` for all of them), `pages/`, `components/auth/` (`LoginForm`, `SignUpForm`, `ChangePasswordForm`). Each web app reads `VITE_API_URL`, `VITE_SITE_URL`, `VITE_OWNER_URL` and `VITE_GOVT_URL` (`.env.example`; the defaults are the local URLs).
 - `apps/owner-portal/src/components`: `fleet/`, `owner/`, `OwnerWorkspace`, and the trip form and list (`trips/TripForm`, `TripsPanel`, `CargoItemsEditor`, `DocumentsField`, …).
-- `apps/govt-portal/src/components/govt`: the dashboard, search, tax settings, report and exports.
-- `apps/api/src`: `services/`, `db/` (`schema.ts`, `client.ts`, `migrate.ts`), `config.ts` (env from `apps/api/.env`, see `.env.example`: `DATABASE_URL`, `PORT`, `STORAGE_DIR`, `DEMO_MODE`). Migrations are in `apps/api/drizzle`, service tests in `apps/api/test`.
+- `apps/govt-portal/src/components/govt`: the dashboard, search, tax settings, report, exports and `users/`.
+- `apps/api/src`: `app.ts` (middleware and routes), `index.ts` (startup, then serves `app`), `routes/`, `http/` (context, cookie, middleware), `services/`, `db/` (`schema.ts`, `client.ts`, `migrate.ts`), `scripts/` (`createAdmin.ts`), `config.ts` (env from `apps/api/.env`, see `.env.example`: `DATABASE_URL`, `PORT`, `STORAGE_DIR`, `DEMO_MODE`, `SITE_URL`, `OWNER_URL`, `GOVT_URL`, `COOKIE_DOMAIN`, `TRUST_PROXY`). Migrations are in `apps/api/drizzle`, tests in `apps/api/test` (services, and the HTTP routes through `app.request()`).
 - `apps/desktop-demo`: the Electron MVP as of 1.1.1. It's a **separate bun project** (its own `bun.lock`, not a workspace) with its own copy of `src/shared`, so changes here never break it. See its `CLAUDE.md`.
 
 Short paths in the rules below: `services/*` is `apps/api/src/services/*`. Component and `lib/` paths are in `packages/ui/src` or in the portal that owns them.
@@ -120,9 +134,9 @@ Short paths in the rules below: `services/*` is `apps/api/src/services/*`. Compo
 - **Exports** (*Export* on the dashboard, `ExportDialog.tsx`), prefilled with the dashboard's filters. Exports are always in Arabic.
   - **Report (PDF)** (`ReportModal.tsx`): A4 sheets with the letterhead (`DocumentSheet` without barcode or QR). Page 1 has the parameters, key figures, revenue chart (fixed size, Arabic) and trip progress; page 2 has revenue by cargo and by tax and fee, and the breakdown. The user picks the chart grouping, breakdown and sort, and which sections to include. Saved with `govt:save-report-pdf`.
   - **Data (Excel / CSV)** (`services/exports.ts`, `packages/shared/src/exports.ts`): trips, bills & payments, cargo items and tax & fee lines. The period applies to the trip date, the bill's issue date or the payment date, with a trip status filter. Excel (exceljs) gives one right-to-left sheet per dataset with a frozen bold header; CSV is UTF-8 with a byte order mark, one file per dataset. Excel and CSV can be chosen together. In the demo several files go into a chosen folder; the API's `exportData` returns the files. The export dialog has no owner filter: exports cover every fleet owner. Headers and value labels come from the portal's Arabic translations (`export.columns.*`); plates stay in their stored form, amounts are numbers.
-- **Demo data** (`apps/api/src/services/demoData.ts`): only in demo mode (`DEMO_MODE=true`, never in production). On startup, if there are no demo owners, 4 demo fleet companies are seeded with about a year of trips, bills (with matching `esali_sim_bills` rows), payments and certificates, using the real trip cost and tax calculation (at the default percentages and fees). Each trip gets 1–4 cargo items with Arabic names, and about a quarter of tanker trips carry liquids. Some loads are mixed: about 15% of big-truck trips carry a container, and about 10% of fuel tanker trips carry liquids. It is deterministic (fixed PRNG seed, dates relative to today). Demo owners have an address and TIN (`packages/shared/src/demo.ts`), each vehicle a registration number, and each owner 5–8 drivers with Arabic names. Each trip also gets a trip type (imports and exports mostly on Port Sudan routes), sometimes trailers (big trucks), a driver, an Arabic sender and receiver, and packing details per item, and billed trips get the carrier details. All of these come from a second PRNG stream so the trips themselves stay the same. Demo users have `users.is_demo = 1`. The Government portal's hidden *⋯ → Regenerate demo data* deletes the demo owners and everything under them (including anything added by hand to a demo company), then reseeds; other owners' data and the demo government account are kept, and a signed-in demo owner is signed out.
-- **Demo accounts** (`packages/shared/src/demo.ts`, listed under *Demo accounts* on both login pages; clicking one fills the form):
-  - Government: `ministry.demo` / `govt2026`
+- **Demo data** (`apps/api/src/services/demoData.ts`): only in demo mode (`DEMO_MODE=true`, never in production). On startup, if there are no demo owners, 4 demo fleet companies are seeded with about a year of trips, bills (with matching `esali_sim_bills` rows), payments and certificates, using the real trip cost and tax calculation (at the default percentages and fees). Each trip gets 1–4 cargo items with Arabic names, and about a quarter of tanker trips carry liquids. Some loads are mixed: about 15% of big-truck trips carry a container, and about 10% of fuel tanker trips carry liquids. It is deterministic (fixed PRNG seed, dates relative to today). Demo owners have an address and TIN (`packages/shared/src/demo.ts`), each vehicle a registration number, and each owner 5–8 drivers with Arabic names. Each trip also gets a trip type (imports and exports mostly on Port Sudan routes), sometimes trailers (big trucks), a driver, an Arabic sender and receiver, and packing details per item, and billed trips get the carrier details. All of these come from a second PRNG stream so the trips themselves stay the same. Demo users have `users.is_demo = true`. The Government portal's hidden *⋯ → Regenerate demo data* deletes the demo owners and everything under them (including anything added by hand to a demo company, and their sessions), then reseeds; other owners' data and the demo government account are kept.
+- **Demo accounts** (`packages/shared/src/demo.ts`, `DEMO_ACCOUNTS`, listed under *Demo accounts* on the masarat.com login page in demo mode; clicking one fills the form):
+  - Government (admin): `ministry.demo` / `govt2026`
   - Fleet owners: `nile.transport` / `nile2026`, `redsea.logistics` / `redsea2026`, `kordofan.haulage` / `kordofan2026`, `gezira.freight` / `gezira2026`
 - **App version**: a grey badge in the header shows the portal's `package.json` version (`__APP_VERSION__`, set in `vite.config.ts`). In the demo it's `app.getVersion()` next to the MVP badge.
 - Charts use **Recharts** (lazy-loaded) for the time series; ranked bars are plain HTML so they follow RTL. Charts keep time left → right in Arabic, with the value axis on the right.
@@ -141,7 +155,7 @@ Short paths in the rules below: `services/*` is `apps/api/src/services/*`. Compo
   - Tests (`bun run test`) use their own `masarat_test` database, created and migrated by `apps/api/test/setup.ts`.
   - When the shape of trip data changes, the migration deletes the **demo owners and everything under them** (their trips, bills, payments, certificates, `esali_sim_bills`, vehicles and drivers), so the next startup reseeds them in the new shape. **Other owners' data is always migrated, never deleted**: new columns start empty, bills already issued keep their lines and amounts, and copies in table rebuilds must keep every existing row.
 - Prettier skips `**/drizzle`, so it never reformats the migration snapshots.
-- The portals reach data only through `@masarat/api-client`, never the database.
+- The web apps reach data only through `@masarat/api-client`, never the database.
 
 ## Commands
 
@@ -149,9 +163,10 @@ All from the repo root:
 
 - `bun install`
 - `bun run db:up` / `db:down` (local Postgres), `bun run db:migrate`, `bun run db:generate` (new migration from `schema.ts`)
-- `bun run dev:api` (port 3000), `bun run dev:owner` (5173), `bun run dev:govt` (5174)
+- `bun run dev`: the API and the three web apps together. Or one at a time: `bun run dev:api` (port 3000), `dev:site` (5175), `dev:owner` (5173), `dev:govt` (5174). Open http://localhost:5175 to log in.
+- `bun run --filter @masarat/api user:create-admin <username> "<full name>"`: a government admin, for a new deployment
 - `bun run dev:demo`: the Electron demo. Run `bun install` in `apps/desktop-demo` first, since it isn't a workspace.
-- `bun run typecheck`, `bun run test` (API services), `bun run build` (both portals), `bun run lint`, `bun run format`
+- `bun run typecheck`, `bun run test` (API), `bun run build` (the three web apps), `bun run lint`, `bun run format`
 
 ## Releasing
 

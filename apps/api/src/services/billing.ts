@@ -175,31 +175,40 @@ export async function generateBill(
   scope: CompanyScope,
   manifestId: number
 ): Promise<FleetResult<TripDetails>> {
-  const trip = await findOwnedTrip(scope, manifestId)
-  if (!trip) return { ok: false, error: 'manifest_not_found' }
-  // Asking twice returns the bill already issued instead of creating a second one
-  if (await paymentOf(trip.id)) return getTripDetails(scope, trip.id)
-  if (trip.status !== 'draft') return { ok: false, error: 'already_billed' }
-
-  // The manifest has to be complete, including the company's carrier details
+  if (!(await findOwnedTrip(scope, manifestId))) return { ok: false, error: 'manifest_not_found' }
   const db = getDb()
-  const { company } = trip
-  const driver =
-    trip.driverId === null ? undefined : await findOwnedDriver(scope.companyId, trip.driverId)
-  if (!driver || missingForBilling(await toTripRecord(trip), company).length > 0) {
-    return { ok: false, error: 'incomplete_manifest' }
-  }
+  const result = await db.transaction(async (tx): Promise<FleetResult<null>> => {
+    // The trip's row stays locked until the bill is written: an edit saved meanwhile (updateTrip
+    // takes the same lock) waits, so the bill is priced from the draft it's issued for
+    const [locked] = await tx
+      .select({ id: manifests.id })
+      .from(manifests)
+      .where(eq(manifests.id, manifestId))
+      .for('update')
+    // Read again under the lock (also checks it's still within the member's scope)
+    const trip = locked ? await findOwnedTrip(scope, manifestId) : undefined
+    if (!trip) return { ok: false, error: 'manifest_not_found' }
+    // Asking twice returns the bill already issued instead of creating a second one
+    if (await paymentOf(trip.id)) return { ok: true, data: null }
+    if (trip.status !== 'draft') return { ok: false, error: 'already_billed' }
 
-  // Billed at today's ticket price and taxes and fees (they may have changed since the draft was
-  // saved); the lines are frozen from here on, and so are the carrier and driver details
-  const passenger = trip.category === 'passenger'
-  const ticketPrice = passenger ? await pricing.ticketPrice(trip.distanceKm, db) : null
-  const tripCost = ticketPrice === null ? trip.tripCost : ticketPrice * trip.cargoQuantity
-  const taxes = calculateCharges(tripCost, await listCharges(db), trip.category)
-  // With every rate and fee at 0 there is nothing to pay; E-Sali isn't asked for a bill
-  if (taxes.total <= 0) return { ok: false, error: 'zero_bill' }
-  const { billId } = await esali.createBill({ amount: taxes.total })
-  await db.transaction(async (tx) => {
+    // The manifest has to be complete, including the company's carrier details
+    const { company } = trip
+    const driver =
+      trip.driverId === null ? undefined : await findOwnedDriver(scope.companyId, trip.driverId)
+    if (!driver || missingForBilling(await toTripRecord(trip), company).length > 0) {
+      return { ok: false, error: 'incomplete_manifest' }
+    }
+
+    // Billed at today's ticket price and taxes and fees (they may have changed since the draft
+    // was saved); the lines are frozen from here on, and so are the carrier and driver details
+    const passenger = trip.category === 'passenger'
+    const ticketPrice = passenger ? await pricing.ticketPrice(trip.distanceKm, tx) : null
+    const tripCost = ticketPrice === null ? trip.tripCost : ticketPrice * trip.cargoQuantity
+    const taxes = calculateCharges(tripCost, await listCharges(tx), trip.category)
+    // With every rate and fee at 0 there is nothing to pay; E-Sali isn't asked for a bill
+    if (taxes.total <= 0) return { ok: false, error: 'zero_bill' }
+    const { billId } = await esali.createBill({ amount: taxes.total })
     await writeCharges(tx, trip.id, taxes.lines)
     // manifest_id is unique, so a second bill for the trip fails here and rolls everything back
     await tx.insert(payments).values({ manifestId: trip.id, billId, amount: taxes.total })
@@ -208,7 +217,7 @@ export async function generateBill(
       .set({
         status: 'billed',
         tripCost,
-        ...(passenger ? { ticketPrice, ratePerKm: await pricing.ticketRatePerKm(db) } : {}),
+        ...(passenger ? { ticketPrice, ratePerKm: await pricing.ticketRatePerKm(tx) } : {}),
         taxAmount: taxes.total,
         carrierName: company.name,
         carrierAddress: company.address,
@@ -217,8 +226,9 @@ export async function generateBill(
         driverPhone: driver.phone
       })
       .where(eq(manifests.id, trip.id))
+    return { ok: true, data: null }
   })
-  return getTripDetails(scope, trip.id)
+  return result.ok ? getTripDetails(scope, manifestId) : result
 }
 
 // Checks the bill with E-Sali; once paid, records the payment and issues the receipt and the

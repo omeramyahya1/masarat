@@ -21,3 +21,4 @@ masarat.db*
 
 # API file storage (trip attachments) in development
 storage/
+docs/system_docs

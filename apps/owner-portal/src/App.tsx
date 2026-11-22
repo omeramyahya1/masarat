@@ -3,7 +3,7 @@ import OwnerWorkspace from './components/OwnerWorkspace'
 
 function App(): React.JSX.Element {
   return (
-    <AppShell role="owner" version={__APP_VERSION__}>
+    <AppShell kind="company" version={__APP_VERSION__}>
       {(user, onUserChange) => <OwnerWorkspace user={user} onUserChange={onUserChange} />}
     </AppShell>
   )

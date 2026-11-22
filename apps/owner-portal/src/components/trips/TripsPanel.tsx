@@ -16,7 +16,8 @@ import {
   type TripReferenceData,
   type VehicleRecord
 } from '@masarat/shared/fleet'
-import type { AuthUser } from '@masarat/shared/auth'
+import type { BranchRecord } from '@masarat/shared/members'
+import { useAccount, useCan } from '@masarat/ui/lib/account'
 import { useFormat } from '@masarat/ui/lib/format'
 import { useServerList, type ServerListState } from '@masarat/ui/lib/useServerList'
 import ListToolbar from '@masarat/ui/components/ui/ListToolbar'
@@ -28,18 +29,21 @@ import TripForm from './TripForm'
 import { STATUS_STYLES } from '@masarat/ui/components/trips/statusStyles'
 import { api } from '@masarat/api-client'
 
+// The company's trips; a branch member's are their branch's (the API decides which)
 function TripsPanel({
-  owner,
   onGoToVehicles,
-  onGoToProfile
+  onGoToCompany
 }: {
-  // The signed-in owner: their address and TIN are needed before a bill can be generated
-  owner: AuthUser
   onGoToVehicles: () => void
-  onGoToProfile: () => void
+  // The company's address and TIN are needed before a bill can be generated
+  onGoToCompany: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
+  const can = useCan()
+  const { role } = useAccount()
+  // Only members who see every branch can filter or group by branch
+  const allBranches = role.scope === 'company'
   const [mode, setMode] = useState<'list' | 'new' | { tripId: number } | { editing: TripRecord }>(
     'list'
   )
@@ -47,6 +51,7 @@ function TripsPanel({
   // For the filters and the group headers
   const [vehicles, setVehicles] = useState<VehicleRecord[]>([])
   const [drivers, setDrivers] = useState<DriverRecord[]>([])
+  const [branches, setBranches] = useState<BranchRecord[]>([])
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [created, setCreated] = useState<TripRecord | null>(null)
   const [deleted, setDeleted] = useState<number | null>(null)
@@ -64,6 +69,7 @@ function TripsPanel({
         cargoType: (f.cargoType || undefined) as TripListQuery['cargoType'],
         vehicleId: f.vehicle ? Number(f.vehicle) : undefined,
         driverId: f.driver ? Number(f.driver) : undefined,
+        branchId: f.branch ? Number(f.branch) : undefined,
         from: f.from || undefined,
         to: f.to || undefined,
         sort: state.sort as TripListQuery['sort'],
@@ -114,6 +120,8 @@ function TripsPanel({
         return t(`tripKinds.${key}`)
       case 'cargoType':
         return t(`cargoTypes.${key}`)
+      case 'branch':
+        return branches.find((b) => String(b.id) === key)?.name ?? key
     }
   }
 
@@ -124,15 +132,17 @@ function TripsPanel({
 
   const loadLists = useCallback(async (): Promise<void> => {
     try {
-      const [ref, vehicleList, driverList] = await Promise.all([
+      const [ref, vehicleList, driverList, branchList] = await Promise.all([
         api.trips.getReferenceData(),
         api.fleet.listVehicles(),
-        api.fleet.listDrivers()
+        api.fleet.listDrivers(),
+        api.company.branches()
       ])
       if (!ref.ok) return setError(ref.error)
       setReference(ref.data)
       if (vehicleList.ok) setVehicles(vehicleList.data)
       if (driverList.ok) setDrivers(driverList.data)
+      if (branchList.ok) setBranches(branchList.data)
     } catch {
       setError('unknown')
     }
@@ -155,8 +165,7 @@ function TripsPanel({
         key={mode.tripId}
         tripId={mode.tripId}
         reference={reference}
-        owner={owner}
-        onGoToProfile={onGoToProfile}
+        onGoToCompany={onGoToCompany}
         onBack={() => setMode('list')}
         onEdit={(trip) => setMode({ editing: trip })}
         onDeleted={() => {
@@ -197,6 +206,7 @@ function TripsPanel({
         <TripForm
           key={editing?.id ?? 'new'}
           reference={reference}
+          branches={branches}
           trip={editing}
           onCancel={leave}
           onGoToVehicles={onGoToVehicles}
@@ -284,7 +294,7 @@ function TripsPanel({
           <h2 className="text-lg font-semibold text-stone-900">{t('trips.title')}</h2>
           <p className="text-sm text-stone-500">{t('trips.subtitle')}</p>
         </div>
-        {page && page.overall > 0 && (
+        {page && page.overall > 0 && can('trips.edit') && (
           <button type="button" className="btn btn-primary" onClick={startNew}>
             <Plus size={16} />
             {t('trips.new')}
@@ -320,10 +330,12 @@ function TripsPanel({
           </div>
           <h3 className="font-semibold text-stone-900">{t('trips.empty.title')}</h3>
           <p className="max-w-sm text-sm text-stone-500">{t('trips.empty.body')}</p>
-          <button type="button" className="btn btn-primary mt-2" onClick={startNew}>
-            <Plus size={16} />
-            {t('trips.new')}
-          </button>
+          {can('trips.edit') && (
+            <button type="button" className="btn btn-primary mt-2" onClick={startNew}>
+              <Plus size={16} />
+              {t('trips.new')}
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -364,6 +376,15 @@ function TripsPanel({
                 label: t('trips.fields.driver'),
                 options: drivers.map((d) => ({ value: String(d.id), label: d.name }))
               },
+              ...(allBranches
+                ? [
+                    {
+                      key: 'branch',
+                      label: t('trips.list.branch'),
+                      options: branches.map((b) => ({ value: String(b.id), label: b.name }))
+                    }
+                  ]
+                : []),
               { key: 'from', label: t('trips.list.from'), type: 'date' },
               { key: 'to', label: t('trips.list.to'), type: 'date' }
             ]}
@@ -371,7 +392,10 @@ function TripsPanel({
               value: s,
               label: t(`trips.list.sorts.${s}`)
             }))}
-            groups={TRIP_GROUPS.map((g) => ({ value: g, label: t(`trips.list.groups.${g}`) }))}
+            groups={TRIP_GROUPS.filter((g) => allBranches || g !== 'branch').map((g) => ({
+              value: g,
+              label: t(`trips.list.groups.${g}`)
+            }))}
             shown={page.total}
             total={page.overall}
           />

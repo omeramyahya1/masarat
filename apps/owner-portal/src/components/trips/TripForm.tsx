@@ -24,6 +24,8 @@ import {
   calculateTaxes,
   estimateRoadKm
 } from '@masarat/shared/tax'
+import type { BranchRecord } from '@masarat/shared/members'
+import { useAccount, useCan } from '@masarat/ui/lib/account'
 import { todayIso, useFormat } from '@masarat/ui/lib/format'
 import { plateValueToString, type PlateValue } from '@masarat/ui/lib/plateValue'
 import { useMountedRef } from '@masarat/ui/lib/useMountedRef'
@@ -62,6 +64,8 @@ function isoDate(ms: number): string {
 
 interface TripFormProps {
   reference: TripReferenceData
+  // The company's branches, for members who book at any of them
+  branches: readonly BranchRecord[]
   // A draft to edit; without it the form creates a new trip
   trip?: TripRecord
   onCancel: () => void
@@ -71,6 +75,7 @@ interface TripFormProps {
 
 function TripForm({
   reference,
+  branches,
   trip,
   onCancel,
   onSaved,
@@ -78,6 +83,14 @@ function TripForm({
 }: TripFormProps): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
+  const can = useCan()
+  const account = useAccount()
+  // A branch member books at their own branch; anyone else picks one
+  const ownBranch = account.role.scope === 'branch' ? account.branch : null
+  const openBranches = branches.filter((b) => b.active)
+  const [branchId, setBranchId] = useState(() =>
+    trip ? String(trip.branchId) : openBranches.length === 1 ? String(openBranches[0].id) : ''
+  )
   const dateId = useId()
   const kindId = useId()
   const [vehicles, setVehicles] = useState<VehicleRecord[] | null>(null)
@@ -209,6 +222,7 @@ function TripForm({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
+    if (!ownBranch && !branchId) return setError('branch_required')
     if (!vehicle || !origin || !destination || !tripDate) {
       setError('missing_fields')
       return
@@ -229,6 +243,7 @@ function TripForm({
     setPending(true)
     try {
       const input = {
+        branchId: ownBranch ? ownBranch.id : Number(branchId),
         vehicleId: vehicle.id,
         originCityId: origin.id,
         destinationCityId: destination.id,
@@ -284,9 +299,11 @@ function TripForm({
           <button type="button" className="btn btn-secondary" onClick={onCancel}>
             {t('common.back')}
           </button>
-          <button type="button" className="btn btn-primary" onClick={onGoToVehicles}>
-            {t('trips.noVehicles.action')}
-          </button>
+          {can('fleet.manage') && (
+            <button type="button" className="btn btn-primary" onClick={onGoToVehicles}>
+              {t('trips.noVehicles.action')}
+            </button>
+          )}
         </div>
       </div>
     )
@@ -305,6 +322,22 @@ function TripForm({
           <legend className="mb-3 text-sm font-semibold text-stone-800">
             {t('trips.form.vehicleSection')}
           </legend>
+          {ownBranch ? (
+            <p className="text-sm text-stone-600">
+              {t('trips.form.bookedAt', { branch: ownBranch.name })}
+            </p>
+          ) : (
+            <SelectField
+              label={t('trips.fields.branch')}
+              placeholder={t('trips.fields.branchPlaceholder')}
+              value={branchId}
+              options={branches
+                // A closed branch stays listed only for a trip already booked there
+                .filter((b) => b.active || String(b.id) === branchId)
+                .map((b) => ({ value: String(b.id), label: b.name }))}
+              onChange={(e) => setBranchId(e.target.value)}
+            />
+          )}
           <SelectField
             label={t('trips.fields.vehicle')}
             placeholder={t('trips.fields.vehiclePlaceholder')}
@@ -332,6 +365,7 @@ function TripForm({
           <DriverField
             drivers={drivers}
             value={driverId}
+            canAdd={can('drivers.manage')}
             onChange={setDriverId}
             onAdded={(driver) => {
               setDrivers((current) =>

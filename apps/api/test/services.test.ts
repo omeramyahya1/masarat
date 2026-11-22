@@ -1,5 +1,5 @@
 // The services against Postgres: a company's trip from draft to authorized, and what the
-// government sees of it (dashboard, search, tax settings)
+// government sees of it (dashboard, search, taxes and fees), and the pricing guard
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { eq, sql } from 'drizzle-orm'
 import { branches, getDb, manifests } from '../src/db'
@@ -13,10 +13,18 @@ import {
   listTrips,
   updateTrip
 } from '../src/services/trips'
-import { generateBill, refreshBillStatus, simulatePayment } from '../src/services/billing'
+import {
+  generateBill,
+  getTripDetails,
+  refreshBillStatus,
+  simulatePayment
+} from '../src/services/billing'
 import { getDashboard } from '../src/services/dashboard'
 import { searchTrips } from '../src/services/govtTrips'
-import { getTaxSettingsView, updateTaxRates } from '../src/services/taxes'
+import { createCharge, getChargesView, listCharges, updateCharge } from '../src/services/charges'
+import { assertPricingAllowed, pricing } from '../src/services/pricing'
+import { config } from '../src/config'
+import { calculateCharges, type ChargeInput, type ChargeRecord } from '@masarat/shared/tax'
 import { ensureDemoData } from '../src/services/demoData'
 import { exportData } from '../src/services/exports'
 import { DEFAULT_VIEW } from '@masarat/shared/analytics'
@@ -178,19 +186,6 @@ describe('government', () => {
     const byPlate = await searchTrips({ query: '٣٤٥٦٧' })
     expect(byPlate.ok && byPlate.data.rows.length).toBeGreaterThan(0)
   })
-
-  test('tax changes are logged under the government user', async () => {
-    const updated = await updateTaxRates(govtId, { vat: 1500, manifest_fee: 2000 })
-    expect(updated.ok).toBe(true)
-    const view = await getTaxSettingsView()
-    expect(view.rates.find((r) => r.code === 'vat')?.rateBps).toBe(1500)
-    expect(view.fees.find((f) => f.code === 'manifest_fee')?.amount).toBe(2000)
-    expect(view.history.map((h) => [h.code, h.oldValue, h.newValue])).toContainEqual([
-      'vat',
-      1700,
-      1500
-    ])
-  })
 })
 
 describe('export', () => {
@@ -214,6 +209,144 @@ describe('export', () => {
     ])
     expect(result.data.rows.trips).toBe(1)
     expect(result.data.rows.taxLines).toBe(4)
+  })
+})
+
+// After the export, which counts the one billed trip above
+describe('taxes and fees', () => {
+  const vat = async (): Promise<ChargeRecord> =>
+    (await listCharges()).find((c) => c.code === 'vat')!
+  const asInput = (c: ChargeRecord): ChargeInput => ({
+    name: c.name,
+    nameAr: c.nameAr,
+    kind: c.kind,
+    cargoValue: c.cargoValue,
+    passengerValue: c.passengerValue,
+    active: c.active
+  })
+
+  test('changes are logged field by field under the government user', async () => {
+    const before = await vat()
+    const updated = await updateCharge(govtId, before.id, {
+      ...asInput(before),
+      cargoValue: 1500,
+      passengerValue: null
+    })
+    expect(updated.ok).toBe(true)
+    const view = await getChargesView()
+    expect(view.charges.find((c) => c.code === 'vat')).toMatchObject({
+      cargoValue: 1500,
+      passengerValue: null
+    })
+    expect(
+      view.history.slice(0, 2).map((h) => [h.field, h.oldValue, h.newValue, h.changedBy])
+    ).toEqual(
+      expect.arrayContaining([
+        ['cargoValue', '1700', '1500', 'govt.test'],
+        ['passengerValue', '1700', null, 'govt.test']
+      ])
+    )
+    expect(
+      await updateCharge(govtId, before.id, { ...asInput(before), cargoValue: 10_001 })
+    ).toEqual({ ok: false, error: 'invalid_tax_rate' })
+    // A charge must apply to some kind of trip
+    expect(
+      await updateCharge(govtId, before.id, {
+        ...asInput(before),
+        cargoValue: null,
+        passengerValue: null
+      })
+    ).toEqual({ ok: false, error: 'invalid_charge' })
+    await updateCharge(govtId, before.id, asInput(before))
+  })
+
+  test('custom fees apply to their kind of trip; switched-off ones to none', async () => {
+    const base = { active: true }
+    await createCharge(govtId, {
+      ...base,
+      name: 'Port fee',
+      nameAr: 'رسوم الميناء',
+      kind: 'fixed',
+      cargoValue: 500,
+      passengerValue: null
+    })
+    await createCharge(govtId, {
+      ...base,
+      name: 'Road levy',
+      nameAr: 'رسم الطرق',
+      kind: 'percent',
+      cargoValue: null,
+      passengerValue: 250
+    })
+    const list = await listCharges()
+    const port = list.find((c) => c.name === 'Port fee')!
+    expect(port.code).toBe(`custom_${port.id}`)
+    expect(port.builtin).toBe(false)
+
+    const cargo = calculateCharges(100_000, list, 'cargo')
+    expect(cargo.lines.map((l) => l.code)).toEqual([
+      'vat',
+      'business_profit',
+      'locality',
+      'manifest_fee',
+      port.code
+    ])
+    expect(cargo.total).toBe(17_000 + 3_000 + 2_000 + 1_500 + 500)
+    const passenger = calculateCharges(100_000, list, 'passenger')
+    // Percentages before fixed fees
+    expect(passenger.lines.map((l) => l.name)).toEqual([
+      'Value added tax',
+      'Business profit tax',
+      'Locality tax',
+      'Road levy',
+      'Manifest fee'
+    ])
+    expect(passenger.total).toBe(17_000 + 3_000 + 2_000 + 2_500 + 1_500)
+
+    await updateCharge(govtId, port.id, { ...asInput(port), active: false })
+    expect(calculateCharges(100_000, await listCharges(), 'cargo').total).toBe(23_500)
+  })
+
+  test('a bill keeps the lines it was issued with, whatever changes later', async () => {
+    const draft = await createTrip(scope, ownerId, tripInput)
+    if (!draft.ok) throw new Error(draft.error)
+    const billed = await generateBill(scope, draft.data.id)
+    if (!billed.ok) throw new Error(billed.error)
+    const lines = billed.data.trip.taxes
+
+    const before = await vat()
+    await updateCharge(govtId, before.id, {
+      ...asInput(before),
+      name: 'VAT (renamed)',
+      cargoValue: 500
+    })
+    const after = await getTripDetails(scope, draft.data.id)
+    expect(after.ok && after.data.trip.taxes).toEqual(lines)
+    expect(lines.find((l) => l.code === 'vat')).toMatchObject({
+      name: 'Value added tax',
+      nameAr: 'ضريبة القيمة المضافة',
+      rateBps: 1700
+    })
+    await updateCharge(govtId, before.id, asInput(before))
+  })
+})
+
+describe('pricing', () => {
+  test('tickets are the rate per km per seat × distance', async () => {
+    expect(await pricing.ticketRatePerKm()).toBe(80)
+    expect(await pricing.ticketPrice(875)).toBe(70_000)
+  })
+
+  test('production refuses the development formula', () => {
+    expect(() => assertPricingAllowed()).not.toThrow()
+    config.appEnv = 'production'
+    try {
+      expect(() => assertPricingAllowed()).toThrow(/development formula/)
+      // A real pricing service is allowed
+      expect(() => assertPricingAllowed({ ...pricing, isFormula: false })).not.toThrow()
+    } finally {
+      config.appEnv = 'development'
+    }
   })
 })
 

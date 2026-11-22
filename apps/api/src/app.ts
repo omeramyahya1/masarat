@@ -11,6 +11,7 @@ import { MAX_DOCUMENT_BYTES } from '@masarat/shared/fleet'
 import { authRoutes } from './routes/auth'
 import { documentRoutes } from './routes/documents'
 import { driverRoutes, vehicleRoutes } from './routes/fleet'
+import { govtRoutes } from './routes/govt'
 import { govtUserRoutes } from './routes/govtUsers'
 import { tripRoutes } from './routes/trips'
 
@@ -28,6 +29,8 @@ export const app = new Hono<AppEnv>()
       credentials: true,
       allowMethods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
       allowHeaders: ['Content-Type'],
+      // Read by the client: a download's file name, and an export's row counts
+      exposeHeaders: ['Content-Disposition', 'X-Export-Rows'],
       maxAge: 600
     })
   )
@@ -41,6 +44,7 @@ export const app = new Hono<AppEnv>()
   .get('/config', (c) => c.json({ ok: true, data: { demoMode: config.demoMode } }))
   .route('/auth', authRoutes)
   .route('/govt/users', govtUserRoutes)
+  .route('/govt', govtRoutes)
   .route('/vehicles', vehicleRoutes)
   .route('/drivers', driverRoutes)
   .route('/trips', tripRoutes)

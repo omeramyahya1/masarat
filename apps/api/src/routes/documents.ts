@@ -3,9 +3,9 @@ import { Hono } from 'hono'
 import type { ScanInput } from '@masarat/shared/ocr'
 import { findOwnedDocumentFile, stageDocument } from '../services/documents'
 import { scanDocument } from '../services/ocr'
-import { fail, readJson, send, type AppEnv } from '../http/context'
+import { fail, idParam, readJson, send, type AppEnv } from '../http/context'
 import { sendFile } from '../http/files'
-import { idParam, ownerId, requireOwner } from '../http/owner'
+import { ownerId, requireOwner } from '../http/owner'
 
 export const documentRoutes = new Hono<AppEnv>()
   .use(...requireOwner)

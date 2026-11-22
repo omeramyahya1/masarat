@@ -68,3 +68,9 @@ export function clientInfo(c: AppContext): ClientInfo {
   }
   return { ip, userAgent: c.req.header('user-agent') ?? null }
 }
+
+// A positive integer :id, or null (answered as "not found")
+export function idParam(c: AppContext): number | null {
+  const id = Number(c.req.param('id'))
+  return Number.isInteger(id) && id > 0 ? id : null
+}

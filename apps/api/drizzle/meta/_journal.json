@@ -29,6 +29,20 @@
       "when": 1795353606848,
       "tag": "0003_drop_tax_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795354384858,
+      "tag": "0004_passenger_trips",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795354397171,
+      "tag": "0005_drop_trip_date",
+      "breakpoints": true
     }
   ]
 }

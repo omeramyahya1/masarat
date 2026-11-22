@@ -66,9 +66,52 @@ export const users = pgTable(
     tin: text('tin'),
     // Seeded demo accounts (see services/demoData.ts); "Regenerate demo data" only touches these
     isDemo: boolean('is_demo').notNull().default(false),
+    // Government admins manage the government accounts (Users section)
+    isAdmin: boolean('is_admin').notNull().default(false),
+    // A disabled account can't log in and has no sessions; its records stay
+    disabledAt: timestamp('disabled_at', { withTimezone: true }),
+    // Set when an admin creates the account or resets its password
+    mustChangePassword: boolean('must_change_password').notNull().default(false),
     ...timestamps
   },
-  (t) => [check('users_role_check', sql`${t.role} IN (${inList(USER_ROLES)})`)]
+  (t) => [
+    check('users_role_check', sql`${t.role} IN (${inList(USER_ROLES)})`),
+    check('users_admin_check', sql`NOT ${t.isAdmin} OR ${t.role} = 'govt'`)
+  ]
+)
+
+// Signed-in browsers. The cookie holds a random token; only its SHA-256 is stored, so a leaked
+// table can't be used to sign in. Ends after IDLE or ABSOLUTE time (services/sessions.ts).
+export const sessions = pgTable(
+  'sessions',
+  {
+    id: text('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    ip: text('ip'),
+    userAgent: text('user_agent')
+  },
+  (t) => [index('sessions_user_id_idx').on(t.userId)]
+)
+
+// Login attempts, for slowing down password guessing (per username and per IP). Kept a day.
+export const loginAttempts = pgTable(
+  'login_attempts',
+  {
+    id,
+    username: text('username').notNull(),
+    ip: text('ip'),
+    succeeded: boolean('succeeded').notNull(),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [
+    index('login_attempts_username_at_idx').on(t.username, t.at),
+    index('login_attempts_ip_at_idx').on(t.ip, t.at)
+  ]
 )
 
 // A fleet owner's drivers, picked on each trip (the manifest keeps a copy of the name and phone)
@@ -386,6 +429,7 @@ export const esaliSimBills = pgTable(
 )
 
 export type User = typeof users.$inferSelect
+export type Session = typeof sessions.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type City = typeof cities.$inferSelect
 export type Vehicle = typeof vehicles.$inferSelect

@@ -1,7 +1,6 @@
 // Government dashboard data, computed in the main process (src/main/services/dashboard.ts)
 import type { AnalyticsFilters, Breakdown, BucketSize } from './analytics'
 import type { CargoType, ManifestStatus } from './fleet'
-import type { LineCode } from './tax'
 
 export type { BucketSize }
 
@@ -36,8 +35,11 @@ export interface CargoSlice {
 }
 
 // Revenue collected for one bill line (VAT, business profit, locality, manifest fee)
+// A charge's revenue, under the name its latest bill was issued with
 export interface TaxSlice {
-  code: LineCode
+  code: string
+  name: string
+  nameAr: string
   revenue: number
 }
 

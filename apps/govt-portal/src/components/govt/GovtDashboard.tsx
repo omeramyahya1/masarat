@@ -287,7 +287,7 @@ function GovtDashboard({
               <BarList
                 items={data.byTax.map((tax) => ({
                   key: tax.code,
-                  label: t(`taxes.${tax.code}`),
+                  label: format.chargeName(tax),
                   value: tax.revenue,
                   valueLabel: `${format.compactCurrency(tax.revenue)} · ${format.percent(tax.revenue / taxTotal)}`
                 }))}

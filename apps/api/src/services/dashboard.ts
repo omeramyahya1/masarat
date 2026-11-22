@@ -7,7 +7,7 @@ import {
   companies,
   getDb,
   manifestCargoItems,
-  manifestTaxes,
+  manifestCharges,
   manifests,
   payments,
   states,
@@ -256,14 +256,20 @@ export async function getDashboard(
 
   const byCargo = await revenueByCargo(paidInPeriod)
 
-  // The paid trips' tax lines; together they add up to the revenue
-  const taxRevenue = sql<number>`sum(${manifestTaxes.amount})`.mapWith(Number)
+  // The paid trips' bill lines; together they add up to the revenue. A charge renamed since is
+  // shown under its latest name on a bill.
+  const taxRevenue = sql<number>`sum(${manifestCharges.amount})`.mapWith(Number)
   const byTax = await db
-    .select({ code: manifestTaxes.code, revenue: taxRevenue })
+    .select({
+      code: manifestCharges.code,
+      name: sql<string>`(array_agg(${manifestCharges.name} order by ${manifestCharges.id} desc))[1]`,
+      nameAr: sql<string>`(array_agg(${manifestCharges.nameAr} order by ${manifestCharges.id} desc))[1]`,
+      revenue: taxRevenue
+    })
     .from(payments)
-    .innerJoin(manifestTaxes, eq(manifestTaxes.manifestId, payments.manifestId))
+    .innerJoin(manifestCharges, eq(manifestCharges.manifestId, payments.manifestId))
     .where(paidInPeriod)
-    .groupBy(manifestTaxes.code)
+    .groupBy(manifestCharges.code)
     .orderBy(desc(taxRevenue))
 
   const statusCounts = Object.fromEntries(MANIFEST_STATUSES.map((s) => [s, 0])) as Record<

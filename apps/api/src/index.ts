@@ -5,9 +5,18 @@ import { config } from './config'
 import { log } from './log'
 import { clearStaging, removeOrphanFolders } from './services/documents'
 import { ensureDemoData } from './services/demoData'
+import { assertPricingAllowed } from './services/pricing'
 import { purgeExpired } from './services/sessions'
 
 const HOUR_MS = 60 * 60 * 1000
+
+// Production must not price trips with the development formula
+try {
+  assertPricingAllowed()
+} catch (err) {
+  log.error((err as Error).message)
+  process.exit(1)
+}
 
 // Uploads staged for trips that were never saved, and folders of deleted trips, don't outlive a
 // restart. The demo companies are seeded only in demo mode.

@@ -10,7 +10,7 @@ import {
   companies,
   getDb,
   manifestCargoItems,
-  manifestTaxes,
+  manifestCharges,
   manifestTrailers,
   manifests,
   payments,
@@ -209,15 +209,16 @@ async function buildRows(input: ExportInput, ids: number[]): Promise<Record<Expo
   }
   for (const line of await db
     .select()
-    .from(manifestTaxes)
-    .where(inArray(manifestTaxes.manifestId, ids))
-    .orderBy(asc(manifestTaxes.manifestId), asc(manifestTaxes.id))) {
+    .from(manifestCharges)
+    .where(inArray(manifestCharges.manifestId, ids))
+    .orderBy(asc(manifestCharges.manifestId), asc(manifestCharges.position))) {
     const trip = byId.get(line.manifestId)
     rows.taxLines.push([
       line.manifestId,
       trip?.manifestNo ?? null,
       trip?.billId ?? null,
-      value('lines', line.code),
+      // The name the bill was issued with
+      line.nameAr,
       line.rateBps === null ? null : line.rateBps / 100,
       line.amount,
       trip?.paidAt ?? null

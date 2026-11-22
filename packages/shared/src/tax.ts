@@ -1,6 +1,13 @@
 // Trip cost and tax calculation, shared so the renderer can preview exactly what the main process
 // saves
-import { toVehicleUnit, type CargoItem, type CargoType, type TaxRateRecord } from './fleet'
+import {
+  CARGO_TYPES,
+  QUANTITY_UNITS,
+  toVehicleUnit,
+  type CargoItem,
+  type CargoRateRecord,
+  type CargoType
+} from './fleet'
 
 interface Point {
   lat: number
@@ -27,9 +34,17 @@ export function estimateRoadKm(origin: Point, destination: Point): number {
   return Math.round(haversineKm(origin, destination) * ROAD_FACTOR)
 }
 
+// What pricing_rates holds a rate for: each cargo type, and a passenger seat
+export const PRICING_CODES = [...CARGO_TYPES, 'passenger'] as const
+export const RATE_UNITS = [...QUANTITY_UNITS, 'seat'] as const
+
+// A passenger ticket: ratePerKm per seat × distance, in whole SDG
+export const calculateTicketPrice = (ratePerKm: number, distanceKm: number): number =>
+  Math.round(ratePerKm * distanceKm)
+
 // trip cost = ratePerKm * distanceKm * (quantity / perQuantity), in whole SDG
 export function calculateTripCost(
-  rate: Pick<TaxRateRecord, 'ratePerKm' | 'perQuantity'>,
+  rate: Pick<CargoRateRecord, 'ratePerKm' | 'perQuantity'>,
   distanceKm: number,
   quantity: number
 ): number {
@@ -41,7 +56,7 @@ export function calculateTripCost(
 // Null if an item's type has no rate.
 export function calculateItemsCost(
   items: readonly Pick<CargoItem, 'cargoType' | 'quantity' | 'unit'>[],
-  rates: readonly TaxRateRecord[],
+  rates: readonly CargoRateRecord[],
   distanceKm: number
 ): { costs: number[]; total: number; mainType: CargoType | null } | null {
   const costs: number[] = []
@@ -60,91 +75,123 @@ export function calculateItemsCost(
   return { costs, total: costs.reduce((sum, cost) => sum + cost, 0), mainType }
 }
 
-// The taxes charged on a trip, each a percentage of its trip cost. Government users can change
-// the percentages; a trip keeps the ones it was billed with.
-export const TAX_CODES = ['vat', 'business_profit', 'locality'] as const
-export type TaxCode = (typeof TAX_CODES)[number]
+// The taxes and fees on a bill ("charges"), managed by the government admin in Taxes and fees.
+// A charge is a percentage of the trip cost (in basis points) or a fixed amount (whole SDG), and has
+// its own value for cargo trips and for passenger trips: a null value means it isn't charged on
+// that kind of trip. The four built-in ones can be renamed, changed and switched off but not
+// removed; the admin adds custom ones.
+export const CHARGE_KINDS = ['percent', 'fixed'] as const
+export type ChargeKind = (typeof CHARGE_KINDS)[number]
 
-// Fixed fees added to every bill, in whole SDG, not taxed. Editable like the percentages.
-export const FEE_CODES = ['manifest_fee'] as const
-export type FeeCode = (typeof FEE_CODES)[number]
+export const TRIP_CATEGORIES = ['cargo', 'passenger'] as const
+export type TripCategory = (typeof TRIP_CATEGORIES)[number]
 
-// Every line a bill can have: the taxes, then the fees
-export const LINE_CODES = [...TAX_CODES, ...FEE_CODES] as const
-export type LineCode = (typeof LINE_CODES)[number]
+export const BUILTIN_CHARGE_CODES = ['vat', 'business_profit', 'locality', 'manifest_fee'] as const
 
 // Percentages are stored as basis points: 1700 = 17.00%
-export const DEFAULT_TAX_BPS: Record<TaxCode, number> = {
-  vat: 1700,
-  business_profit: 300,
-  locality: 200
-}
 export const MAX_TAX_BPS = 10_000
-
-export const DEFAULT_FEES: Record<FeeCode, number> = {
-  manifest_fee: 1500
-}
+// The largest fixed fee, in SDG
 export const MAX_FEE = 1_000_000
+export const MAX_CHARGE_NAME_LENGTH = 60
 
-export interface TaxSetting {
-  code: TaxCode
-  rateBps: number
+export interface ChargeRecord {
+  id: number
+  // The built-in ones' codes, or custom_<id>
+  code: string
+  name: string
+  nameAr: string
+  kind: ChargeKind
+  // Basis points for a percentage, SDG for a fixed fee; null: not charged on that kind of trip
+  cargoValue: number | null
+  passengerValue: number | null
+  // Switched off: not charged on new bills (bills already issued keep their lines)
+  active: boolean
+  builtin: boolean
 }
 
-export interface FeeSetting {
-  code: FeeCode
-  amount: number
-}
-
-// A line of a bill. rateBps is null for a fixed fee.
+// A line of a bill, frozen with the bill: the charge's name and value then. rateBps is null for a
+// fixed fee.
 export interface TaxLine {
-  code: LineCode
+  code: string
+  name: string
+  nameAr: string
   rateBps: number | null
   amount: number
 }
 
-export const isTaxCode = (value: unknown): value is TaxCode =>
-  (TAX_CODES as readonly unknown[]).includes(value)
+export const chargeValueFor = (
+  charge: Pick<ChargeRecord, 'cargoValue' | 'passengerValue'>,
+  category: TripCategory
+): number | null => (category === 'cargo' ? charge.cargoValue : charge.passengerValue)
 
-export const isFeeCode = (value: unknown): value is FeeCode =>
-  (FEE_CODES as readonly unknown[]).includes(value)
-
-// One line per tax, in TAX_CODES order, each rounded to whole SDG, then one per fee. The total is
-// their sum.
-export function calculateTaxes(
+// The active charges with a value for this kind of trip: the percentages first, each rounded to
+// whole SDG, then the fixed fees, each in the order given. The total is their sum.
+export function calculateCharges(
   tripCost: number,
-  settings: readonly TaxSetting[],
-  fees: readonly FeeSetting[]
+  charges: readonly ChargeRecord[],
+  category: TripCategory
 ): { lines: TaxLine[]; total: number } {
-  const taxLines = TAX_CODES.map((code) => {
-    const rateBps = settings.find((s) => s.code === code)?.rateBps ?? DEFAULT_TAX_BPS[code]
-    return { code, rateBps, amount: Math.round((tripCost * rateBps) / MAX_TAX_BPS) }
-  })
-  const feeLines = FEE_CODES.map((code) => ({
-    code,
-    rateBps: null,
-    amount: fees.find((f) => f.code === code)?.amount ?? DEFAULT_FEES[code]
-  }))
-  const lines: TaxLine[] = [...taxLines, ...feeLines]
-  return { lines, total: lines.reduce((sum, line) => sum + line.amount, 0) }
+  const applied = charges.filter((c) => c.active && chargeValueFor(c, category) !== null)
+  const line = (charge: ChargeRecord): TaxLine => {
+    const value = chargeValueFor(charge, category) ?? 0
+    const base = { code: charge.code, name: charge.name, nameAr: charge.nameAr }
+    return charge.kind === 'percent'
+      ? { ...base, rateBps: value, amount: Math.round((tripCost * value) / MAX_TAX_BPS) }
+      : { ...base, rateBps: null, amount: value }
+  }
+  const lines = [
+    ...applied.filter((c) => c.kind === 'percent').map(line),
+    ...applied.filter((c) => c.kind === 'fixed').map(line)
+  ]
+  return { lines, total: lines.reduce((sum, l) => sum + l.amount, 0) }
 }
 
-// A logged change to a tax percentage (in basis points) or a fee (in SDG)
-export interface TaxChange {
-  code: LineCode
-  oldValue: number
-  newValue: number
+// A value in range for its kind: whole basis points up to 100%, or whole SDG up to MAX_FEE
+export const isChargeValue = (kind: ChargeKind, value: unknown): value is number =>
+  typeof value === 'number' &&
+  Number.isInteger(value) &&
+  value >= 0 &&
+  value <= (kind === 'percent' ? MAX_TAX_BPS : MAX_FEE)
+
+// What can change about a charge; each change is logged
+export const CHARGE_FIELDS = [
+  'created',
+  'name',
+  'nameAr',
+  'cargoValue',
+  'passengerValue',
+  'active'
+] as const
+export type ChargeField = (typeof CHARGE_FIELDS)[number]
+
+// A logged change. Values as text: a number (basis points or SDG), a name, "true"/"false", or
+// null for "doesn't apply"
+export interface ChargeChange {
+  chargeId: number
+  // The charge's name and kind now, to label the entry
+  name: string
+  nameAr: string
+  kind: ChargeKind
+  field: ChargeField
+  oldValue: string | null
+  newValue: string | null
   // Full name of the government user who made it
   changedBy: string
   changedAt: number
 }
 
-export interface TaxSettingsView {
-  rates: TaxSetting[]
-  fees: FeeSetting[]
+export interface ChargesView {
+  charges: ChargeRecord[]
   // Newest first
-  history: TaxChange[]
+  history: ChargeChange[]
 }
 
-// New values keyed by line: percentages in basis points, fees in SDG
-export type TaxRatesInput = Partial<Record<LineCode, number>>
+// A new charge, or a change to one (its kind is fixed once created)
+export interface ChargeInput {
+  name: string
+  nameAr: string
+  kind: ChargeKind
+  cargoValue: number | null
+  passengerValue: number | null
+  active: boolean
+}

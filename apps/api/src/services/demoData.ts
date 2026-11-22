@@ -15,12 +15,11 @@ import {
   getDb,
   manifestCargoItems,
   manifests,
-  manifestTaxes,
+  manifestCharges,
   manifestTrailers,
   tripDocuments,
   payments,
   roles,
-  taxRates,
   users,
   vehicles
 } from '../db'
@@ -33,17 +32,11 @@ import {
 } from '@masarat/shared/fleet'
 import { DEMO_COMPANIES, DEMO_GOVT_ACCOUNTS, type DemoCompany } from '@masarat/shared/demo'
 import { PLATE_CODES, formatPlate } from '@masarat/shared/plate'
-import {
-  DEFAULT_FEES,
-  DEFAULT_TAX_BPS,
-  FEE_CODES,
-  TAX_CODES,
-  calculateItemsCost,
-  calculateTaxes,
-  estimateRoadKm
-} from '@masarat/shared/tax'
+import { calculateCharges, calculateItemsCost, estimateRoadKm } from '@masarat/shared/tax'
 import { hashPassword } from './auth'
+import { listCharges } from './charges'
 import { createCompany } from './companies'
+import { pricing } from './pricing'
 import { config } from '../config'
 import { certificateNoFor, manifestNoFor, validUntilFor } from './billing'
 import { removeTripFolder } from './documents'
@@ -177,10 +170,6 @@ const DRIVER_LAST_NAMES = [
   'بابكر',
   'النور'
 ]
-
-// Taxes as they were billed: demo history uses the default percentages and fees
-const DEFAULT_TAX_SETTINGS = TAX_CODES.map((code) => ({ code, rateBps: DEFAULT_TAX_BPS[code] }))
-const DEFAULT_FEE_SETTINGS = FEE_CODES.map((code) => ({ code, amount: DEFAULT_FEES[code] }))
 
 // Packing details are filled in after the load is split
 const UNPACKED = { packingType: null, packageCount: null, notes: null }
@@ -491,10 +480,10 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
     .from(cities)
     .orderBy(cities.id)
   const cityByName = new Map(cityRows.map((c) => [c.name, c]))
-  const rates = new Map(
-    (await db.select().from(taxRates).orderBy(taxRates.id)).map((r) => [r.cargoType, r])
-  )
-  const rateList = [...rates.values()]
+  const rateList = await pricing.cargoRates(db)
+  const rates = new Map(rateList.map((r) => [r.cargoType, r]))
+  // Demo history is billed at the taxes and fees as they are when it's seeded
+  const chargeList = await listCharges(db)
 
   const routes: { value: [CityPoint, CityPoint] | null; weight: number }[] = CORRIDORS.flatMap(
     ([a, b, weight]) => {
@@ -577,7 +566,7 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
     // A trip's own rows, written in batches once every manifest has its id
     const itemRows: (typeof manifestCargoItems.$inferInsert)[] = []
     const trailerRows: (typeof manifestTrailers.$inferInsert)[] = []
-    const taxRows: (typeof manifestTaxes.$inferInsert)[] = []
+    const taxRows: (typeof manifestCharges.$inferInsert)[] = []
     const simBillRows: (typeof esaliSimBills.$inferInsert)[] = []
     const paymentRows: (typeof payments.$inferInsert)[] = []
     const certificateRows: (typeof certificates.$inferInsert)[] = []
@@ -662,7 +651,7 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
         const mainRate = priced?.mainType ? rates.get(priced.mainType) : undefined
         if (!priced || !mainRate) continue
         const tripCost = priced.total
-        const taxes = calculateTaxes(tripCost, DEFAULT_TAX_SETTINGS, DEFAULT_FEE_SETTINGS)
+        const taxes = calculateCharges(tripCost, chargeList, 'cargo')
         const taxAmount = taxes.total
         if (taxAmount <= 0) continue
 
@@ -758,7 +747,13 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
           }))
         )
         taxRows.push(
-          ...taxes.lines.map((line) => ({ manifestId, ...line, createdAt, updatedAt: createdAt }))
+          ...taxes.lines.map((line, position) => ({
+            manifestId,
+            position,
+            ...line,
+            createdAt,
+            updatedAt: createdAt
+          }))
         )
         if (status === 'draft') continue
 
@@ -802,7 +797,7 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
 
     await insertInBatches(itemRows, (rows) => tx.insert(manifestCargoItems).values(rows))
     await insertInBatches(trailerRows, (rows) => tx.insert(manifestTrailers).values(rows))
-    await insertInBatches(taxRows, (rows) => tx.insert(manifestTaxes).values(rows))
+    await insertInBatches(taxRows, (rows) => tx.insert(manifestCharges).values(rows))
     await insertInBatches(simBillRows, (rows) => tx.insert(esaliSimBills).values(rows))
     await insertInBatches(paymentRows, (rows) => tx.insert(payments).values(rows))
     await insertInBatches(certificateRows, (rows) => tx.insert(certificates).values(rows))
@@ -843,7 +838,7 @@ async function deleteDemoCompanies(): Promise<void> {
     await tx.delete(esaliSimBills).where(inArray(esaliSimBills.billId, demoBills))
     await tx.delete(certificates).where(inArray(certificates.manifestId, demoManifests))
     await tx.delete(manifestCargoItems).where(inArray(manifestCargoItems.manifestId, demoManifests))
-    await tx.delete(manifestTaxes).where(inArray(manifestTaxes.manifestId, demoManifests))
+    await tx.delete(manifestCharges).where(inArray(manifestCharges.manifestId, demoManifests))
     await tx.delete(manifestTrailers).where(inArray(manifestTrailers.manifestId, demoManifests))
     // Files attached by hand to a demo company's trips go too
     const attached = await tx

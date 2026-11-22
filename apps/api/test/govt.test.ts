@@ -1,5 +1,5 @@
 // The government portal's routes: access, dashboard, paged search, read-only trips and their
-// files, tax settings, the data export (one file or a ZIP), and the demo regenerate
+// files, taxes and fees, the data export (one file or a ZIP), and the demo regenerate
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { unzipSync } from 'fflate'
 import { ensureDemoData } from '../src/services/demoData'
@@ -28,7 +28,7 @@ describe('access', () => {
       ['POST', '/govt/dashboard'],
       ['GET', '/govt/search?query=nile'],
       ['GET', '/govt/trips/1'],
-      ['GET', '/govt/tax-settings'],
+      ['GET', '/govt/charges'],
       ['POST', '/govt/exports']
     ]) {
       expect((await owner.call(method, path, method === 'POST' ? {} : undefined)).status).toBe(403)
@@ -38,8 +38,9 @@ describe('access', () => {
   test('agents see the dashboard, search and exports, but not taxes and fees or users', async () => {
     expect((await agent.call('GET', '/govt/search?query=nile')).status).toBe(200)
     expect((await agent.call('GET', '/govt/companies')).status).toBe(200)
-    expect((await agent.call('GET', '/govt/tax-settings')).status).toBe(403)
-    expect((await agent.call('PUT', '/govt/tax-settings', { rates: {} })).status).toBe(403)
+    expect((await agent.call('GET', '/govt/charges')).status).toBe(403)
+    expect((await agent.call('POST', '/govt/charges', {})).status).toBe(403)
+    expect((await agent.call('PUT', '/govt/charges/1', {})).status).toBe(403)
     expect((await agent.call('GET', '/govt/users')).status).toBe(403)
     const me = (await agent.call('GET', '/auth/me')).body.user
     expect(me).toMatchObject({ kind: 'govt', company: null, role: { key: 'govt_agent' } })
@@ -115,21 +116,38 @@ describe('trips and files', () => {
   })
 })
 
-describe('tax settings', () => {
-  test('a change is logged under the signed-in user', async () => {
-    const updated = await govt.call('PUT', '/govt/tax-settings', { locality: 250 })
+describe('taxes and fees', () => {
+  test('the admin adds a fee and changes a tax; each change is logged under them', async () => {
+    const view = (await govt.call('GET', '/govt/charges')).body.data
+    const locality = view.charges.find((c: { code: string }) => c.code === 'locality')
+    const updated = await govt.call('PUT', `/govt/charges/${locality.id}`, {
+      ...locality,
+      cargoValue: 250
+    })
     expect(updated.status).toBe(200)
-    const change = updated.body.data.history[0]
-    expect(change).toMatchObject({
-      code: 'locality',
-      oldValue: 200,
-      newValue: 250,
+    expect(updated.body.data.history[0]).toMatchObject({
+      chargeId: locality.id,
+      field: 'cargoValue',
+      oldValue: '200',
+      newValue: '250',
       changedBy: 'inspector'
     })
-    expect((await govt.call('PUT', '/govt/tax-settings', { locality: 20000 })).body.error).toBe(
-      'invalid_tax_rate'
-    )
-    await govt.call('PUT', '/govt/tax-settings', { locality: 200 })
+    expect(
+      (await govt.call('PUT', `/govt/charges/${locality.id}`, { ...locality, cargoValue: 20000 }))
+        .body.error
+    ).toBe('invalid_tax_rate')
+    await govt.call('PUT', `/govt/charges/${locality.id}`, locality)
+
+    const added = await govt.call('POST', '/govt/charges', {
+      name: 'Bridge fee',
+      nameAr: 'رسوم الجسر',
+      kind: 'fixed',
+      cargoValue: 300,
+      passengerValue: 100,
+      active: true
+    })
+    expect(added.body.data.charges.at(-1)).toMatchObject({ name: 'Bridge fee', builtin: false })
+    expect((await govt.call('PUT', '/govt/charges/999999', locality)).status).toBe(404)
   })
 })
 

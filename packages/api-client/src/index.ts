@@ -47,7 +47,7 @@ import type {
 import type { DashboardData } from '@masarat/shared/dashboard'
 import type { AnalyticsFilters, DashboardView, CompanyOption } from '@masarat/shared/analytics'
 import type { ExportInput, ExportRows } from '@masarat/shared/exports'
-import type { TaxRatesInput, TaxSettingsView } from '@masarat/shared/tax'
+import type { ChargeInput, ChargesView } from '@masarat/shared/tax'
 
 export interface FleetAPI {
   listVehicles: () => Promise<FleetResult<VehicleRecord[]>>
@@ -142,9 +142,11 @@ export interface GovtAPI {
   // Raw data (trips, bills, cargo items, tax lines): one Excel or CSV file, or a ZIP of several,
   // with the rows written per dataset
   exportData: (input: ExportInput) => Promise<FleetResult<DownloadedFile & { rows: ExportRows }>>
-  getTaxSettings: () => Promise<FleetResult<TaxSettingsView>>
-  // Basis points per tax; each change is logged under the signed-in government user
-  updateTaxRates: (input: TaxRatesInput) => Promise<FleetResult<TaxSettingsView>>
+  // The taxes and fees and their change log (government admins)
+  charges: () => Promise<FleetResult<ChargesView>>
+  // Each change is logged under the signed-in admin
+  addCharge: (input: ChargeInput) => Promise<FleetResult<ChargesView>>
+  updateCharge: (id: number, input: ChargeInput) => Promise<FleetResult<ChargesView>>
   // Demo only: rebuilds the seeded demo companies' data
   regenerateDemoData: () => Promise<FleetResult<null>>
 }
@@ -350,8 +352,9 @@ const govt: GovtAPI = {
     }
     return { ok: true, data: { blob, fileName, rows } }
   },
-  getTaxSettings: () => request('GET', '/govt/tax-settings'),
-  updateTaxRates: (input) => request('PUT', '/govt/tax-settings', input),
+  charges: () => request('GET', '/govt/charges'),
+  addCharge: (input) => request('POST', '/govt/charges', input),
+  updateCharge: (id, input) => request('PUT', `/govt/charges/${id}`, input),
   regenerateDemoData: () => request('POST', '/govt/demo/regenerate')
 }
 

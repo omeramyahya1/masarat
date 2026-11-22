@@ -21,7 +21,7 @@ import { parsePlate } from '@masarat/shared/plate'
 import {
   ROAD_FACTOR,
   calculateItemsCost,
-  calculateTaxes,
+  calculateCharges,
   estimateRoadKm
 } from '@masarat/shared/tax'
 import type { BranchRecord } from '@masarat/shared/members'
@@ -146,7 +146,7 @@ function TripForm({
   const vehicle = vehicles?.find((v) => String(v.id) === vehicleId)
   // Each item is measured in its cargo type's rate unit, so only offer cargo the vehicle can carry
   const cargoTypesFor = (v: VehicleRecord): CargoType[] =>
-    reference.taxRates.filter((r) => r.unit === v.capacityUnit).map((r) => r.cargoType)
+    reference.cargoRates.filter((r) => r.unit === v.capacityUnit).map((r) => r.cargoType)
   const origin = reference.cities.find((c) => String(c.id) === originId)
   const destination = reference.cities.find((c) => String(c.id) === destinationId)
   const parsedItems = items.map((item) => ({
@@ -181,7 +181,7 @@ function TripForm({
       : null
   const priced =
     distanceKm !== null && countedItems.length > 0
-      ? calculateItemsCost(countedItems, reference.taxRates, distanceKm)
+      ? calculateItemsCost(countedItems, reference.cargoRates, distanceKm)
       : null
   const tripCost = priced?.total ?? null
   // Cost and quantity per cargo type, for the summary
@@ -193,7 +193,7 @@ function TripForm({
     costByType.set(item.cargoType, entry)
   })
   // Previewed with today's percentages and fees; the bill uses the ones current when it's issued
-  const taxes = calculateTaxes(tripCost ?? 0, reference.taxSettings, reference.feeSettings)
+  const taxes = calculateCharges(tripCost ?? 0, reference.charges, 'cargo')
 
   const handleVehicleChange = (id: string): void => {
     setVehicleId(id)
@@ -537,7 +537,7 @@ function TripForm({
         {costByType.size > 0 && distanceKm !== null && (
           <ul className="flex flex-col gap-2 border-t border-stone-200 pt-3 text-sm">
             {[...costByType].map(([type, entry]) => {
-              const rate = reference.taxRates.find((r) => r.cargoType === type)
+              const rate = reference.cargoRates.find((r) => r.cargoType === type)
               return (
                 <li key={type} className="flex items-start justify-between gap-4">
                   <div className="flex flex-col">

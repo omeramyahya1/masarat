@@ -5,19 +5,26 @@ import { branches, cities, getDb, roles, users } from '../src/db'
 // among it)
 export async function resetData(): Promise<void> {
   await getDb().execute(sql`
-    truncate sessions, login_attempts, esali_sim_bills, certificates, payments, manifest_taxes, trip_documents,
-      manifest_trailers, manifest_cargo_items, manifests, vehicles, drivers, tax_setting_changes,
-      users restart identity cascade
+    truncate sessions, login_attempts, esali_sim_bills, certificates, payments, manifest_charges,
+      trip_documents, manifest_trailers, manifest_cargo_items, manifests, vehicles, drivers,
+      charge_changes, users restart identity cascade
   `)
   await getDb().execute(sql`delete from roles where company_id is not null`)
   await getDb().execute(sql`delete from branches`)
   await getDb().execute(sql`delete from companies`)
+  // Back to the four built-in charges as seeded
+  await getDb().execute(sql`delete from charges where not builtin`)
   await getDb().execute(sql`
-    update tax_settings set rate_bps = case code
-      when 'vat' then 1700 when 'business_profit' then 300 when 'locality' then 200 end
-    where amount is null
+    update charges set active = true,
+      cargo_value = d.value, passenger_value = d.value, name = d.name, name_ar = d.name_ar
+    from (values
+      ('vat', 1700, 'Value added tax', 'ضريبة القيمة المضافة'),
+      ('business_profit', 300, 'Business profit tax', 'ضريبة أرباح الأعمال'),
+      ('locality', 200, 'Locality tax', 'الضريبة المحلية'),
+      ('manifest_fee', 1500, 'Manifest fee', 'رسوم المنفيست')
+    ) as d(code, value, name, name_ar)
+    where charges.code = d.code
   `)
-  await getDb().execute(sql`update tax_settings set amount = 1500 where code = 'manifest_fee'`)
 }
 
 // A different Sudanese mobile number for every account a test creates (phones are unique)

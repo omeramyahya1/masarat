@@ -10,11 +10,19 @@ process.env.TZ = timeZone
 const url = (name: string, fallback: string): string =>
   (process.env[name] ?? fallback).replace(/\/+$/, '')
 
+// development or production. Production refuses what only suits development (the formula pricing,
+// see services/pricing.ts).
+const APP_ENVS = ['development', 'production'] as const
+type AppEnv = (typeof APP_ENVS)[number]
+const appEnv = (process.env.APP_ENV || 'development') as AppEnv
+if (!APP_ENVS.includes(appEnv)) throw new Error(`APP_ENV must be one of ${APP_ENVS.join(', ')}`)
+
 const siteUrl = url('SITE_URL', 'http://localhost:5175')
 const ownerUrl = url('OWNER_URL', 'http://localhost:5173')
 const govtUrl = url('GOVT_URL', 'http://localhost:5174')
 
 export const config = {
+  appEnv,
   port: Number(process.env.PORT ?? 3000),
   databaseUrl: process.env.DATABASE_URL ?? 'postgres://masarat:masarat@localhost:5433/masarat',
   migrationsFolder: resolve(import.meta.dir, '..', 'drizzle'),

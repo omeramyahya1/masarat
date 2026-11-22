@@ -248,7 +248,7 @@ function ReportModal({
           <BarList
             items={data.byTax.map((tax) => ({
               key: tax.code,
-              label: ar(`taxes.${tax.code}`),
+              label: tax.nameAr,
               value: tax.revenue,
               valueLabel: share(tax.revenue, taxTotal)
             }))}

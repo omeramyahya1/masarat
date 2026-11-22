@@ -38,7 +38,10 @@ export interface Formatters {
   // A tax percentage stored in basis points: 1700 -> "17%", 1250 -> "12.5%"
   taxRate: (bps: number) => string
   // A bill line's label: "VAT (17%)", or just the name for a fixed fee
-  taxLine: (line: Pick<TaxLine, 'code' | 'rateBps'>) => string
+  // A tax or fee's name in the current language
+  chargeName: (charge: Pick<TaxLine, 'name' | 'nameAr'>) => string
+  // A bill line: its name, with the percentage for a tax
+  taxLine: (line: Pick<TaxLine, 'name' | 'nameAr' | 'rateBps'>) => string
   quantity: (value: number, unit: QuantityUnit | ItemUnit) => string
   // An attachment's size: "240 KB", "3.5 MB"
   fileSize: (bytes: number) => string
@@ -87,13 +90,13 @@ export function createFormatters(isArabic: boolean, t: TFunction): Formatters {
     compactCurrency: (amount) => t('common.currency', { amount: compactNumber(amount) }),
     percent: (ratio) => percentFormat.format(ratio),
     taxRate: (bps) => taxRateFormat.format(bps / MAX_TAX_BPS),
-    taxLine: ({ code, rateBps }) =>
-      rateBps === null
-        ? t(`taxes.${code}`)
-        : t('trips.tax.line', {
-            name: t(`taxes.${code}`),
-            rate: taxRateFormat.format(rateBps / MAX_TAX_BPS)
-          }),
+    chargeName: (charge) => (isArabic ? charge.nameAr : charge.name),
+    taxLine: (line) => {
+      const name = isArabic ? line.nameAr : line.name
+      return line.rateBps === null
+        ? name
+        : t('trips.tax.line', { name, rate: taxRateFormat.format(line.rateBps / MAX_TAX_BPS) })
+    },
     list: (values) => listFormat.format(values),
     quantity: (value, unit) => t(`units.short.${unit}`, { value: number(value) }),
     fileSize: (bytes) =>

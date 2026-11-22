@@ -5,7 +5,7 @@ import { zipSync, strToU8 } from 'fflate'
 import { isAnalyticsFilters, isDashboardView } from '@masarat/shared/analytics'
 import { isExportOptions, type ExportInput } from '@masarat/shared/exports'
 import type { GovtSearchInput } from '@masarat/shared/billing'
-import type { TaxRatesInput } from '@masarat/shared/tax'
+import type { ChargeInput } from '@masarat/shared/tax'
 import { config } from '../config'
 import { listCompanies } from '../services/analyticsQuery'
 import { getTripDetails } from '../services/billing'
@@ -14,7 +14,7 @@ import { regenerateDemoData } from '../services/demoData'
 import { findOwnedDocumentFile } from '../services/documents'
 import { exportData } from '../services/exports'
 import { searchTrips } from '../services/govtTrips'
-import { getTaxSettingsView, updateTaxRates } from '../services/taxes'
+import { createCharge, getChargesView, updateCharge } from '../services/charges'
 import { getReferenceData } from '../services/trips'
 import { fail, idParam, readJson, send, type AppEnv } from '../http/context'
 import { contentDisposition, sendFile } from '../http/files'
@@ -74,15 +74,19 @@ export const govtRoutes = new Hono<AppEnv>()
     const id = idParam(c)
     return sendFile(c, id === null ? undefined : await findOwnedDocumentFile(null, id))
   })
-  .get('/tax-settings', requirePermission('govt.charges'), async (c) =>
-    send(c, { ok: true, data: await getTaxSettingsView() })
+  // Taxes and fees: each change is logged under the signed-in admin
+  .get('/charges', requirePermission('govt.charges'), async (c) =>
+    send(c, { ok: true, data: await getChargesView() })
   )
-  .put('/tax-settings', requirePermission('govt.charges'), async (c) =>
-    send(
-      c,
-      await updateTaxRates(c.get('user')!.id, (await readJson(c)) as unknown as TaxRatesInput)
-    )
+  .post('/charges', requirePermission('govt.charges'), async (c) =>
+    send(c, await createCharge(c.get('user')!.id, (await readJson(c)) as unknown as ChargeInput))
   )
+  .put('/charges/:id', requirePermission('govt.charges'), async (c) => {
+    const id = idParam(c)
+    if (id === null) return fail(c, 'charge_not_found')
+    const input = (await readJson(c)) as unknown as ChargeInput
+    return send(c, await updateCharge(c.get('user')!.id, id, input))
+  })
   // One file as is; several as one ZIP
   .post('/exports', requirePermission('govt.exports'), async (c) => {
     const input = (await readJson(c)) as unknown as ExportInput

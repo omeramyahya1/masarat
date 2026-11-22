@@ -1,32 +1,57 @@
 // Logging in across the three web apps: sessions, their limits, the rate limit, the Origin check,
-// forced password changes and the government Users section
+// forced password changes, sign-up (a new company) and the government Users section
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { eq } from 'drizzle-orm'
-import { getDb, sessions, users } from '../src/db'
+import { and, eq, isNull } from 'drizzle-orm'
+import { getDb, roles, sessions, users } from '../src/db'
 import { hashPassword, logIn } from '../src/services/auth'
-import { setAdmin, setDisabled } from '../src/services/govtUsers'
+import { changeRole, setDisabled } from '../src/services/members'
 import { ABSOLUTE_MS, IDLE_MS, createSession, findSession } from '../src/services/sessions'
-import { browser, createUser, resetData, type Browser } from './helpers'
+import {
+  browser,
+  createUser,
+  resetData,
+  type AccountOptions,
+  type AccountRole,
+  type Browser
+} from './helpers'
 
 const PASSWORD = 'correct-horse'
+const GOVT = { kind: 'govt' } as const
 
 async function createAccount(
   username: string,
-  role: 'owner' | 'govt',
-  values: Partial<typeof users.$inferInsert> = {}
+  role: AccountRole,
+  options: AccountOptions = {}
 ): Promise<number> {
-  return createUser({ username, role, passwordHash: await hashPassword(PASSWORD), ...values })
+  return (
+    await createUser(username, role, { passwordHash: await hashPassword(PASSWORD), ...options })
+  ).id
+}
+
+// The government's role ids by key
+async function govtRole(key: 'govt_admin' | 'govt_agent'): Promise<number> {
+  const [role] = await getDb()
+    .select({ id: roles.id })
+    .from(roles)
+    .where(and(isNull(roles.companyId), eq(roles.key, key)))
+  return role.id
 }
 
 beforeEach(resetData)
 
 describe('login', () => {
   test('sets the session cookie and /auth/me returns the account', async () => {
-    await createAccount('owner.one', 'owner')
+    await createAccount('owner.one', 'company_admin')
     const b = browser()
     const login = await b.call('POST', '/auth/login', { username: 'Owner.One', password: PASSWORD })
     expect(login.status).toBe(200)
-    expect(login.body.user).toMatchObject({ username: 'owner.one', role: 'owner', isAdmin: false })
+    expect(login.body.user).toMatchObject({
+      username: 'owner.one',
+      kind: 'company',
+      role: { key: 'company_admin', scope: 'company' },
+      branch: null
+    })
+    expect(login.body.user.permissions).toContain('members.manage')
     expect(b.cookie).toStartWith('masarat_session=')
 
     const me = await b.call('GET', '/auth/me')
@@ -38,7 +63,7 @@ describe('login', () => {
   })
 
   test('the cookie is HttpOnly and SameSite=Lax', async () => {
-    await createAccount('owner.one', 'owner')
+    await createAccount('owner.one', 'company_admin')
     const { app } = await import('../src/app')
     const response = await app.request('/auth/login', {
       method: 'POST',
@@ -52,7 +77,7 @@ describe('login', () => {
   })
 
   test('a wrong password and an unknown username answer the same', async () => {
-    await createAccount('owner.one', 'owner')
+    await createAccount('owner.one', 'company_admin')
     const wrong = await browser().call('POST', '/auth/login', {
       username: 'owner.one',
       password: 'x'
@@ -66,7 +91,7 @@ describe('login', () => {
   })
 
   test('a disabled account is refused, after the password checks out', async () => {
-    await createAccount('govt.off', 'govt', { disabledAt: new Date() })
+    await createAccount('govt.off', 'govt_agent', { disabledAt: new Date() })
     const b = browser()
     expect(
       (await b.call('POST', '/auth/login', { username: 'govt.off', password: 'x' })).body.error
@@ -77,7 +102,7 @@ describe('login', () => {
   })
 
   test('five failures lock the username for the window', async () => {
-    await createAccount('owner.one', 'owner')
+    await createAccount('owner.one', 'company_admin')
     const client = { ip: '10.0.0.1', userAgent: null }
     const now = new Date()
     for (let i = 0; i < 5; i++) {
@@ -94,7 +119,7 @@ describe('login', () => {
   test('twenty failures from one IP lock that IP', async () => {
     const client = { ip: '10.0.0.2', userAgent: null }
     for (let i = 0; i < 20; i++) await logIn({ username: `user${i}`, password: 'nope' }, client)
-    await createAccount('owner.two', 'owner')
+    await createAccount('owner.two', 'company_admin')
     expect(await logIn({ username: 'owner.two', password: PASSWORD }, client)).toEqual({
       ok: false,
       error: 'too_many_attempts'
@@ -112,7 +137,7 @@ describe('login', () => {
 
 describe('sessions', () => {
   test('end after 2 hours idle and 12 hours in all', async () => {
-    const userId = await createAccount('owner.one', 'owner')
+    const userId = await createAccount('owner.one', 'company_admin')
     const start = new Date('2026-11-22T08:00:00Z')
     const at = (ms: number): Date => new Date(start.getTime() + ms)
 
@@ -130,7 +155,7 @@ describe('sessions', () => {
   })
 
   test('only a hash of the token is stored', async () => {
-    const userId = await createAccount('owner.one', 'owner')
+    const userId = await createAccount('owner.one', 'company_admin')
     const token = await createSession(userId, { ip: null, userAgent: null })
     const rows = await getDb().select().from(sessions)
     expect(rows).toHaveLength(1)
@@ -141,7 +166,7 @@ describe('sessions', () => {
 
 describe('origin check', () => {
   test('refuses changes from other sites, and requests without an Origin', async () => {
-    await createAccount('owner.one', 'owner')
+    await createAccount('owner.one', 'company_admin')
     const evil = await browser('https://evil.example').call('POST', '/auth/login', {
       username: 'owner.one',
       password: PASSWORD
@@ -167,40 +192,48 @@ describe('origin check', () => {
 })
 
 describe('sign-up and profile', () => {
-  test('sign-up creates a fleet owner, even if asked for government', async () => {
+  test('sign-up creates a company and its admin, even if asked for government', async () => {
     const b = browser()
     const result = await b.call('POST', '/auth/signup', {
-      role: 'govt',
+      kind: 'govt',
       fullName: 'New Owner',
       username: 'new.owner',
       phone: '0912 345 678',
+      companyName: 'Nile Co',
       password: PASSWORD
     })
     expect(result.body.user).toMatchObject({
-      role: 'owner',
-      isAdmin: false,
+      kind: 'company',
+      role: { key: 'company_admin' },
+      company: { name: 'Nile Co', address: null, tin: null },
       phone: '+249912345678'
     })
+    // With its clerk and accountant roles, ready for its team
+    const companyRoles = (await b.call('GET', '/roles')).body.data
+    expect(companyRoles.map((r: { key: string }) => r.key)).toEqual([
+      'company_admin',
+      'clerk',
+      'accountant'
+    ])
+    // A sign-up that fails leaves no company behind
     const taken = await browser().call('POST', '/auth/signup', {
       fullName: 'Again',
       username: 'new.owner',
       phone: '0912000000',
+      companyName: 'Second Co',
       password: PASSWORD
     })
     expect(taken).toMatchObject({ status: 409, body: { ok: false, error: 'username_taken' } })
+    expect(await getDb().$count(roles)).toBe(2 + 3)
 
     const profile = await b.call('PATCH', '/auth/profile', {
       fullName: 'Renamed',
-      phone: '+249 11 234 5678',
-      companyName: 'Co',
-      address: 'Khartoum',
-      tin: '1'
+      phone: '+249 11 234 5678'
     })
-    expect(profile.body.user).toMatchObject({
-      fullName: 'Renamed',
-      companyName: 'Co',
-      phone: '+249112345678'
-    })
+    expect(profile.body.user).toMatchObject({ fullName: 'Renamed', phone: '+249112345678' })
+    const company = await b.call('PUT', '/company', { name: 'Co', address: 'Khartoum', tin: '1' })
+    expect(company.body.data).toMatchObject({ name: 'Co', address: 'Khartoum', tin: '1' })
+    expect((await b.call('PUT', '/company', { name: '' })).body.error).toBe('missing_fields')
   })
 
   test('every account needs its own Sudanese mobile number', async () => {
@@ -209,6 +242,7 @@ describe('sign-up and profile', () => {
         fullName: 'Owner',
         username,
         phone,
+        companyName: `${username} Co`,
         password: PASSWORD
       })
     expect((await signUp('no.phone', '')).body.error).toBe('missing_fields')
@@ -227,9 +261,10 @@ describe('sign-up and profile', () => {
       fullName: 'Third',
       username: 'third',
       phone: '0913000000',
+      companyName: 'Third Co',
       password: PASSWORD
     })
-    const profile = { fullName: 'Third', companyName: '', address: '', tin: '' }
+    const profile = { fullName: 'Third' }
     expect(
       (await b.call('PATCH', '/auth/profile', { ...profile, phone: '0912345678' })).body.error
     ).toBe('phone_taken')
@@ -238,25 +273,26 @@ describe('sign-up and profile', () => {
     ).toBe(200)
   })
 
-  test('government accounts have no profile route', async () => {
-    await createAccount('govt.one', 'govt')
+  test('government users edit their own profile but have no company', async () => {
+    await createAccount('govt.one', 'govt_agent')
     const b = browser()
     await b.call('POST', '/auth/login', { username: 'govt.one', password: PASSWORD })
-    const result = await b.call('PATCH', '/auth/profile', { fullName: 'x' })
-    expect(result.status).toBe(403)
+    const result = await b.call('PATCH', '/auth/profile', { fullName: 'x', phone: '0914440000' })
+    expect(result.body.user).toMatchObject({ fullName: 'x', company: null })
+    expect((await b.call('PUT', '/company', { name: 'x' })).status).toBe(403)
   })
 })
 
 describe('government users', () => {
   async function admin(): Promise<{ b: ReturnType<typeof browser>; id: number }> {
-    const id = await createAccount('chief', 'govt', { isAdmin: true })
+    const id = await createAccount('chief', 'govt_admin')
     const b = browser('http://localhost:5174')
     await b.call('POST', '/auth/login', { username: 'chief', password: PASSWORD })
     return { b, id }
   }
 
   test('only admins reach the routes', async () => {
-    await createAccount('clerk', 'govt')
+    await createAccount('clerk', 'govt_agent')
     const clerk = browser()
     await clerk.call('POST', '/auth/login', { username: 'clerk', password: PASSWORD })
     expect((await clerk.call('GET', '/govt/users')).status).toBe(403)
@@ -265,21 +301,28 @@ describe('government users', () => {
 
   test('a new account must change its temporary password first', async () => {
     const { b } = await admin()
+    const agentRole = await govtRole('govt_agent')
     let created = await b.call('POST', '/govt/users', {
       username: 'new.clerk',
       fullName: 'New Clerk',
-      phone: '0712345678'
+      phone: '0712345678',
+      roleId: agentRole
     })
     expect(created.body.error).toBe('invalid_phone')
     created = await b.call('POST', '/govt/users', {
       username: 'new.clerk',
       fullName: 'New Clerk',
-      phone: '0961234567'
+      phone: '0961234567',
+      roleId: agentRole
     })
     expect(created.status).toBe(200)
     const { temporaryPassword, user } = created.body.data
     expect(temporaryPassword).toMatch(/^[A-Za-z2-9]{12}$/)
-    expect(user).toMatchObject({ isAdmin: false, mustChangePassword: true, disabled: false })
+    expect(user).toMatchObject({
+      role: { key: 'govt_agent' },
+      mustChangePassword: true,
+      disabled: false
+    })
 
     const clerk = browser()
     const login = await clerk.call('POST', '/auth/login', {
@@ -309,7 +352,7 @@ describe('government users', () => {
 
   test('disabling an account ends its sessions at once', async () => {
     const { b } = await admin()
-    const clerkId = await createAccount('clerk', 'govt')
+    const clerkId = await createAccount('clerk', 'govt_agent')
     const clerk = browser()
     await clerk.call('POST', '/auth/login', { username: 'clerk', password: PASSWORD })
     expect((await clerk.call('GET', '/auth/me')).status).toBe(200)
@@ -322,7 +365,7 @@ describe('government users', () => {
 
   test('reset password signs the user out and forces a change', async () => {
     const { b } = await admin()
-    const clerkId = await createAccount('clerk', 'govt')
+    const clerkId = await createAccount('clerk', 'govt_agent')
     const clerk = browser()
     await clerk.call('POST', '/auth/login', { username: 'clerk', password: PASSWORD })
     const reset = await b.call('POST', `/govt/users/${clerkId}/reset-password`)
@@ -337,23 +380,32 @@ describe('government users', () => {
 
   test('the last active admin stays, and admins cannot change themselves', async () => {
     const { b, id } = await admin()
-    const otherId = await createAccount('deputy', 'govt')
+    const otherId = await createAccount('deputy', 'govt_agent')
     expect((await b.call('POST', `/govt/users/${id}/disable`)).body.error).toBe(
       'cannot_change_self'
     )
-    expect((await b.call('POST', `/govt/users/${id}/admin`, { isAdmin: false })).body.error).toBe(
+    const adminRole = await govtRole('govt_admin')
+    const agentRole = await govtRole('govt_agent')
+    expect((await b.call('PUT', `/govt/users/${id}/role`, { roleId: agentRole })).body.error).toBe(
       'cannot_change_self'
     )
 
     // Promote the deputy, who then demotes the chief: allowed, one admin is left
     expect(
-      (await b.call('POST', `/govt/users/${otherId}/admin`, { isAdmin: true })).body.data.isAdmin
-    ).toBe(true)
+      (await b.call('PUT', `/govt/users/${otherId}/role`, { roleId: adminRole })).body.data.role.key
+    ).toBe('govt_admin')
     const deputy = browser()
     await deputy.call('POST', '/auth/login', { username: 'deputy', password: PASSWORD })
-    expect((await deputy.call('POST', `/govt/users/${id}/admin`, { isAdmin: false })).status).toBe(
+    expect((await deputy.call('PUT', `/govt/users/${id}/role`, { roleId: agentRole })).status).toBe(
       200
     )
+    // A company's role can't be given to a government user
+    const companyRoles = await getDb().select().from(roles).where(eq(roles.key, 'company_admin'))
+    for (const role of companyRoles) {
+      expect(
+        (await deputy.call('PUT', `/govt/users/${id}/role`, { roleId: role.id })).body.error
+      ).toBe('role_not_found')
+    }
 
     // The chief is no longer an admin, so the deputy is the last one
     const chief = await b.call('GET', '/govt/users')
@@ -361,31 +413,39 @@ describe('government users', () => {
   })
 
   test('two admins demoting each other at once leave one admin', async () => {
-    const chiefId = await createAccount('chief', 'govt', { isAdmin: true })
-    const deputyId = await createAccount('deputy', 'govt', { isAdmin: true })
+    const chiefId = await createAccount('chief', 'govt_admin')
+    const deputyId = await createAccount('deputy', 'govt_admin')
+    const agent = { roleId: await govtRole('govt_agent') }
     const results = await Promise.all([
-      setAdmin(chiefId, deputyId, false),
-      setAdmin(deputyId, chiefId, false)
+      changeRole(GOVT, chiefId, deputyId, agent),
+      changeRole(GOVT, deputyId, chiefId, agent)
     ])
     expect(results.map((r) => (r.ok ? 'ok' : r.error)).sort()).toEqual(['last_admin', 'ok'])
-    const admins = await getDb().select().from(users).where(eq(users.isAdmin, true))
+    const admins = await getDb()
+      .select()
+      .from(users)
+      .where(eq(users.roleId, await govtRole('govt_admin')))
     expect(admins).toHaveLength(1)
   })
 
   test('a disabled admin does not count as the remaining one', async () => {
-    const chiefId = await createAccount('chief', 'govt', { isAdmin: true })
-    const deputyId = await createAccount('deputy', 'govt', {
-      isAdmin: true,
-      disabledAt: new Date()
+    const chiefId = await createAccount('chief', 'govt_admin')
+    const deputyId = await createAccount('deputy', 'govt_admin', { disabledAt: new Date() })
+    // Acting as the (disabled) deputy, as a request already past the permission check would
+    const agent = { roleId: await govtRole('govt_agent') }
+    expect(await changeRole(GOVT, deputyId, chiefId, agent)).toEqual({
+      ok: false,
+      error: 'last_admin'
     })
-    // Acting as the (disabled) deputy, as a request already past the admin check would
-    expect(await setAdmin(deputyId, chiefId, false)).toEqual({ ok: false, error: 'last_admin' })
-    expect(await setDisabled(deputyId, chiefId, true)).toEqual({ ok: false, error: 'last_admin' })
+    expect(await setDisabled(GOVT, deputyId, chiefId, true)).toEqual({
+      ok: false,
+      error: 'last_admin'
+    })
   })
 
-  test('owners are not government users', async () => {
+  test('company members are not government users', async () => {
     const { b } = await admin()
-    const ownerId = await createAccount('owner.one', 'owner')
+    const ownerId = await createAccount('owner.one', 'company_admin')
     expect((await b.call('POST', `/govt/users/${ownerId}/disable`)).status).toBe(404)
     const list = await b.call('GET', '/govt/users')
     expect(list.body.data.map((u: { username: string }) => u.username)).toEqual(['chief'])

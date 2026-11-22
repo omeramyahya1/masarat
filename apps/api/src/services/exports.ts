@@ -19,6 +19,7 @@ import {
   vehicles
 } from '../db'
 import { formatDay, resolveRange } from '@masarat/shared/analytics'
+import { toSudanDateTime } from '@masarat/shared/settings'
 import {
   EXPORT_COLUMNS,
   exportColumns,
@@ -264,6 +265,12 @@ const dateTimeText = (date: Date): string =>
   `${formatDay(date)} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 
 // RFC 4180: quote fields with commas, quotes or line breaks
+// Text a spreadsheet would run as a formula when it opens the CSV ("=…", "+…", "-…", "@…"): such
+// cells get a leading apostrophe, so they stay text (names, notes and phones come from users).
+// Numbers and dates are written as they are. Excel files don't need this: their text cells are
+// typed as text.
+const FORMULA_START = /^[=+\-@\t\r]/
+
 function csvField(value: Cell, column: string): string {
   if (value === null) return ''
   const text =
@@ -271,7 +278,9 @@ function csvField(value: Cell, column: string): string {
       ? DATE_COLUMNS.has(column)
         ? formatDay(value)
         : dateTimeText(value)
-      : String(value)
+      : typeof value === 'string' && FORMULA_START.test(value)
+        ? `'${value}`
+        : String(value)
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 
@@ -323,13 +332,22 @@ async function writeWorkbook(
           ? { numFmt: 'yyyy-mm-dd' }
           : undefined
     }))
-    sheet.addRows(rows)
+    // Excel has no time zones: a date cell holds the wall-clock time it shows. exceljs writes a
+    // Date's UTC time, so dates are shifted to Sudan's wall-clock time first (the CSV writes the
+    // server's local time, which is Sudan's too).
+    sheet.addRows(
+      rows.map((row) => row.map((cell) => (cell instanceof Date ? asSudanWallClock(cell) : cell)))
+    )
     const header = sheet.getRow(1)
     header.font = { bold: true }
     header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE7F0EA' } }
   }
   return Buffer.from(await workbook.xlsx.writeBuffer())
 }
+
+// A Date whose UTC time is the Sudan wall-clock time of this instant
+const asSudanWallClock = (date: Date): Date =>
+  new Date(`${toSudanDateTime(date.getTime())}:${String(date.getSeconds()).padStart(2, '0')}Z`)
 
 // One file of an export, for the API to send back (several files go into a zip)
 export interface ExportFile {

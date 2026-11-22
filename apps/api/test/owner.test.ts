@@ -59,7 +59,8 @@ function tripInput(ids: Ids, overrides: Record<string, unknown> = {}): Record<st
         notes: null
       }
     ],
-    tripDate: '2026-11-20',
+    departureAt: '2026-11-20T08:00',
+    arrivalAt: '2026-11-21T02:00',
     tripKind: 'domestic',
     trailers: [],
     driverId: ids.driverId,
@@ -195,28 +196,30 @@ describe('paged trips list', () => {
     const ids = await setup(b)
     // 30 trips over two months, every third one to Kassala
     for (let i = 0; i < 30; i++) {
+      const day =
+        i < 12
+          ? `2026-10-${String(i + 1).padStart(2, '0')}`
+          : `2026-11-${String(i - 11).padStart(2, '0')}`
       const res = await b.call(
         'POST',
         '/trips',
         tripInput(ids, {
-          tripDate:
-            i < 12
-              ? `2026-10-${String(i + 1).padStart(2, '0')}`
-              : `2026-11-${String(i - 11).padStart(2, '0')}`,
+          departureAt: `${day}T08:00`,
+          arrivalAt: `${day}T20:00`,
           destinationCityId: i % 3 === 0 ? ids.cities.Kassala : ids.cities['Port Sudan']
         })
       )
       expect(res.status).toBe(200)
     }
 
-    const first = await b.call('GET', '/trips?pageSize=25&sort=tripDate&direction=desc')
+    const first = await b.call('GET', '/trips?pageSize=25&sort=departureAt&direction=desc')
     expect(first.body.data).toMatchObject({ total: 30, overall: 30, page: 1, pageSize: 25 })
     expect(first.body.data.rows).toHaveLength(25)
-    const second = await b.call('GET', '/trips?pageSize=25&page=2&sort=tripDate&direction=desc')
+    const second = await b.call('GET', '/trips?pageSize=25&page=2&sort=departureAt&direction=desc')
     expect(second.body.data.rows).toHaveLength(5)
     // Newest first, and no trip on both pages
     const dates = [...first.body.data.rows, ...second.body.data.rows].map(
-      (t: { tripDate: number }) => t.tripDate
+      (t: { departureAt: number }) => t.departureAt
     )
     expect(dates).toEqual([...dates].sort((a, b) => b - a))
     const allIds = new Set(

@@ -82,7 +82,8 @@ beforeAll(async () => {
         notes: null
       }
     ],
-    tripDate: '2026-11-20',
+    departureAt: '2026-11-20T08:00',
+    arrivalAt: '2026-11-21T02:00',
     tripKind: 'domestic',
     trailers: [],
     driverId: driver.data.id,

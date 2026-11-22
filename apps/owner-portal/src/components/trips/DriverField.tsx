@@ -33,7 +33,9 @@ function DriverField({
         value={value}
         options={drivers.map((d) => ({
           value: String(d.id),
-          label: `${d.name} · ${formatSudanPhone(d.phone)}`
+          // Options can't hold <bdi>: isolate the number (LRI … PDI) so its spaced groups keep
+          // their order in Arabic
+          label: `${d.name} · \u2066${formatSudanPhone(d.phone)}\u2069`
         }))}
         onChange={(e) => onChange(e.target.value)}
       />

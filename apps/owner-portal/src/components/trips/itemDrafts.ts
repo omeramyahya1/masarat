@@ -4,7 +4,7 @@ import {
   type CargoItem,
   type CargoType,
   type ItemUnit,
-  type QuantityUnit
+  type CargoUnit
 } from '@masarat/shared/fleet'
 
 // An item row as typed; numbers stay strings until the form is submitted
@@ -40,7 +40,7 @@ export const newItemDraft = (
 // to the vehicle's unit and lose their quantity, and cargo types it can't carry are cleared
 export function fitItemsTo(
   items: ItemDraft[],
-  unit: QuantityUnit,
+  unit: CargoUnit,
   cargoTypes: readonly CargoType[]
 ): ItemDraft[] {
   const allowed = itemUnitsFor(unit)

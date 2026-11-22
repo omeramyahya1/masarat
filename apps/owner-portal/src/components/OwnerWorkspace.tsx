@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { IdCard, KeyRound, Route, Store, Truck, UserCog, UsersRound } from 'lucide-react'
+import { Bus, IdCard, KeyRound, Route, Store, Truck, UserCog, UsersRound } from 'lucide-react'
 import type { AuthUser } from '@masarat/shared/auth'
 import type { TripReferenceData } from '@masarat/shared/fleet'
 import type { BranchRecord } from '@masarat/shared/members'
@@ -11,16 +11,19 @@ import { useCan } from '@masarat/ui/lib/account'
 import { api } from '@masarat/api-client'
 import BranchesPanel from './company/BranchesPanel'
 import RolesPanel from './company/RolesPanel'
+import TemplatesPanel from './company/TemplatesPanel'
 import DriversPanel from './fleet/DriversPanel'
 import VehiclesPanel from './fleet/VehiclesPanel'
 import ProfilePanel from './owner/ProfilePanel'
 import TripsPanel from './trips/TripsPanel'
 
-type Section = 'trips' | 'vehicles' | 'drivers' | 'team' | 'branches' | 'roles' | 'profile'
+type Section =
+  'trips' | 'templates' | 'vehicles' | 'drivers' | 'team' | 'branches' | 'roles' | 'profile'
 
 // Each section, and what the member's role needs to see it (the profile is everyone's)
 const SECTIONS: { id: Section; needs: Permission | null }[] = [
   { id: 'trips', needs: 'trips.view' },
+  { id: 'templates', needs: 'templates.manage' },
   { id: 'vehicles', needs: 'fleet.view' },
   { id: 'drivers', needs: 'drivers.view' },
   { id: 'team', needs: 'members.manage' },
@@ -31,6 +34,7 @@ const SECTIONS: { id: Section; needs: Permission | null }[] = [
 
 const ICONS = {
   trips: Route,
+  templates: Bus,
   vehicles: Truck,
   drivers: UsersRound,
   team: UserCog,
@@ -87,6 +91,8 @@ function OwnerWorkspace({
           <TeamPanel side="company" members={api.company.members} branches={branches} />
         ) : section === 'branches' ? (
           <BranchesPanel cities={cities} onChanged={() => void loadBranches()} />
+        ) : section === 'templates' ? (
+          <TemplatesPanel branches={branches} />
         ) : section === 'roles' ? (
           <RolesPanel />
         ) : section === 'profile' ? (

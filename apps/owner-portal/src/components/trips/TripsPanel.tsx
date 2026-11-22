@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, ArrowRight, LoaderCircle, Plus, Route } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Bus, LoaderCircle, Plus, Route } from 'lucide-react'
 import {
   CARGO_TYPES,
   TRIP_GROUPS,
@@ -17,6 +17,9 @@ import {
   type VehicleRecord
 } from '@masarat/shared/fleet'
 import type { BranchRecord } from '@masarat/shared/members'
+import { TRIP_CATEGORIES } from '@masarat/shared/tax'
+import type { TemplateRecord } from '@masarat/shared/templates'
+import Menu from '@masarat/ui/components/ui/Menu'
 import { useAccount, useCan } from '@masarat/ui/lib/account'
 import { useFormat } from '@masarat/ui/lib/format'
 import { useServerList, type ServerListState } from '@masarat/ui/lib/useServerList'
@@ -44,14 +47,17 @@ function TripsPanel({
   const { role } = useAccount()
   // Only members who see every branch can filter or group by branch
   const allBranches = role.scope === 'company'
-  const [mode, setMode] = useState<'list' | 'new' | { tripId: number } | { editing: TripRecord }>(
-    'list'
-  )
+  const canUseTemplates = can('templates.use')
+  const [mode, setMode] = useState<
+    'list' | 'new' | { tripId: number } | { editing: TripRecord } | { template: TemplateRecord }
+  >('list')
   const [reference, setReference] = useState<TripReferenceData | null>(null)
   // For the filters and the group headers
   const [vehicles, setVehicles] = useState<VehicleRecord[]>([])
   const [drivers, setDrivers] = useState<DriverRecord[]>([])
   const [branches, setBranches] = useState<BranchRecord[]>([])
+  // Passenger trip templates, for "New trip from a template"
+  const [templates, setTemplates] = useState<TemplateRecord[]>([])
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [created, setCreated] = useState<TripRecord | null>(null)
   const [deleted, setDeleted] = useState<number | null>(null)
@@ -65,6 +71,7 @@ function TripsPanel({
         pageSize: state.pageSize,
         query: state.query.trim() || undefined,
         status: (f.status || undefined) as TripListQuery['status'],
+        category: (f.category || undefined) as TripListQuery['category'],
         tripKind: (f.tripKind || undefined) as TripListQuery['tripKind'],
         cargoType: (f.cargoType || undefined) as TripListQuery['cargoType'],
         vehicleId: f.vehicle ? Number(f.vehicle) : undefined,
@@ -83,7 +90,7 @@ function TripsPanel({
   )
   const list = useServerList(fetchTrips, {
     storageKey: 'masarat.list.trips',
-    defaultSort: 'tripDate',
+    defaultSort: 'departureAt',
     defaultDirection: 'desc'
   })
   const page = list.data
@@ -122,6 +129,8 @@ function TripsPanel({
         return t(`cargoTypes.${key}`)
       case 'branch':
         return branches.find((b) => String(b.id) === key)?.name ?? key
+      case 'category':
+        return t(`tripCategories.${key}`)
     }
   }
 
@@ -143,10 +152,14 @@ function TripsPanel({
       if (vehicleList.ok) setVehicles(vehicleList.data)
       if (driverList.ok) setDrivers(driverList.data)
       if (branchList.ok) setBranches(branchList.data)
+      if (canUseTemplates) {
+        const templateList = await api.templates.list()
+        if (templateList.ok) setTemplates(templateList.data)
+      }
     } catch {
       setError('unknown')
     }
-  }, [])
+  }, [canUseTemplates])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount
@@ -179,8 +192,12 @@ function TripsPanel({
     )
   }
 
-  if ((mode === 'new' || (typeof mode === 'object' && 'editing' in mode)) && reference) {
-    const editing = mode === 'new' ? undefined : mode.editing
+  if (
+    (mode === 'new' || (typeof mode === 'object' && ('editing' in mode || 'template' in mode))) &&
+    reference
+  ) {
+    const editing = typeof mode === 'object' && 'editing' in mode ? mode.editing : undefined
+    const template = typeof mode === 'object' && 'template' in mode ? mode.template : undefined
     // Editing returns to the trip it came from; a new trip returns to the list
     const leave = (): void => (editing ? openTrip(editing.id) : setMode('list'))
     return (
@@ -204,10 +221,11 @@ function TripsPanel({
           </p>
         </div>
         <TripForm
-          key={editing?.id ?? 'new'}
+          key={editing?.id ?? `new-${template?.id ?? ''}`}
           reference={reference}
           branches={branches}
           trip={editing}
+          template={template}
           onCancel={leave}
           onGoToVehicles={onGoToVehicles}
           onSaved={(trip) => {
@@ -238,14 +256,15 @@ function TripsPanel({
         <button
           type="button"
           className="text-start hover:underline"
-          aria-label={`${t('trips.open')}: ${format.date(trip.tripDate)}`}
+          aria-label={`${t('trips.open')}: ${format.dateTime(trip.departureAt)}`}
           onClick={(e) => {
             e.stopPropagation()
             openTrip(trip.id)
           }}
         >
-          {format.date(trip.tripDate)}
+          {format.date(trip.departureAt)}
         </button>
+        <div className="text-xs text-stone-500 tabular-nums">{format.time(trip.departureAt)}</div>
       </td>
       <td>
         <PlateBadge plate={trip.plateNumber} />
@@ -258,18 +277,29 @@ function TripsPanel({
         </span>
       </td>
       <td>
-        <div>
-          {tripCargoTypes(trip).length > 1 ? (
-            <span title={format.list(tripCargoTypes(trip).map((c) => t(`cargoTypes.${c}`)))}>
-              {t('trips.mixed')}
-            </span>
-          ) : (
-            t(`cargoTypes.${trip.cargoType}`)
-          )}
-        </div>
-        <div className="text-xs text-stone-500 tabular-nums">
-          {format.quantity(trip.cargoQuantity, trip.cargoUnit)}
-        </div>
+        {trip.category === 'passenger' ? (
+          <>
+            <div>{t('tripCategories.passenger')}</div>
+            <div className="text-xs text-stone-500 tabular-nums">
+              {t('trips.passengers.tickets', { n: format.number(trip.cargoQuantity) })}
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              {tripCargoTypes(trip).length > 1 ? (
+                <span title={format.list(tripCargoTypes(trip).map((c) => t(`cargoTypes.${c}`)))}>
+                  {t('trips.mixed')}
+                </span>
+              ) : (
+                t(`cargoTypes.${trip.cargoType}`)
+              )}
+            </div>
+            <div className="text-xs text-stone-500 tabular-nums">
+              {format.quantity(trip.cargoQuantity, trip.cargoUnit)}
+            </div>
+          </>
+        )}
       </td>
       <td className="whitespace-nowrap tabular-nums">
         {t('units.km', { value: format.number(trip.distanceKm) })}
@@ -295,10 +325,31 @@ function TripsPanel({
           <p className="text-sm text-stone-500">{t('trips.subtitle')}</p>
         </div>
         {page && page.overall > 0 && can('trips.edit') && (
-          <button type="button" className="btn btn-primary" onClick={startNew}>
-            <Plus size={16} />
-            {t('trips.new')}
-          </button>
+          <div className="flex gap-2">
+            {templates.length > 0 && (
+              <Menu
+                label={t('trips.fromTemplate')}
+                trigger={
+                  <>
+                    <Bus size={16} />
+                    {t('trips.fromTemplate')}
+                  </>
+                }
+                items={templates.map((template) => ({
+                  label: <bdi>{template.name}</bdi>,
+                  onSelect: () => {
+                    setCreated(null)
+                    setDeleted(null)
+                    setMode({ template })
+                  }
+                }))}
+              />
+            )}
+            <button type="button" className="btn btn-primary" onClick={startNew}>
+              <Plus size={16} />
+              {t('trips.new')}
+            </button>
+          </div>
         )}
       </div>
 
@@ -352,6 +403,11 @@ function TripsPanel({
                   value: s,
                   label: t(`statuses.${s}`)
                 }))
+              },
+              {
+                key: 'category',
+                label: t('trips.list.category'),
+                options: TRIP_CATEGORIES.map((c) => ({ value: c, label: t(`tripCategories.${c}`) }))
               },
               {
                 key: 'tripKind',

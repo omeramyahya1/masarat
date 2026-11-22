@@ -10,7 +10,7 @@ import {
   itemUnitsFor,
   type CargoType,
   type ItemUnit,
-  type QuantityUnit
+  type CargoUnit
 } from '@masarat/shared/fleet'
 import { useFormat } from '@masarat/ui/lib/format'
 import { NumberField } from '@masarat/ui/components/form/fields'
@@ -19,7 +19,7 @@ import { newItemDraft, type ItemDraft } from './itemDrafts'
 interface CargoItemsEditorProps {
   items: ItemDraft[]
   // The vehicle's capacity unit; item units are limited to the ones that convert to it
-  unit: QuantityUnit
+  unit: CargoUnit
   // Cargo types the vehicle can carry (their rate's unit matches the vehicle's)
   cargoTypes: readonly CargoType[]
   // Total of the items in the vehicle's unit

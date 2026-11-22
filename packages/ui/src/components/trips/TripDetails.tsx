@@ -7,7 +7,7 @@ import {
   CircleAlert,
   CircleCheckBig,
   Copy,
-  ExternalLink,
+  Eye,
   FileBadge,
   FileText,
   LoaderCircle,
@@ -33,6 +33,7 @@ import PlateBadge from '../fleet/PlateBadge'
 import Menu from '../ui/Menu'
 import CertificateModal from './CertificateModal'
 import DeleteTripDialog from './DeleteTripDialog'
+import DocumentPreview from './DocumentPreview'
 import { STATUS_STYLES } from './statusStyles'
 import TaxBreakdown from './TaxBreakdown'
 import { api } from '@masarat/api-client'
@@ -145,16 +146,8 @@ function TripDetails({
     }
   }
 
-  const openDocument = async (documentId: number): Promise<void> => {
-    try {
-      const result = readOnly
-        ? await api.govt.openDocument(documentId)
-        : await api.documents.open(documentId)
-      if (mounted.current && !result.ok) setError(result.error)
-    } catch {
-      if (mounted.current) setError('unknown')
-    }
-  }
+  // The attachment previewed in the page (its index in the trip's documents)
+  const [preview, setPreview] = useState<number | null>(null)
 
   const copyBillId = async (billId: string): Promise<void> => {
     try {
@@ -370,7 +363,7 @@ function TripDetails({
           </h3>
           {trip.documents.length > 0 ? (
             <ul className="flex flex-col gap-2">
-              {trip.documents.map((document) => (
+              {trip.documents.map((document, index) => (
                 <li
                   key={document.id}
                   className="flex items-center gap-3 rounded-lg border border-stone-200 px-3 py-2 text-sm"
@@ -390,9 +383,9 @@ function TripDetails({
                     aria-label={t('trips.documents.openOf', {
                       name: t(`documentTypes.${document.docType}`)
                     })}
-                    onClick={() => openDocument(document.id)}
+                    onClick={() => setPreview(index)}
                   >
-                    <ExternalLink size={14} />
+                    <Eye size={14} />
                     {t('trips.documents.open')}
                   </button>
                 </li>
@@ -619,6 +612,14 @@ function TripDetails({
           details={details}
           reference={reference}
           onClose={() => setShowCertificate(false)}
+        />
+      )}
+      {preview !== null && (
+        <DocumentPreview
+          documents={details.trip.documents}
+          startIndex={preview}
+          load={readOnly ? api.govt.documentFile : api.documents.file}
+          onClose={() => setPreview(null)}
         />
       )}
     </section>

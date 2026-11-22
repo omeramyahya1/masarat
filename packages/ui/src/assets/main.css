@@ -359,7 +359,7 @@
 }
 
 /*
- * Certificate PDF: printToPDF renders the whole window, so print only the open certificate.
+ * Certificate and report PDFs: the browser prints the whole page, so print only the open dialog.
  * The dialog is portalled into <body>; everything else is removed from layout (not just hidden)
  * so it can't add pages. Unlayered on purpose, so it overrides the dialog's utility classes.
  */

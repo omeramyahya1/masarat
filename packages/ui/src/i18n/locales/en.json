@@ -509,9 +509,14 @@
       "chooseVehicle": "Select the vehicle first",
       "review": "Details read from your documents are highlighted. Check them before saving.",
       "title": "Documents",
-      "open": "Open",
-      "openOf": "Open {{name}}",
-      "empty": "No documents attached."
+      "open": "View",
+      "openOf": "View {{name}}",
+      "empty": "No documents attached.",
+      "previous": "Previous document",
+      "next": "Next document",
+      "position": "{{n}} of {{total}}",
+      "download": "Download",
+      "uploading": "Uploading…"
     },
     "groupSummary": "{{count}} trips · {{total}}",
     "list": {
@@ -584,9 +589,8 @@
   },
   "certificate": {
     "dialogTitle": "Receipt and manifest",
-    "download": "Download PDF",
+    "download": "Print or save as PDF",
     "close": "Close",
-    "saved": "Receipt and manifest saved.",
     "header": {
       "republic": "Republic of the Sudan",
       "ministry": "Ministry of Finance and Economic Planning",
@@ -1110,7 +1114,15 @@
     "shown": "Showing {{shown}} of {{total}}",
     "clear": "Clear search and filters",
     "noMatches": "Nothing matches the search and filters.",
-    "noDriver": "No driver"
+    "noDriver": "No driver",
+    "pagination": {
+      "label": "Pages",
+      "range": "{{from}}–{{to}} of {{total}}",
+      "previous": "Previous page",
+      "next": "Next page",
+      "page": "Page {{n}}",
+      "perPage": "Per page"
+    }
   },
   "shell": {
     "loading": "Loading…",

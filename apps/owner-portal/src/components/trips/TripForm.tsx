@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'rea
 import { useTranslation } from 'react-i18next'
 import { ArrowRight, Calculator, Info, LoaderCircle, ScanText, Truck } from 'lucide-react'
 import {
+  MAX_DOCUMENT_BYTES,
   TRIP_KINDS,
   documentTypesFor,
   totalInVehicleUnit,
@@ -212,16 +213,17 @@ function TripForm({
     setItems(next)
   }
 
-  const attachDocument = async (docType: DocumentType): Promise<void> => {
-    setDocumentBusy(docType)
+  const attachDocument = async (docType: DocumentType, file: File): Promise<void> => {
     setError(null)
+    // Too big to send: say so without uploading it first
+    if (file.size > MAX_DOCUMENT_BYTES) return setError('document_too_large')
+    setDocumentBusy(docType)
     try {
-      const result = await api.documents.pick(docType)
+      const result = await api.documents.upload(docType, file)
       if (!mounted.current) return
       if (!result.ok) return setError(result.error)
-      const picked = result.data
-      if (picked)
-        setDocuments((current) => [...current.filter((d) => d.docType !== docType), picked])
+      const uploaded = result.data
+      setDocuments((current) => [...current.filter((d) => d.docType !== docType), uploaded])
     } catch {
       if (mounted.current) setError('unknown')
     } finally {

@@ -1,9 +1,15 @@
+import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FileText, LoaderCircle, Paperclip, ScanText, X } from 'lucide-react'
-import { documentTypesFor, type DocumentType, type TripKind } from '@masarat/shared/fleet'
+import {
+  DOCUMENT_EXTENSIONS,
+  documentTypesFor,
+  type DocumentType,
+  type TripKind
+} from '@masarat/shared/fleet'
 import { useFormat } from '@masarat/ui/lib/format'
 
-// An attachment as the form holds it: saved with the trip (id) or picked and staged (token)
+// An attachment as the form holds it: saved with the trip (id) or uploaded and staged (token)
 export interface DocumentDraft {
   docType: DocumentType
   id?: number
@@ -15,11 +21,11 @@ export interface DocumentDraft {
 interface DocumentsFieldProps {
   tripKind: TripKind
   value: readonly DocumentDraft[]
-  // The document being picked or scanned, if any
+  // The document being uploaded or scanned, if any
   busy: DocumentType | null
   // Scanning needs the vehicle (its unit decides what cargo can be read)
   canScan: boolean
-  onAttach: (docType: DocumentType) => void
+  onAttach: (docType: DocumentType, file: File) => void
   onRemove: (docType: DocumentType) => void
   onScan: (docType: DocumentType) => void
 }
@@ -36,9 +42,29 @@ function DocumentsField({
 }: DocumentsFieldProps): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
+  // One hidden file input, opened for the slot whose Attach was clicked
+  const input = useRef<HTMLInputElement>(null)
+  const target = useRef<DocumentType | null>(null)
+
+  const choose = (docType: DocumentType): void => {
+    target.current = docType
+    input.current?.click()
+  }
 
   return (
     <ul className="flex flex-col gap-2">
+      <input
+        ref={input}
+        type="file"
+        hidden
+        accept={DOCUMENT_EXTENSIONS.map((e) => `.${e}`).join(',')}
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          // Cleared so choosing the same file again still fires
+          e.target.value = ''
+          if (file && target.current) onAttach(target.current, file)
+        }}
+      />
       {documentTypesFor(tripKind).map((docType) => {
         const document = value.find((d) => d.docType === docType)
         const working = busy === docType
@@ -91,10 +117,10 @@ function DocumentsField({
                 type="button"
                 className="btn btn-secondary btn-sm"
                 disabled={busy !== null}
-                onClick={() => onAttach(docType)}
+                onClick={() => choose(docType)}
               >
                 <Paperclip size={16} />
-                {t('trips.documents.attach')}
+                {working ? t('trips.documents.uploading') : t('trips.documents.attach')}
               </button>
             )}
           </li>

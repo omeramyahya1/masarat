@@ -1,5 +1,5 @@
 // Types and rules shared by the main process (fleet and trip services) and the renderer
-import type { FeeSetting, TaxLine, TaxSetting } from './tax'
+import type { ChargeRecord, TaxLine } from './tax'
 import type { PageSize } from './paging'
 
 // Enum values, also used by the DB schema so the UI and services share one source of truth
@@ -148,7 +148,8 @@ export interface CityRecord {
   lng: number
 }
 
-export interface TaxRateRecord {
+// A cargo type's price per km (pricing_rates; the development formula, see services/pricing.ts)
+export interface CargoRateRecord {
   cargoType: CargoType
   ratePerKm: number
   unit: QuantityUnit
@@ -157,10 +158,11 @@ export interface TaxRateRecord {
 
 export interface TripReferenceData {
   cities: CityRecord[]
-  taxRates: TaxRateRecord[]
-  // Current tax percentages and fees, for the form's preview
-  taxSettings: TaxSetting[]
-  feeSettings: FeeSetting[]
+  cargoRates: CargoRateRecord[]
+  // A passenger ticket's price per km per seat
+  ticketRatePerKm: number
+  // The taxes and fees as they are now, for the form's preview
+  charges: ChargeRecord[]
 }
 
 export interface CargoItem {
@@ -336,6 +338,10 @@ export type FleetErrorCode =
   | 'invalid_items'
   | 'not_draft'
   | 'invalid_tax_rate'
+  // A charge needs a name in both languages (up to 60 characters) and a value for at least one
+  // kind of trip
+  | 'invalid_charge'
+  | 'charge_not_found'
   | 'invalid_fee'
   | 'invalid_registration'
   | 'invalid_phone'

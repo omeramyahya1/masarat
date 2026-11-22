@@ -58,3 +58,63 @@ export function parseLocalDateTime(value: unknown): Date | null {
   const date = new Date(year, month - 1, day, hour, minute)
   return date.getMonth() === month - 1 && date.getDate() === day ? date : null
 }
+
+// Trips happen in Sudan: their times are entered and shown in Sudan's time, whatever zone the
+// browser (or the server) is in
+export const SUDAN_TIME_ZONE = 'Africa/Khartoum'
+
+const sudanParts = new Intl.DateTimeFormat('en-US', {
+  timeZone: SUDAN_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23'
+})
+
+// An instant as Sudan's wall-clock time, "YYYY-MM-DDTHH:MM"
+export function toSudanDateTime(ms: number): string {
+  const part = Object.fromEntries(sudanParts.formatToParts(ms).map((p) => [p.type, p.value]))
+  return `${part.year}-${part.month}-${part.day}T${part.hour}:${part.minute}`
+}
+
+// A wall-clock "YYYY-MM-DDTHH:MM" read as if it were UTC: lets the form add and compare times
+// without the browser's zone getting involved
+const asUtc = (value: string): number | null => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value)
+  if (!match) return null
+  const [year, month, day, hour, minute] = match.slice(1).map(Number)
+  const ms = Date.UTC(year, month - 1, day, hour, minute)
+  const date = new Date(ms)
+  return date.getUTCMonth() === month - 1 && date.getUTCDate() === day && hour < 24 && minute < 60
+    ? ms
+    : null
+}
+const fromUtc = (ms: number): string => new Date(ms).toISOString().slice(0, 16)
+
+// A Sudan wall-clock time this many minutes later
+export function addMinutes(value: string, minutes: number): string | null {
+  const ms = asUtc(value)
+  return ms === null ? null : fromUtc(ms + minutes * 60_000)
+}
+
+// The instant a Sudan wall-clock time stands for, or null if it isn't a real date and time
+export function sudanInstant(value: string): number | null {
+  const guess = asUtc(value)
+  if (guess === null) return null
+  const offset = (asUtc(toSudanDateTime(guess)) ?? guess) - guess
+  return guess - offset
+}
+
+// suggestedArrival, on Sudan wall-clock times
+export function suggestedSudanArrival(
+  departure: string,
+  distanceKm: number,
+  speedKmh: number
+): string | null {
+  const ms = asUtc(departure)
+  return ms === null
+    ? null
+    : fromUtc(suggestedArrival(new Date(ms), distanceKm, speedKmh).getTime())
+}

@@ -4,6 +4,7 @@ import type { TFunction } from 'i18next'
 import type { CityRecord, ItemUnit, QuantityUnit } from '@masarat/shared/fleet'
 import { MAX_TAX_BPS, type TaxLine } from '@masarat/shared/tax'
 import { PLATE_LETTERS_AR, formatPlate, parsePlate } from '@masarat/shared/plate'
+import { SUDAN_TIME_ZONE } from '@masarat/shared/settings'
 
 const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩'
 const PERSIAN_DIGITS = '۰۱۲۳۴۵۶۷۸۹'
@@ -18,13 +19,6 @@ export const toWesternDigits = (value: string): string =>
     .replace(/[٠-٩]/g, (d) => String(ARABIC_DIGITS.indexOf(d)))
     .replace(/[۰-۹]/g, (d) => String(PERSIAN_DIGITS.indexOf(d)))
     .replace(/٫/g, '.')
-
-// Today's local date as YYYY-MM-DD (the trip date format)
-export function todayIso(): string {
-  const now = new Date()
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
-}
 
 export interface Formatters {
   isArabic: boolean
@@ -63,12 +57,15 @@ export function createFormatters(isArabic: boolean, t: TFunction): Formatters {
   // Numbers and dates use Western digits in both languages; only plates use Arabic digits
   const locale = isArabic ? 'ar-SD-u-nu-latn' : 'en-US'
   const numberFormat = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 })
-  const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' })
+  // Dates and times are Sudan's, whatever zone the browser is in (the trips and documents are)
+  const timeZone = SUDAN_TIME_ZONE
+  const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone })
   const dateTimeFormat = new Intl.DateTimeFormat(locale, {
     dateStyle: 'medium',
-    timeStyle: 'short'
+    timeStyle: 'short',
+    timeZone
   })
-  const timeFormat = new Intl.DateTimeFormat(locale, { timeStyle: 'short' })
+  const timeFormat = new Intl.DateTimeFormat(locale, { timeStyle: 'short', timeZone })
   const compactFormat = new Intl.NumberFormat(locale, {
     notation: 'compact',
     maximumFractionDigits: 1

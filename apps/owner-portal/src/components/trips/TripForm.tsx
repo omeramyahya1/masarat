@@ -27,11 +27,16 @@ import {
   estimateRoadKm
 } from '@masarat/shared/tax'
 import { normalizeIdNumber } from '@masarat/shared/passengers'
-import { parseLocalDateTime, suggestedArrival, toLocalDateTime } from '@masarat/shared/settings'
+import {
+  addMinutes,
+  sudanInstant,
+  suggestedSudanArrival,
+  toSudanDateTime
+} from '@masarat/shared/settings'
 import type { TemplateRecord } from '@masarat/shared/templates'
 import type { BranchRecord } from '@masarat/shared/members'
 import { useAccount, useCan } from '@masarat/ui/lib/account'
-import { todayIso, useFormat } from '@masarat/ui/lib/format'
+import { useFormat } from '@masarat/ui/lib/format'
 import { plateValueToString, type PlateValue } from '@masarat/ui/lib/plateValue'
 import { useMountedRef } from '@masarat/ui/lib/useMountedRef'
 import {
@@ -67,19 +72,18 @@ function toPlateValue(plate: string): PlateValue {
     : { code: '', series: '', number: '' }
 }
 
+// Times on this form are Sudan's wall-clock times ("YYYY-MM-DDTHH:MM"), whatever the browser's
+// zone: the API reads them in Sudan time too (parseLocalDateTime)
+
 // A new trip from a template leaves today at the template's time, or tomorrow once that's past
-function templateDeparture(template: TemplateRecord): Date {
-  const [hour, minute] = template.departureTime.split(':').map(Number)
-  const date = new Date()
-  date.setHours(hour, minute, 0, 0)
-  if (date.getTime() < Date.now()) date.setDate(date.getDate() + 1)
-  return date
+function templateDeparture(template: TemplateRecord): string {
+  const now = toSudanDateTime(Date.now())
+  const today = `${now.slice(0, 10)}T${template.departureTime}`
+  return today > now ? today : (addMinutes(today, 24 * 60) ?? today)
 }
 
 // Today at 08:00, for a new trip without a template
-function defaultDeparture(): string {
-  return `${todayIso()}T08:00`
-}
+const defaultDeparture = (): string => `${toSudanDateTime(Date.now()).slice(0, 10)}T08:00`
 
 interface TripFormProps {
   reference: TripReferenceData
@@ -151,20 +155,19 @@ function TripForm({
   // average speed until the member types their own
   const [departureAt, setDepartureAt] = useState(() =>
     trip
-      ? toLocalDateTime(new Date(trip.departureAt))
+      ? toSudanDateTime(trip.departureAt)
       : template
-        ? toLocalDateTime(templateDeparture(template))
+        ? templateDeparture(template)
         : defaultDeparture()
   )
   const [arrivalEdited, setArrivalEdited] = useState<string | null>(() =>
     trip
-      ? toLocalDateTime(new Date(trip.arrivalAt))
+      ? toSudanDateTime(trip.arrivalAt)
       : template
-        ? toLocalDateTime(
-            new Date(templateDeparture(template).getTime() + template.durationMinutes * 60_000)
-          )
+        ? addMinutes(templateDeparture(template), template.durationMinutes)
         : null
   )
+
   const [tripKind, setTripKind] = useState<TripKind>(trip?.tripKind ?? 'domestic')
   const [trailers, setTrailers] = useState<PlateValue[]>(() =>
     (trip?.trailers ?? []).map(toPlateValue)
@@ -246,12 +249,10 @@ function TripForm({
       ? ticketPrice * tickets
       : null
     : (priced?.total ?? null)
-  const departure = parseLocalDateTime(departureAt)
+  const departure = sudanInstant(departureAt)
   const suggested =
-    departure && distanceKm !== null
-      ? toLocalDateTime(
-          suggestedArrival(departure, distanceKm, reference.averageSpeedKmh[category])
-        )
+    departure !== null && distanceKm !== null
+      ? suggestedSudanArrival(departureAt, distanceKm, reference.averageSpeedKmh[category])
       : null
   const arrivalAt = arrivalEdited ?? suggested ?? ''
   // Cost and quantity per cargo type, for the summary
@@ -299,8 +300,8 @@ function TripForm({
       return
     }
     if (origin.id === destination.id) return setError('same_route')
-    const arrival = parseLocalDateTime(arrivalAt)
-    if (!departure || !arrival) return setError('invalid_date')
+    const arrival = sudanInstant(arrivalAt)
+    if (departure === null || arrival === null) return setError('invalid_date')
     if (arrival <= departure) return setError('invalid_arrival')
     if (passengerTrip) {
       if (seatConflicts(passengers).size > 0) return setError('seat_taken')
@@ -557,7 +558,7 @@ function TripForm({
                 >
                   <Wand2 size={12} />
                   {t('trips.form.useSuggested', {
-                    time: format.dateTime(parseLocalDateTime(suggested)!.getTime())
+                    time: format.dateTime(sudanInstant(suggested) ?? 0)
                   })}
                 </button>
               ) : (

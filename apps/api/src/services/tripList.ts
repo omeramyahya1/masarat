@@ -17,7 +17,9 @@ import {
   type SQLWrapper
 } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
-import { cities, getDb, manifestCargoItems, manifests, vehicles } from '../db'
+import { cities, getDb, manifestCargoItems, manifests, tripPassengers, vehicles } from '../db'
+import { idSearchKey } from '@masarat/shared/passengers'
+import { TRIP_CATEGORIES } from '@masarat/shared/tax'
 import {
   CARGO_TYPES,
   MANIFEST_STATUSES,
@@ -66,6 +68,7 @@ export function parseTripListQuery(raw: Record<string, string | undefined>): Tri
     pageSize: isPageSize(pageSize) ? pageSize : DEFAULT_PAGE_SIZE,
     query: raw.query?.trim().slice(0, MAX_QUERY_LENGTH) || undefined,
     status: oneOf(TRIP_STATUS_FILTERS, raw.status),
+    category: oneOf(TRIP_CATEGORIES, raw.category),
     tripKind: oneOf(TRIP_KINDS, raw.tripKind),
     cargoType: oneOf(CARGO_TYPES, raw.cargoType),
     vehicleId: positiveInt(raw.vehicleId),
@@ -73,7 +76,7 @@ export function parseTripListQuery(raw: Record<string, string | undefined>): Tri
     branchId: positiveInt(raw.branchId),
     from: day(raw.from) ? raw.from : undefined,
     to: day(raw.to) ? raw.to : undefined,
-    sort: oneOf(TRIP_SORTS, raw.sort) ?? 'tripDate',
+    sort: oneOf(TRIP_SORTS, raw.sort) ?? 'departureAt',
     direction: raw.direction === 'asc' ? 'asc' : 'desc',
     group: oneOf(TRIP_GROUPS, raw.group),
     lang: raw.lang === 'ar' ? 'ar' : 'en'
@@ -96,7 +99,7 @@ function grouping(group: TripGroup, lang: 'en' | 'ar'): { key: SQL; order: SQL[]
       }
     case 'month': {
       // Newest month first
-      const month = sql`to_char(${manifests.tripDate}, 'YYYY-MM')`
+      const month = sql`to_char(${manifests.departureAt}, 'YYYY-MM')`
       return { key: month, order: [desc(month)] }
     }
     case 'vehicle':
@@ -137,11 +140,16 @@ function grouping(group: TripGroup, lang: 'en' | 'ar'): { key: SQL; order: SQL[]
         key: sql`${manifests.branchId}::text`,
         order: [asc(tripColumns.branchName), asc(manifests.branchId)]
       }
+    case 'category':
+      return {
+        key: sql`${manifests.category}`,
+        order: [asc(positionIn(TRIP_CATEGORIES, manifests.category))]
+      }
   }
 }
 
 const SORT_COLUMNS: Record<TripListQuery['sort'], SQLWrapper> = {
-  tripDate: manifests.tripDate,
+  departureAt: manifests.departureAt,
   createdAt: manifests.createdAt,
   amount: sql`${manifests.taxAmount}`,
   tripCost: sql`${manifests.tripCost}`,
@@ -153,6 +161,7 @@ const SORT_COLUMNS: Record<TripListQuery['sort'], SQLWrapper> = {
 // a city, the driver, sender or receiver, or a cargo item's name
 function searchCondition(text: string): SQL | undefined {
   const plate = plateSearchKey(text)
+  const idKey = idSearchKey(text)
   return or(
     contains(sql`'#' || ${manifests.id}::text`, text),
     plate.length >= 2
@@ -165,6 +174,21 @@ function searchCondition(text: string): SQL | undefined {
     contains(manifests.driverName, text),
     contains(manifests.shipperName, text),
     contains(manifests.receiverName, text),
+    // A passenger by name, or by their exact ID number
+    exists(
+      getDb()
+        .select({ id: tripPassengers.id })
+        .from(tripPassengers)
+        .where(
+          and(
+            eq(tripPassengers.manifestId, manifests.id),
+            or(
+              contains(tripPassengers.fullName, text),
+              idKey ? eq(tripPassengers.idNumber, idKey) : undefined
+            )
+          )
+        )
+    ),
     exists(
       getDb()
         .select({ id: manifestCargoItems.id })
@@ -190,6 +214,7 @@ function filterConditions(scope: CompanyScope, q: TripListQuery): SQL | undefine
       : q.status
         ? eq(manifests.status, q.status)
         : undefined,
+    q.category ? eq(manifests.category, q.category) : undefined,
     q.tripKind ? eq(manifests.tripKind, q.tripKind) : undefined,
     // Any item of that type, or the trip's own type for trips from before cargo items existed
     q.cargoType
@@ -211,8 +236,8 @@ function filterConditions(scope: CompanyScope, q: TripListQuery): SQL | undefine
     q.vehicleId ? eq(manifests.vehicleId, q.vehicleId) : undefined,
     q.driverId ? eq(manifests.driverId, q.driverId) : undefined,
     q.branchId ? eq(manifests.branchId, q.branchId) : undefined,
-    from ? gte(manifests.tripDate, from) : undefined,
-    nextDay ? lt(manifests.tripDate, nextDay) : undefined,
+    from ? gte(manifests.departureAt, from) : undefined,
+    nextDay ? lt(manifests.departureAt, nextDay) : undefined,
     q.query ? searchCondition(q.query) : undefined
   )
 }

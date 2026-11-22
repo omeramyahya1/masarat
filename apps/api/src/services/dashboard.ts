@@ -23,11 +23,12 @@ import {
   type BucketSize,
   type DashboardView
 } from '@masarat/shared/analytics'
-import type {
-  BreakdownRow,
-  CargoSlice,
-  DashboardData,
-  RevenuePoint
+import {
+  PASSENGERS_SLICE,
+  type BreakdownRow,
+  type CargoSlice,
+  type DashboardData,
+  type RevenuePoint
 } from '@masarat/shared/dashboard'
 import { inFilteredTrips } from './analyticsQuery'
 
@@ -73,7 +74,8 @@ async function revenueSeries(
 const total = (value: string | number | null): number => Number(value ?? 0)
 
 // Each paid trip's taxes split across its cargo items in proportion to their cost (a trip can
-// mix cargo types). Trips from before cargo items existed count under their own cargo type.
+// mix cargo types). Trips from before cargo items existed count under their own cargo type, and
+// passenger trips as one slice of their own.
 async function revenueByCargo(paidInPeriod: SQL | undefined): Promise<CargoSlice[]> {
   const db = getDb()
   const paid = await db
@@ -100,8 +102,9 @@ async function revenueByCargo(paidInPeriod: SQL | undefined): Promise<CargoSlice
     items.set(item.manifestId, list)
   }
 
-  const slices = new Map<CargoType, { revenue: number; trips: Set<number> }>()
-  const add = (cargoType: CargoType, revenue: number, manifestId: number): void => {
+  type Key = CargoSlice['cargoType']
+  const slices = new Map<Key, { revenue: number; trips: Set<number> }>()
+  const add = (cargoType: Key, revenue: number, manifestId: number): void => {
     const slice = slices.get(cargoType) ?? { revenue: 0, trips: new Set<number>() }
     slice.revenue += revenue
     slice.trips.add(manifestId)
@@ -111,7 +114,7 @@ async function revenueByCargo(paidInPeriod: SQL | undefined): Promise<CargoSlice
     const tripItems = items.get(trip.manifestId) ?? []
     const cost = tripItems.reduce((sum, item) => sum + item.cost, 0)
     if (cost <= 0) {
-      add(trip.cargoType, trip.amount, trip.manifestId)
+      add(trip.cargoType ?? PASSENGERS_SLICE, trip.amount, trip.manifestId)
       continue
     }
     for (const item of tripItems)
@@ -184,6 +187,14 @@ async function breakdown(
         .innerJoin(manifests, eq(payments.manifestId, manifests.id))
         .where(paid)
         .groupBy(manifests.tripKind)
+        .orderBy(desc(revenue))
+    case 'category':
+      return db
+        .select({ key: manifests.category, revenue, trips: count() })
+        .from(payments)
+        .innerJoin(manifests, eq(payments.manifestId, manifests.id))
+        .where(paid)
+        .groupBy(manifests.category)
         .orderBy(desc(revenue))
     case 'company':
       return (

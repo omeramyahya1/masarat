@@ -21,6 +21,7 @@ export function tripConditions(f: AnalyticsFilters): SQL | undefined {
     f.destinationCityId ? eq(manifests.destinationCityId, f.destinationCityId) : undefined,
     f.originState ? inState(originCity.stateId, f.originState) : undefined,
     f.destinationState ? inState(destinationCity.stateId, f.destinationState) : undefined,
+    f.category ? eq(manifests.category, f.category) : undefined,
     f.tripKind ? eq(manifests.tripKind, f.tripKind) : undefined,
     f.vehicleType ? eq(vehicles.vehicleType, f.vehicleType) : undefined,
     f.companyId ? eq(vehicles.companyId, f.companyId) : undefined,

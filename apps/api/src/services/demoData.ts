@@ -18,6 +18,8 @@ import {
   manifestCharges,
   manifestTrailers,
   tripDocuments,
+  tripPassengers,
+  tripTemplates,
   payments,
   roles,
   users,
@@ -30,9 +32,16 @@ import {
   type QuantityUnit,
   type VehicleType
 } from '@masarat/shared/fleet'
+import type { PassengerRecord } from '@masarat/shared/passengers'
 import { DEMO_COMPANIES, DEMO_GOVT_ACCOUNTS, type DemoCompany } from '@masarat/shared/demo'
 import { PLATE_CODES, formatPlate } from '@masarat/shared/plate'
-import { calculateCharges, calculateItemsCost, estimateRoadKm } from '@masarat/shared/tax'
+import { DEFAULT_SETTINGS, suggestedArrival } from '@masarat/shared/settings'
+import {
+  calculateCharges,
+  calculateItemsCost,
+  calculateTicketPrice,
+  estimateRoadKm
+} from '@masarat/shared/tax'
 import { hashPassword } from './auth'
 import { listCharges } from './charges'
 import { createCompany } from './companies'
@@ -75,8 +84,9 @@ function pickWeighted<T>(rand: Random, items: readonly { value: T; weight: numbe
   return items[items.length - 1].value
 }
 
-// Vehicle mix and capacity ranges, in the vehicle's unit
-const FLEET_MIX: readonly { value: VehicleType; weight: number }[] = [
+// Vehicle mix and capacity ranges, in the vehicle's unit. Buses are added on their own.
+type TruckType = Exclude<VehicleType, 'bus'>
+const FLEET_MIX: readonly { value: TruckType; weight: number }[] = [
   { value: 'heavy_duty_truck', weight: 4 },
   { value: 'tanker', weight: 3 },
   { value: 'container_truck', weight: 3 },
@@ -85,19 +95,17 @@ const FLEET_MIX: readonly { value: VehicleType; weight: number }[] = [
   { value: 'light_duty_truck', weight: 1 }
 ]
 
-const CAPACITY: Record<
-  VehicleType,
-  { unit: QuantityUnit; min: number; max: number; step: number }
-> = {
-  tanker: { unit: 'liter', min: 30_000, max: 45_000, step: 1000 },
-  container_truck: { unit: 'ton', min: 25, max: 40, step: 1 },
-  heavy_duty_truck: { unit: 'ton', min: 30, max: 50, step: 1 },
-  jumbo_truck: { unit: 'ton', min: 40, max: 60, step: 1 },
-  lorry: { unit: 'ton', min: 10, max: 20, step: 1 },
-  light_duty_truck: { unit: 'ton', min: 3, max: 8, step: 1 }
-}
+const CAPACITY: Record<TruckType, { unit: QuantityUnit; min: number; max: number; step: number }> =
+  {
+    tanker: { unit: 'liter', min: 30_000, max: 45_000, step: 1000 },
+    container_truck: { unit: 'ton', min: 25, max: 40, step: 1 },
+    heavy_duty_truck: { unit: 'ton', min: 30, max: 50, step: 1 },
+    jumbo_truck: { unit: 'ton', min: 40, max: 60, step: 1 },
+    lorry: { unit: 'ton', min: 10, max: 20, step: 1 },
+    light_duty_truck: { unit: 'ton', min: 3, max: 8, step: 1 }
+  }
 
-const CARGO_FOR: Record<VehicleType, CargoType> = {
+const CARGO_FOR: Record<TruckType, CargoType> = {
   tanker: 'fuel',
   container_truck: 'containers',
   heavy_duty_truck: 'general_cargo',
@@ -170,6 +178,26 @@ const DRIVER_LAST_NAMES = [
   'بابكر',
   'النور'
 ]
+
+// Passengers' names: the drivers' first names and some women's, with the same family names
+const WOMEN_FIRST_NAMES = ['فاطمة', 'آمنة', 'مريم', 'سعاد', 'هدى', 'نفيسة', 'زينب', 'سارة']
+
+// The intercity bus routes, by city name, and how often each runs
+const BUS_ROUTES: readonly [string, string, number][] = [
+  ['Khartoum', 'Port Sudan', 5],
+  ['Khartoum', 'Wad Madani', 5],
+  ['Khartoum', 'El Obeid', 3],
+  ['Khartoum', 'Kassala', 3],
+  ['Khartoum', 'Atbara', 3],
+  ['Omdurman', 'Dongola', 2],
+  ['Khartoum', 'Gedaref', 2],
+  ['Kosti', 'El Obeid', 1]
+]
+// Chance a bus makes a trip on a given day
+const BUS_TRIP_SHARE = 0.4
+// Average speeds for the demo arrival times (as the settings' defaults)
+const TRUCK_KMH = 50
+const BUS_KMH = 70
 
 // Packing details are filled in after the load is split
 const UNPACKED = { packingType: null, packageCount: null, notes: null }
@@ -543,6 +571,10 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
   // receiver, packing) come from their own stream, so adding them didn't change the trips the
   // main stream generates
   const extra = mulberry32(20261118)
+  // Departure hours, the buses and their passenger trips: streams of their own, so the cargo
+  // trips above stay as they were
+  const times = mulberry32(20261119)
+  const pax = mulberry32(20261120)
   const uniqueTrailerPlate = (): string => {
     for (;;) {
       const plate = formatPlate({
@@ -615,9 +647,9 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
     }
 
     for (let ageDays = HISTORY_DAYS - 1; ageDays >= 0; ageDays--) {
-      const tripDate = new Date(today)
-      tripDate.setDate(today.getDate() - ageDays)
-      const trips = tripsOn(rand, tripDate, ageDays)
+      const departureAt = new Date(today)
+      departureAt.setDate(today.getDate() - ageDays)
+      const trips = tripsOn(rand, departureAt, ageDays)
 
       for (let i = 0; i < trips; i++) {
         const vehicle = pick(rand, fleet)
@@ -657,7 +689,7 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
 
         // Registered up to two days ahead of the trip, during working hours
         const createdAt = new Date(
-          tripDate.getTime() - between(rand, 0, 2) * DAY_MS + between(rand, 7, 18) * 3_600_000
+          departureAt.getTime() - between(rand, 0, 2) * DAY_MS + between(rand, 7, 18) * 3_600_000
         )
         if (createdAt.getTime() > now) createdAt.setTime(now - between(rand, 1, 60) * 60_000)
 
@@ -685,6 +717,10 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
         const shipper = partyIn(origin)
         let receiver = partyIn(destination)
         while (receiver.name === shipper.name) receiver = partyIn(destination)
+        // Trucks leave between 05:00 and 20:00
+        const leavesAt = new Date(departureAt)
+        leavesAt.setHours(between(times, 5, 20), pick(times, [0, 15, 30, 45]))
+        const arrivesAt = suggestedArrival(leavesAt, distanceKm, TRUCK_KMH)
         const company = companyById.get(vehicle.companyId)!
         // Booked at the company's branch in the origin city, or else any of its branches
         const branch =
@@ -702,7 +738,8 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
             cargoType: mainRate.cargoType,
             cargoQuantity: quantity,
             cargoUnit: rate.unit,
-            tripDate,
+            departureAt: leavesAt,
+            arrivalAt: arrivesAt,
             distanceKm,
             ratePerKm: mainRate.ratePerKm,
             tripCost,
@@ -788,13 +825,221 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
           manifestNo: manifestNoFor(manifestId, paidAt),
           qrToken: randomBytes(16).toString('hex'),
           issuedAt: paidAt,
-          validUntil: validUntilFor(tripDate),
+          validUntil: validUntilFor(arrivesAt, DEFAULT_SETTINGS.validityMarginHours.cargo),
           createdAt: paidAt,
           updatedAt: paidAt
         })
       }
     }
 
+    // Buses: one or two per company, each with a template for its usual route, and a year of
+    // passenger trips
+    const passengerRows: (typeof tripPassengers.$inferInsert)[] = []
+    const ticketRate = await pricing.ticketRatePerKm(tx)
+    const nationalIds = new Set<string>()
+    const nationalId = (): string => {
+      for (;;) {
+        const id = `${between(pax, 1, 9)}${digits(pax, 10)}`
+        if (nationalIds.has(id)) continue
+        nationalIds.add(id)
+        return id
+      }
+    }
+    const busRoutes = BUS_ROUTES.flatMap(([a, b, weight]) => {
+      const from = cityByName.get(a)
+      const to = cityByName.get(b)
+      return from && to ? [{ value: [from, to] as const, weight }] : []
+    })
+    const buses: {
+      id: number
+      companyId: number
+      seats: number
+      route: (typeof busRoutes)[number]['value']
+    }[] = []
+    for (const company of seeded) {
+      for (let i = 0, count = between(pax, 1, 2); i < count; i++) {
+        const seats = between(pax, 45, 50)
+        const createdAt = new Date(today.getTime() - between(pax, HISTORY_DAYS, 500) * DAY_MS)
+        const [{ id }] = await tx
+          .insert(vehicles)
+          .values({
+            companyId: company.id,
+            plateNumber: uniquePlate(),
+            registrationNo: digits(pax, 7),
+            vehicleType: 'bus',
+            capacity: seats,
+            capacityUnit: 'seat',
+            createdAt,
+            updatedAt: createdAt
+          })
+          .returning({ id: vehicles.id })
+        const route = pickWeighted(pax, busRoutes)
+        buses.push({ id, companyId: company.id, seats, route })
+        const [from, to] = route
+        const hour = pick(pax, [6, 7, 8, 18, 20])
+        const distance = estimateRoadKm(from, to)
+        await tx.insert(tripTemplates).values({
+          companyId: company.id,
+          branchId: (company.branches.find((b) => b.cityId === from.id) ?? company.branches[0]).id,
+          name: `${from.nameAr ?? from.name} - ${to.nameAr ?? to.name} ${String(hour).padStart(2, '0')}:00`,
+          originCityId: from.id,
+          destinationCityId: to.id,
+          vehicleId: id,
+          driverId: pick(pax, driversOf.get(company.id) ?? [])?.id ?? null,
+          departureTime: `${String(hour).padStart(2, '0')}:00`,
+          durationMinutes: Math.ceil((distance / BUS_KMH) * 4) * 15
+        })
+      }
+    }
+    for (let ageDays = HISTORY_DAYS - 1; ageDays >= 0; ageDays--) {
+      const day = new Date(today)
+      day.setDate(today.getDate() - ageDays)
+      for (const bus of buses) {
+        if (pax() >= BUS_TRIP_SHARE) continue
+        // Out on its usual route one day, back the next
+        let [origin, destination] = bus.route
+        if (pax() < 0.5) [origin, destination] = [destination, origin]
+        const leavesAt = new Date(day)
+        leavesAt.setHours(pick(pax, [6, 7, 8, 18, 20]), 0)
+        const distanceKm = estimateRoadKm(origin, destination)
+        const arrivesAt = suggestedArrival(leavesAt, distanceKm, BUS_KMH)
+        const createdAt = new Date(
+          leavesAt.getTime() - between(pax, 1, 3) * DAY_MS + between(pax, 0, 8) * 3_600_000
+        )
+        if (createdAt.getTime() > now) createdAt.setTime(now - between(pax, 1, 60) * 60_000)
+
+        // Most seats sold; a few infants on their parents' laps and a few passport holders
+        const sold = between(pax, Math.floor(bus.seats * 0.6), bus.seats)
+        const passengers: PassengerRecord[] = Array.from({ length: sold }, (_, i) => {
+          const woman = pax() < 0.45
+          const first = pick(pax, woman ? WOMEN_FIRST_NAMES : DRIVER_FIRST_NAMES)
+          const foreign = pax() < 0.05
+          return {
+            fullName: `${first} ${pick(pax, DRIVER_LAST_NAMES)}`,
+            idType: foreign ? 'passport' : 'national_id',
+            idNumber: foreign ? `P${digits(pax, 8)}` : nationalId(),
+            seatNo: i + 1,
+            isInfant: false,
+            notes: foreign ? pick(pax, ['إريتري', 'إثيوبي', 'مصري', 'تشادي']) : null
+          }
+        })
+        for (const parent of passengers.filter(() => pax() < 0.06)) {
+          passengers.push({
+            fullName: `${pick(pax, [...WOMEN_FIRST_NAMES, ...DRIVER_FIRST_NAMES])} ${parent.fullName.split(' ').slice(1).join(' ')}`,
+            idType: null,
+            idNumber: null,
+            seatNo: parent.seatNo,
+            isInfant: true,
+            notes: 'رضيع'
+          })
+        }
+        const ticketPrice = calculateTicketPrice(ticketRate, distanceKm)
+        const tripCost = ticketPrice * sold
+        const taxes = calculateCharges(tripCost, chargeList, 'passenger')
+        const taxAmount = taxes.total
+        if (taxAmount <= 0) continue
+
+        let status = statusFor(pax, ageDays)
+        const billedAt = new Date(
+          Math.min(now, createdAt.getTime() + between(pax, 5, 120) * 60_000)
+        )
+        const paidAt = new Date(billedAt.getTime() + between(pax, 10, 12 * 60) * 60_000)
+        if (status === 'certified' && paidAt.getTime() > now) status = 'billed'
+        const company = companyById.get(bus.companyId)!
+        const branch =
+          company.branches.find((b) => b.cityId === origin.id) ?? pick(pax, company.branches)
+        const driver = pick(pax, driversOf.get(bus.companyId) ?? [])
+        const billed = status !== 'draft'
+
+        const [{ id: manifestId }] = await tx
+          .insert(manifests)
+          .values({
+            vehicleId: bus.id,
+            branchId: branch.id,
+            createdBy: branch.clerkId,
+            originCityId: origin.id,
+            destinationCityId: destination.id,
+            category: 'passenger',
+            cargoType: null,
+            cargoQuantity: sold,
+            cargoUnit: 'seat',
+            departureAt: leavesAt,
+            arrivalAt: arrivesAt,
+            distanceKm,
+            ratePerKm: ticketRate,
+            ticketPrice,
+            tripCost,
+            taxAmount,
+            status,
+            tripKind: 'domestic',
+            driverId: driver?.id ?? null,
+            driverName: driver?.name ?? null,
+            driverPhone: driver?.phone ?? null,
+            carrierName: billed ? company.name : null,
+            carrierAddress: billed ? company.address : null,
+            carrierTin: billed ? company.tin : null,
+            createdAt,
+            updatedAt: status === 'draft' ? createdAt : status === 'billed' ? billedAt : paidAt
+          })
+          .returning({ id: manifests.id })
+        passengerRows.push(
+          ...passengers.map((p, position) => ({
+            manifestId,
+            position,
+            ...p,
+            createdAt,
+            updatedAt: createdAt
+          }))
+        )
+        taxRows.push(
+          ...taxes.lines.map((line, position) => ({
+            manifestId,
+            position,
+            ...line,
+            createdAt,
+            updatedAt: createdAt
+          }))
+        )
+        if (status === 'draft') continue
+
+        const paid = status === 'certified'
+        const billId = uniqueBillId(billedAt)
+        const paymentRef = paid ? uniqueRef() : null
+        simBillRows.push({
+          billId,
+          amount: taxAmount,
+          status: paid ? 'paid' : 'pending',
+          paymentRef,
+          paidAt: paid ? paidAt : null,
+          createdAt: billedAt,
+          updatedAt: paid ? paidAt : billedAt
+        })
+        paymentRows.push({
+          manifestId,
+          billId,
+          amount: taxAmount,
+          status: paid ? 'paid' : 'pending',
+          bank: paid ? 'E-Sali' : null,
+          paymentRef,
+          paidAt: paid ? paidAt : null,
+          createdAt: billedAt,
+          updatedAt: paid ? paidAt : billedAt
+        })
+        if (!paid) continue
+        certificateRows.push({
+          manifestId,
+          certificateNo: certificateNoFor(manifestId, paidAt),
+          manifestNo: manifestNoFor(manifestId, paidAt, 'passenger'),
+          qrToken: randomBytes(16).toString('hex'),
+          issuedAt: paidAt,
+          validUntil: validUntilFor(arrivesAt, DEFAULT_SETTINGS.validityMarginHours.passenger),
+          createdAt: paidAt,
+          updatedAt: paidAt
+        })
+      }
+    }
+
+    await insertInBatches(passengerRows, (rows) => tx.insert(tripPassengers).values(rows))
     await insertInBatches(itemRows, (rows) => tx.insert(manifestCargoItems).values(rows))
     await insertInBatches(trailerRows, (rows) => tx.insert(manifestTrailers).values(rows))
     await insertInBatches(taxRows, (rows) => tx.insert(manifestCharges).values(rows))
@@ -838,6 +1083,7 @@ async function deleteDemoCompanies(): Promise<void> {
     await tx.delete(esaliSimBills).where(inArray(esaliSimBills.billId, demoBills))
     await tx.delete(certificates).where(inArray(certificates.manifestId, demoManifests))
     await tx.delete(manifestCargoItems).where(inArray(manifestCargoItems.manifestId, demoManifests))
+    await tx.delete(tripPassengers).where(inArray(tripPassengers.manifestId, demoManifests))
     await tx.delete(manifestCharges).where(inArray(manifestCharges.manifestId, demoManifests))
     await tx.delete(manifestTrailers).where(inArray(manifestTrailers.manifestId, demoManifests))
     // Files attached by hand to a demo company's trips go too
@@ -848,6 +1094,7 @@ async function deleteDemoCompanies(): Promise<void> {
     await tx.delete(tripDocuments).where(inArray(tripDocuments.manifestId, demoManifests))
     await tx.delete(payments).where(inArray(payments.manifestId, demoManifests))
     await tx.delete(manifests).where(inArray(manifests.vehicleId, demoVehicles))
+    await tx.delete(tripTemplates).where(inArray(tripTemplates.companyId, companyIds))
     await tx.delete(vehicles).where(inArray(vehicles.companyId, companyIds))
     await tx.delete(drivers).where(inArray(drivers.companyId, companyIds))
     await tx.delete(users).where(inArray(users.companyId, companyIds))

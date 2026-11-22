@@ -1,11 +1,21 @@
 // The government's trip search: by E-Sali bill ID, receipt or manifest number, trip number,
 // plate, company or city name, and by route
-import { and, count, desc, eq, or, sql, type SQL } from 'drizzle-orm'
+import { and, count, desc, eq, exists, or, sql, type SQL } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
-import { certificates, cities, companies, getDb, manifests, payments, vehicles } from '../db'
+import {
+  certificates,
+  cities,
+  companies,
+  getDb,
+  manifests,
+  payments,
+  tripPassengers,
+  vehicles
+} from '../db'
 import type { GovtSearchInput, GovtSearchResult } from '@masarat/shared/billing'
 import { DEFAULT_PAGE_SIZE, isPageSize, type Page } from '@masarat/shared/paging'
 import type { FleetResult } from '@masarat/shared/fleet'
+import { idSearchKey } from '@masarat/shared/passengers'
 import { plateSearchKey } from '@masarat/shared/plate'
 import { contains, escapeLike, plateKeyOf } from './sqlText'
 
@@ -26,9 +36,22 @@ function textConditions(raw: string): SQL | undefined {
       ? sql`${plateKeyOf(vehicles.plateNumber)} LIKE ${`%${escapeLike(plateKey)}%`} ESCAPE '\\'`
       : undefined
 
-  // An E-Sali bill ID (22 digits) or the start of one
+  // A passenger's national ID or passport number, exactly: one lookup in its index
+  const idKey = idSearchKey(text)
+  const passenger = idKey
+    ? exists(
+        getDb()
+          .select({ id: tripPassengers.id })
+          .from(tripPassengers)
+          .where(
+            and(eq(tripPassengers.manifestId, manifests.id), eq(tripPassengers.idNumber, idKey))
+          )
+      )
+    : undefined
+
+  // An E-Sali bill ID (22 digits) or the start of one, or a national ID (11 digits)
   if (/^\d{6,22}$/.test(western)) {
-    return or(sql`${payments.billId} LIKE ${`${western}%`}`, plate)
+    return or(sql`${payments.billId} LIKE ${`${western}%`}`, plate, passenger)
   }
   // A trip number: "123" or "#123"
   const tripNo = /^(#)?(\d{1,5})$/.exec(western)
@@ -38,12 +61,12 @@ function textConditions(raw: string): SQL | undefined {
       ? eq(manifests.id, Number(tripNo[2]))
       : or(eq(manifests.id, Number(tripNo[2])), plate)
   }
-  // A receipt or manifest number, whole or in part (MNF-2026-000123, mnf 2026 123, …)
-  const docNo = /^(MNF|MSR)[\s-]*(\d{4})?[\s-]*(\d{0,6})$/i.exec(western)
+  // A receipt or manifest number, whole or in part (MNF-2026-000123, psg 2026 123, …)
+  const docNo = /^(MNF|PSG|MSR)[\s-]*(\d{4})?[\s-]*(\d{0,6})$/i.exec(western)
   if (docNo) {
     const [, prefix, year, digits] = docNo
     const column =
-      prefix.toUpperCase() === 'MNF' ? certificates.manifestNo : certificates.certificateNo
+      prefix.toUpperCase() === 'MSR' ? certificates.certificateNo : certificates.manifestNo
     if (year && digits) {
       return eq(column, `${prefix.toUpperCase()}-${year}-${digits.padStart(6, '0')}`)
     }
@@ -52,6 +75,7 @@ function textConditions(raw: string): SQL | undefined {
 
   return or(
     plate,
+    passenger,
     contains(vehicles.registrationNo, text),
     contains(companies.name, text),
     contains(origin.name, text),
@@ -108,7 +132,7 @@ export async function searchTrips(
       plateNumber: vehicles.plateNumber,
       originCityId: manifests.originCityId,
       destinationCityId: manifests.destinationCityId,
-      tripDate: manifests.tripDate,
+      departureAt: manifests.departureAt,
       amount: manifests.taxAmount,
       status: manifests.status
     })
@@ -120,16 +144,16 @@ export async function searchTrips(
     .leftJoin(payments, eq(payments.manifestId, manifests.id))
     .leftJoin(certificates, eq(certificates.manifestId, manifests.id))
     .where(where)
-    .orderBy(desc(manifests.tripDate), desc(manifests.id))
+    .orderBy(desc(manifests.departureAt), desc(manifests.id))
     .limit(pageSize)
     .offset((page - 1) * pageSize)
 
   return {
     ok: true,
     data: {
-      rows: rows.map(({ tripDate, ...row }) => ({
+      rows: rows.map(({ departureAt, ...row }) => ({
         ...row,
-        tripDate: tripDate.getTime()
+        departureAt: departureAt.getTime()
       })),
       total,
       // The search has no unfiltered list behind it

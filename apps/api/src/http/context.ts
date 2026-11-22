@@ -32,6 +32,7 @@ const STATUS: Record<string, ContentfulStatusCode> = {
   document_too_large: 413,
   not_found: 404,
   username_taken: 409,
+  phone_taken: 409,
   last_admin: 409,
   too_many_attempts: 429,
   unknown: 500

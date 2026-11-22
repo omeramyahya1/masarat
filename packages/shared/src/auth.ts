@@ -7,7 +7,7 @@ export interface AuthUser {
   username: string
   role: UserRole
   fullName: string
-  phone: string | null
+  phone: string
   companyName: string | null
   // Fleet owners' carrier details, printed on their manifests
   address: string | null
@@ -23,7 +23,8 @@ export interface SignUpInput {
   fullName: string
   username: string
   password: string
-  phone?: string
+  // A Sudanese mobile number, required (see phone.ts)
+  phone: string
   companyName?: string
   address?: string
   tin?: string
@@ -62,6 +63,9 @@ export type AuthErrorCode =
   | 'forbidden'
   | 'invalid_tin'
   | 'address_too_long'
+  // Not a Sudanese mobile number, or another account has it
+  | 'invalid_phone'
+  | 'phone_taken'
   | 'not_signed_in'
   | 'unknown'
 

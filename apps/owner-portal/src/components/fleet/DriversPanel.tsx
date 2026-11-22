@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoaderCircle, Pencil, Plus, Trash2, UsersRound } from 'lucide-react'
 import type { DriverRecord, FleetErrorCode } from '@masarat/shared/fleet'
+import { formatSudanPhone } from '@masarat/shared/phone'
 import { useFormat } from '@masarat/ui/lib/format'
 import { useListView, type ListViewConfig } from '@masarat/ui/lib/useListView'
 import { FormAlert } from '@masarat/ui/components/form/fields'
@@ -28,7 +29,8 @@ function DriversPanel(): React.JSX.Element {
       defaultDirection: 'asc',
       matches: (driver, query) =>
         driver.name.toLowerCase().includes(query) ||
-        driver.phone.includes(query.replace(/[\s-]/g, '')),
+        // Numbers are stored as +249…: "0912…" or "912…" still matches
+        driver.phone.includes(query.replace(/\D/g, '').replace(/^0/, '') || query),
       filters: {},
       sorts: {
         name: (a, b) => a.name.localeCompare(b.name, 'ar'),
@@ -125,7 +127,7 @@ function DriversPanel(): React.JSX.Element {
                     </td>
                     <td>
                       <bdi className="tabular-nums" dir="ltr">
-                        {driver.phone}
+                        {formatSudanPhone(driver.phone)}
                       </bdi>
                     </td>
                     <td className="tabular-nums">{format.number(driver.tripCount)}</td>

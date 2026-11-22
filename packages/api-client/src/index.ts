@@ -39,7 +39,6 @@ import type {
 import type { DashboardData } from '@masarat/shared/dashboard'
 import type { AnalyticsFilters, DashboardView, OwnerOption } from '@masarat/shared/analytics'
 import type { ExportInput, ExportRows } from '@masarat/shared/exports'
-import type { OcrResult, ScanInput } from '@masarat/shared/ocr'
 import type { TaxRatesInput, TaxSettingsView } from '@masarat/shared/tax'
 
 export interface FleetAPI {
@@ -86,8 +85,6 @@ export interface DocumentsAPI {
   upload: (docType: DocumentType, file: File) => Promise<FleetResult<StagedDocument>>
   // A saved attachment, for the preview
   file: (documentId: number) => Promise<FleetResult<DownloadedFile>>
-  // Simulated OCR: reads a staged or saved attachment to fill in the trip form
-  scan: (input: ScanInput) => Promise<FleetResult<OcrResult>>
 }
 
 // Government admins only
@@ -263,8 +260,7 @@ const documents: DocumentsAPI = {
     form.set('file', file)
     return request('POST', '/documents', form)
   },
-  file: (id) => file(`/documents/${id}/file`),
-  scan: (input) => request('POST', '/documents/scan', input)
+  file: (id) => file(`/documents/${id}/file`)
 }
 
 const auth: AuthAPI = {

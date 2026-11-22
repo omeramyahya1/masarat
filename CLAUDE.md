@@ -4,7 +4,7 @@
 
 Masarat is an electronic transport, manifests, and tax-collection system tailored for Sudan. Its goal is to improve how transport taxes are paid and collected.
 
-It started as an **Electron MVP / demo** for the relevant government agency (kept, frozen, in `apps/desktop-demo`). We are now building the **production web version**. External integrations (E-Sali, banks, OCR) are still **simulated** behind interfaces.
+It started as an **Electron MVP / demo** for the relevant government agency (kept, frozen, in `apps/desktop-demo`). We are now building the **production web version**. External integrations (E-Sali, banks) are still **simulated** behind interfaces. OCR was removed (see *Planned: document review*).
 
 ## App shape
 
@@ -26,7 +26,9 @@ The Electron demo showed both panels in one window with a toggle. The web apps d
 - **Rate limit** (`login_attempts`): 5 failures per username or 20 per IP in 15 minutes give `too_many_attempts`. A wrong password and an unknown username answer the same (`invalid_credentials`, timed alike); `account_disabled` is only told after the password checks out.
 - **CSRF and CORS** (`src/http/middleware.ts`, `src/app.ts`): requests that change something must carry an `Origin` that is one of `SITE_URL`, `OWNER_URL`, `GOVT_URL`; CORS allows exactly those, with credentials.
 - **Sign-up is for fleet owners only.** Government accounts are created by a **government admin** (`users.is_admin`, government only) in Government portal → *Users* (`services/govtUsers.ts`, `components/govt/users/`): create (a 12-character temporary password shown once), disable / enable, reset password, make / remove admin. An admin can't change their own account there, and there is always one active admin (the admin rows are locked, so two admins demoting each other at once can't both succeed). Accounts with a temporary password (`must_change_password`) can only call `/auth/me`, `/auth/change-password` and `/auth/logout` until they pick their own.
-- **The first admin** of a new deployment comes from the server: `bun run --filter @masarat/api user:create-admin <username> "<full name>"` prints its temporary password. The demo government account is an admin.
+- **The first admin** of a new deployment comes from the server: `bun run --filter @masarat/api user:create-admin <username> <phone> "<full name>"` prints its temporary password. The demo government account is an admin.
+- **Phone numbers** (`packages/shared/src/phone.ts`): every account (fleet owners, government users) and every driver has a **Sudanese mobile number**, for SMS later (one-time codes, notifications). `normalizeSudanPhone` accepts `0912345678`, `912345678`, `+249…`, `00249…` or `249…` with spaces or dashes, takes mobile numbers starting with 9 or 1, and stores `+249912345678`; `formatSudanPhone` shows `+249 91 234 5678`. An account's number is unique across all accounts (`users_phone_unique`, `phone_taken`); a driver's is unique among the owner's drivers. Senders' and receivers' phones may be foreign (`normalizePhone` in `fleet.ts`).
+- **Language**: every site opens in **Arabic** unless the user picked English. The choice is the `masarat_lang` cookie (a year, on `VITE_COOKIE_DOMAIN` = `.masarat.com` in production, so the three sites share it; host-only `localhost` locally), set in `packages/ui/src/i18n/index.ts`. Missing keys fall back to English.
 - **Demo mode** (`DEMO_MODE=true`, never in production): seeds the demo data, shows the demo accounts on the login page (`GET /config`), and allows the demo-only actions (simulated payment, regenerate demo data).
 
 ## Production status
@@ -88,9 +90,9 @@ Short paths in the rules below: `services/*` is `apps/api/src/services/*`. Compo
 - **Cargo types** are chosen **per item**, so a trip can mix them. The type picks the item's per-km rate, and its unit must match the vehicle's (fuel and liquids (non-fuel) → liters → tanker; containers and general cargo → tons).
   - `manifests.cargo_type` / `rate_per_km` hold the trip's **main type**, the one that costs the most.
   - `tripCargoTypes` lists all of a trip's types. The trips list shows "Mixed cargo" when there's more than one.
-- **Owner profile** (*Profile* section, `updateProfile` in `services/auth.ts`): the fleet owner edits their name, phone, company name, address and TIN (الرقم الضريبي). The company, address and TIN are the **carrier details** printed on their manifests. Sign-up also asks for the address and TIN (optional there). Limits: address up to 200 characters, TIN up to 30.
+- **Owner profile** (*Profile* section, `updateProfile` in `services/auth.ts`): the fleet owner edits their name, phone (required), company name, address and TIN (الرقم الضريبي). The company, address and TIN are the **carrier details** printed on their manifests. Sign-up also asks for the address and TIN (optional there). Limits: address up to 200 characters, TIN up to 30.
 - **Vehicles** need a **registration number** (رقم الترخيص, `vehicles.registration_no`, up to 30 characters) when added or edited. It is null only for vehicles added before it existed; the vehicles list flags those.
-- **Drivers** (*Drivers* section, `services/drivers.ts`, `drivers` table): each owner keeps a list of drivers with a name and phone. Phones are stored without spaces or dashes (`normalizePhone`: optional `+` and 7–15 digits) and are unique per owner.
+- **Drivers** (*Drivers* section, `services/drivers.ts`, `drivers` table): each owner keeps a list of drivers with a name and phone. Phones are Sudanese mobile numbers (see *Phone numbers*) and are unique per owner.
 - **Manifest details** (what the authorized manifest prints): each trip has a **trip type** (`domestic` / `import` / `export`), up to 3 **trailer plates** (`manifest_trailers`, each different from the vehicle's plate), a **driver** from the owner's list, and a **sender** and **receiver** (name, address, phone). Each cargo item also has a **packing type** (free text; common types in `PACKING_SUGGESTIONS` and the owner's earlier ones are suggested), a **number of packages** and optional **notes**. Its quantity is shown as the **weight**.
   - Drafts can leave the driver, sender, receiver and packing details empty, but what is entered is validated.
   - *Generate bill ID* needs `missingForBilling` (`packages/shared/src/fleet.ts`) to be empty: the driver, a complete sender and receiver, the packing type and package count on every item, and the owner's address and TIN. Otherwise it returns `incomplete_manifest`, and the trip page lists what's missing.
@@ -98,13 +100,9 @@ Short paths in the rules below: `services/*` is `apps/api/src/services/*`. Compo
   - A driver on a draft can't be deleted (`driver_in_use`); deleting one used only by billed trips sets their `driver_id` to null.
   - `trips:suggestions` returns earlier senders, receivers and packing types for the form.
 - **Supporting documents** (`services/documents.ts`, `trip_documents`, UI in the owner portal's `trips/DocumentsField.tsx`): a trip can have one file per document type. The commercial invoice and packing list always apply, the certificate of origin for imports, and the import/export authorization for imports and exports (`documentTypesFor`). Files are PDF, JPG or PNG, up to 20 MB, and are optional.
-  - *Attach* opens the browser's file picker and uploads the file (`POST /documents`, multipart, its own 20 MB body limit; `documents:pick` in the demo). `stageDocument` checks the extension, size and first bytes (a renamed file of another kind is refused), and writes it to `<STORAGE_DIR>/documents/staging/` (`userData` in the demo), named by a random token kept in memory **with the uploader's id**: no other owner can attach or scan it. Saving the trip moves it to `documents/<manifest id>/` and adds the row. Staging is emptied on startup.
+  - *Attach* opens the browser's file picker and uploads the file (`POST /documents`, multipart, its own 20 MB body limit; `documents:pick` in the demo). `stageDocument` checks the extension, size and first bytes (a renamed file of another kind is refused), and writes it to `<STORAGE_DIR>/documents/staging/` (`userData` in the demo), named by a random token kept in memory **with the uploader's id**: no other owner can attach it. Saving the trip moves it to `documents/<manifest id>/` and adds the row. Staging is emptied on startup.
   - Drafts can add, replace or remove attachments; documents of a type the trip no longer needs (after its type changed) are dropped on save. Deleting a draft, or regenerating demo data, removes the folder.
   - *View* opens an attachment in an **in-page preview** (`trips/DocumentPreview.tsx`, both portals): PDFs in the browser's own viewer, images as they are, with *Download* and previous / next (and the arrow keys, following the reading direction) through the trip's documents. The file comes as a blob from `GET /documents/:id/file` (`findOwnedDocumentFile`, sent inline with `nosniff` and `no-store`), so the API never has to allow being framed. In the demo, `documents:open` opened the system viewer.
-- **OCR is simulated** (`services/ocr.ts`): the `OcrService` interface is where a real OCR / document AI service plugs in. `MockOcrService` waits about 1.5 s and returns one of three Arabic sample shipments (import, export, domestic), with cargo for the vehicle's unit.
-  - The commercial invoice gives the sender, receiver and goods; the packing list gives the goods with packing and package counts; the certificate of origin sets the trip to Import (and the sender); the authorization sets import/export and both parties.
-  - The shipment is picked from the original file name and size, and the form sends it back with each later scan, so a trip's documents agree.
-  - The form merges what was read (`scannedItems.ts`: empty rows are replaced, rows with the same description get the packing, others are added) and highlights it until the owner edits it.
 - **List tools** (`ui/ListToolbar.tsx`): the owner's Trips, Vehicles and Drivers lists have a search box, filters, sort with a direction toggle and, except drivers, group-by with a header row per group (trips show count and total due). The settings are kept per list in `sessionStorage`.
   - **Vehicles and drivers** load in full and filter in the browser (`lib/useListView.ts`).
   - **Trips are paged by the API** (`lib/useServerList.ts`, `GET /trips`, `services/tripList.ts`): numbered pages (`ui/Pagination.tsx`, 25 / 50 / 100 per page), the search debounced. The API searches (`#id`, plate in either script, cities, driver, sender, receiver, item names), filters and sorts. **Grouping works across pages**: rows are ordered by their group first, each page shows the headers of its groups, and each header's count and total due cover the whole group (`groups` in the page). The portal labels the groups from their keys (status, `YYYY-MM`, vehicle id, driver id, `origin-destination` ids, trip kind, cargo type). The filters' vehicle and driver options come from the owner's lists.
@@ -146,6 +144,17 @@ Short paths in the rules below: `services/*` is `apps/api/src/services/*`. Compo
 - **App version**: a grey badge in the header shows the portal's `package.json` version (`__APP_VERSION__`, set in `vite.config.ts`). In the demo it's `app.getVersion()` next to the MVP badge.
 - Charts use **Recharts** (lazy-loaded) for the time series; ranked bars are plain HTML so they follow RTL. Charts keep time left → right in Arabic, with the value axis on the right.
 
+## Planned: document review (not built)
+
+OCR is out: whether a real OCR or document AI service is integrated is still under debate, so attachments are only uploaded and previewed. Instead, review will most likely be done by people:
+
+- A new, **lower government role, the reviewer**, reviews the supporting documents trips were submitted with, and the manifests already issued. They can approve, decline or **report** one.
+- If a reviewer suspects something, they may report it to a higher government role, or **decline / revoke the clearance**. The verify page then shows that the trip is **not cleared to travel**, so an officer scanning the QR code stops it.
+- Later, with the SMS integration, a revocation notifies the driver and the owner.
+- Issuing may later depend on the review (no clearance before approval). **For now, issuing stays as it is**: payment issues the receipt and manifest straight away, and review only acts afterwards.
+
+Keep the code ready for it: the verify page's status and the documents' lifecycle should be able to gain a "revoked" state without reshaping them.
+
 ## Tech stack
 
 **BHVR**: Bun (runtime and package manager), Hono, Vite, React 19. TypeScript everywhere, Tailwind v4, Recharts, i18next.
@@ -170,7 +179,7 @@ All from the repo root:
 - `bun install`
 - `bun run db:up` / `db:down` (local Postgres), `bun run db:migrate`, `bun run db:generate` (new migration from `schema.ts`)
 - `bun run dev`: the API and the three web apps together. Or one at a time: `bun run dev:api` (port 3000), `dev:site` (5175), `dev:owner` (5173), `dev:govt` (5174). Open http://localhost:5175 to log in.
-- `bun run --filter @masarat/api user:create-admin <username> "<full name>"`: a government admin, for a new deployment
+- `bun run --filter @masarat/api user:create-admin <username> <phone> "<full name>"`: a government admin, for a new deployment
 - `bun run dev:demo`: the Electron demo. Run `bun install` in `apps/desktop-demo` first, since it isn't a workspace.
 - `bun run typecheck`, `bun run test` (API), `bun run build` (the three web apps), `bun run lint`, `bun run format`
 

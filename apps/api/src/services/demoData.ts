@@ -357,6 +357,7 @@ async function createAccount(account: DemoAccount): Promise<number | null> {
       username: account.username,
       passwordHash: await hashPassword(account.password),
       fullName: account.fullName,
+      phone: account.phone,
       companyName: account.companyName,
       address: account.address,
       tin: account.tin,
@@ -487,7 +488,7 @@ async function seedTrips(ownerIds: number[]): Promise<void> {
   const partyIn = (city: CityPoint): { name: string; address: string; phone: string } => ({
     name: pick(extra, PARTY_NAMES),
     address: `${city.nameAr ?? city.name}، ${pick(extra, DISTRICTS)}`,
-    phone: `09${digits(extra, 8)}`
+    phone: `+2499${digits(extra, 8)}`
   })
   // The carrier details billed trips were issued with
   const owners = new Map(
@@ -508,7 +509,7 @@ async function seedTrips(ownerIds: number[]): Promise<void> {
     for (const ownerId of ownerIds) {
       const driverCount = between(extra, 5, 8)
       const phones = new Set<string>()
-      while (phones.size < driverCount) phones.add(`09${digits(extra, 8)}`)
+      while (phones.size < driverCount) phones.add(`+2499${digits(extra, 8)}`)
       driversOf.set(
         ownerId,
         await tx

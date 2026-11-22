@@ -27,7 +27,7 @@ export const isDocumentType = (value: unknown): value is DocumentType =>
   (DOCUMENT_TYPES as readonly unknown[]).includes(value)
 
 // What we know about a staged file; kept in memory, since staging doesn't outlive the API process.
-// It belongs to the owner who uploaded it: nobody else can attach or scan it.
+// It belongs to the owner who uploaded it: nobody else can attach it.
 interface Staged extends StagedDocument {
   ownerId: number
   storedName: string
@@ -141,7 +141,7 @@ async function findOwnedDocument(
   return row?.document
 }
 
-// A saved attachment's file and original name, for the viewer and the scanner
+// A saved attachment's file and original name, for the viewer
 export async function findOwnedDocumentFile(
   ownerId: number | null,
   documentId: unknown

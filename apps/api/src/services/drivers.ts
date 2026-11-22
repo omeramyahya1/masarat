@@ -4,11 +4,11 @@ import { and, asc, count, eq, ne } from 'drizzle-orm'
 import { drivers, getDb, manifests, type Driver } from '../db'
 import {
   MAX_DRIVER_NAME_LENGTH,
-  normalizePhone,
   type DriverInput,
   type DriverRecord,
   type FleetResult
 } from '@masarat/shared/fleet'
+import { normalizeSudanPhone } from '@masarat/shared/phone'
 
 const toRecord = (driver: Driver, tripCount = 0): DriverRecord => ({
   id: driver.id,
@@ -25,7 +25,7 @@ function validate(input: DriverInput): FleetResult<DriverInput> {
   if (!name || !rawPhone || name.length > MAX_DRIVER_NAME_LENGTH) {
     return { ok: false, error: 'missing_fields' }
   }
-  const phone = normalizePhone(rawPhone)
+  const phone = normalizeSudanPhone(rawPhone)
   if (!phone) return { ok: false, error: 'invalid_phone' }
   return { ok: true, data: { name, phone } }
 }

@@ -9,4 +9,6 @@ interface ImportMetaEnv {
   // https://owner.masarat.com and https://govt.masarat.com
   readonly VITE_OWNER_URL?: string
   readonly VITE_GOVT_URL?: string
+  // .masarat.com, so the three sites share the language cookie; unset locally
+  readonly VITE_COOKIE_DOMAIN?: string
 }

@@ -15,7 +15,7 @@ and `/govt/users` (`GET`, `POST`, `POST /:id/{disable,enable,reset-password,admi
 
 The owner portal's routes are done too: `/vehicles`, `/drivers` (CRUD), `/trips` (`GET /` paged,
 `/reference`, `/suggestions`, `POST`, `PUT|DELETE /:id`, `GET /:id`, `POST /:id/{bill,refresh,simulate-payment}`)
-and `/documents` (`POST /` multipart upload, `POST /scan`, `GET /:id/file`). Saving the
+and `/documents` (`POST /` multipart upload, `GET /:id/file`; the demo's `documents:scan` was dropped with OCR). Saving the
 certificate as PDF is the browser's print dialog, so `certificates:save-pdf` has no route.
 
 The government portal's routes are done: `/govt/reference`, `/govt/owners`, `POST /govt/dashboard`

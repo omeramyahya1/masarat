@@ -16,12 +16,16 @@ export async function resetData(): Promise<void> {
   await getDb().execute(sql`update tax_settings set amount = 1500 where code = 'manifest_fee'`)
 }
 
+// A different Sudanese mobile number for every account a test creates (phones are unique)
+let phoneCounter = 0
+export const nextPhone = (): string => `+24991${String(++phoneCounter).padStart(7, '0')}`
+
 export async function createUser(
   values: Partial<typeof users.$inferInsert> & { username: string; role: 'owner' | 'govt' }
 ): Promise<number> {
   const [user] = await getDb()
     .insert(users)
-    .values({ fullName: values.username, passwordHash: 'x', ...values })
+    .values({ fullName: values.username, passwordHash: 'x', phone: nextPhone(), ...values })
     .returning({ id: users.id })
   return user.id
 }

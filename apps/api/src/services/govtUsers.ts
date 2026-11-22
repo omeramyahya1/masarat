@@ -12,7 +12,7 @@ import type {
   IssuedPassword,
   NewGovtUserInput
 } from '@masarat/shared/govtUsers'
-import { hashPassword } from './auth'
+import { accountPhone, hashPassword, isPhoneConflict, phoneTaken } from './auth'
 import { deleteUserSessions } from './sessions'
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0]
@@ -52,23 +52,32 @@ export async function createGovtUser(
 ): Promise<GovtUserResult<IssuedPassword>> {
   const fullName = asText(input?.fullName)
   const username = asText(input?.username).toLowerCase()
-  if (!fullName || !username) return { ok: false, error: 'missing_fields' }
+  if (!fullName || !username || !asText(input?.phone)) return { ok: false, error: 'missing_fields' }
   if (!USERNAME_PATTERN.test(username)) return { ok: false, error: 'invalid_username' }
+  const phone = accountPhone(input.phone)
+  if (!phone) return { ok: false, error: 'invalid_phone' }
+  if (await phoneTaken(phone)) return { ok: false, error: 'phone_taken' }
 
   const password = temporaryPassword()
-  const [created] = await getDb()
-    .insert(users)
-    .values({
-      role: 'govt',
-      username,
-      fullName,
-      phone: asText(input.phone) || null,
-      isAdmin: input.isAdmin === true,
-      passwordHash: await hashPassword(password),
-      mustChangePassword: true
-    })
-    .onConflictDoNothing({ target: users.username })
-    .returning()
+  let created: User | undefined
+  try {
+    ;[created] = await getDb()
+      .insert(users)
+      .values({
+        role: 'govt',
+        username,
+        fullName,
+        phone,
+        isAdmin: input.isAdmin === true,
+        passwordHash: await hashPassword(password),
+        mustChangePassword: true
+      })
+      .onConflictDoNothing({ target: users.username })
+      .returning()
+  } catch (error) {
+    if (isPhoneConflict(error)) return { ok: false, error: 'phone_taken' }
+    throw error
+  }
   if (!created) return { ok: false, error: 'username_taken' }
   return { ok: true, data: { user: toRecord(created), temporaryPassword: password } }
 }

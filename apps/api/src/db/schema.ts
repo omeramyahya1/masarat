@@ -59,7 +59,8 @@ export const users = pgTable(
     passwordHash: text('password_hash').notNull(),
     role: text('role', { enum: USER_ROLES }).notNull(),
     fullName: text('full_name').notNull(),
-    phone: text('phone'),
+    // A Sudanese mobile number, "+249…" (normalizeSudanPhone), one account per number
+    phone: text('phone').notNull().unique(),
     companyName: text('company_name'),
     // Fleet owners' carrier details, printed on their manifests
     address: text('address'),

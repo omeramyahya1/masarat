@@ -14,7 +14,7 @@ import { api } from '@masarat/api-client'
 
 const formFrom = (user: AuthUser): ProfileInput => ({
   fullName: user.fullName,
-  phone: user.phone ?? '',
+  phone: user.phone,
   companyName: user.companyName ?? '',
   address: user.address ?? '',
   tin: user.tin ?? ''
@@ -50,7 +50,7 @@ function ProfilePanel({
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
-    if (!form.fullName.trim()) {
+    if (!form.fullName.trim() || !form.phone.trim()) {
       setError('missing_fields')
       return
     }
@@ -77,10 +77,10 @@ function ProfilePanel({
           />
           <TextField
             label={t('auth.fields.phone')}
+            hint={t('auth.fields.phoneHint')}
             type="tel"
             autoComplete="tel"
             ltr
-            optional
             {...bind('phone')}
           />
         </div>

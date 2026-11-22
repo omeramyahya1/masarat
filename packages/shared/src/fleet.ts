@@ -19,7 +19,7 @@ export const MANIFEST_STATUSES = ['draft', 'billed', 'paid', 'certified', 'cance
 export const PAYMENT_STATUSES = ['pending', 'paid', 'expired', 'failed'] as const
 // Domestic, or crossing the border (imports need a certificate of origin and an authorization)
 export const TRIP_KINDS = ['domestic', 'import', 'export'] as const
-// Supporting documents a trip can have attached (and scanned to fill in the form)
+// Supporting documents a trip can have attached
 export const DOCUMENT_TYPES = [
   'commercial_invoice',
   'packing_list',
@@ -117,7 +117,8 @@ export interface VehicleRecord extends Omit<VehicleInput, 'registrationNo'> {
   createdAt: number
 }
 
-// Phone numbers are stored without spaces or dashes: an optional "+" and 7 to 15 digits
+// Senders' and receivers' phones (they may be abroad on imports and exports): stored without
+// spaces or dashes, an optional "+" and 7 to 15 digits. Accounts and drivers use phone.ts.
 const PHONE_PATTERN = /^\+?[0-9]{7,15}$/
 export function normalizePhone(value: string): string | null {
   const phone = value.replace(/[\s-]/g, '')
@@ -336,7 +337,6 @@ export type FleetErrorCode =
   | 'incomplete_manifest'
   | 'invalid_document'
   | 'document_too_large'
-  | 'scan_conflict'
   | 'zero_bill'
   // The account may not do this (another role, not an admin, or a demo-only action)
   | 'forbidden'

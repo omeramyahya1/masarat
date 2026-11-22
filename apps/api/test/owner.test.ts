@@ -163,14 +163,6 @@ describe('attachments', () => {
     expect(file.headers.get('content-disposition')).toStartWith('inline;')
     expect(new Uint8Array(file.body)).toEqual(PDF)
     expect((await other.call('GET', `/documents/${document.id}/file`)).status).toBe(404)
-
-    const scan = await b.call('POST', '/documents/scan', {
-      docType: 'commercial_invoice',
-      source: { id: document.id },
-      unit: 'ton',
-      scenario: null
-    })
-    expect(scan.status).toBe(200)
   }, 20_000)
 })
 

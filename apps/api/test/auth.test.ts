@@ -6,7 +6,7 @@ import { getDb, sessions, users } from '../src/db'
 import { hashPassword, logIn } from '../src/services/auth'
 import { setAdmin, setDisabled } from '../src/services/govtUsers'
 import { ABSOLUTE_MS, IDLE_MS, createSession, findSession } from '../src/services/sessions'
-import { browser, createUser, resetData } from './helpers'
+import { browser, createUser, resetData, type Browser } from './helpers'
 
 const PASSWORD = 'correct-horse'
 
@@ -173,24 +173,69 @@ describe('sign-up and profile', () => {
       role: 'govt',
       fullName: 'New Owner',
       username: 'new.owner',
+      phone: '0912 345 678',
       password: PASSWORD
     })
-    expect(result.body.user).toMatchObject({ role: 'owner', isAdmin: false })
+    expect(result.body.user).toMatchObject({
+      role: 'owner',
+      isAdmin: false,
+      phone: '+249912345678'
+    })
     const taken = await browser().call('POST', '/auth/signup', {
       fullName: 'Again',
       username: 'new.owner',
+      phone: '0912000000',
       password: PASSWORD
     })
     expect(taken).toMatchObject({ status: 409, body: { ok: false, error: 'username_taken' } })
 
     const profile = await b.call('PATCH', '/auth/profile', {
       fullName: 'Renamed',
-      phone: '',
+      phone: '+249 11 234 5678',
       companyName: 'Co',
       address: 'Khartoum',
       tin: '1'
     })
-    expect(profile.body.user).toMatchObject({ fullName: 'Renamed', companyName: 'Co' })
+    expect(profile.body.user).toMatchObject({
+      fullName: 'Renamed',
+      companyName: 'Co',
+      phone: '+249112345678'
+    })
+  })
+
+  test('every account needs its own Sudanese mobile number', async () => {
+    const signUp = (username: string, phone: string): ReturnType<Browser['call']> =>
+      browser().call('POST', '/auth/signup', {
+        fullName: 'Owner',
+        username,
+        phone,
+        password: PASSWORD
+      })
+    expect((await signUp('no.phone', '')).body.error).toBe('missing_fields')
+    for (const phone of ['+20 100 123 4567', '0812345678', '091234567', 'not a phone']) {
+      expect((await signUp('bad.phone', phone)).body).toEqual({ ok: false, error: 'invalid_phone' })
+    }
+    expect((await signUp('first', '00249912345678')).status).toBe(200)
+    expect(await signUp('second', '912345678')).toMatchObject({
+      status: 409,
+      body: { ok: false, error: 'phone_taken' }
+    })
+
+    // Changing your number to another account's is refused; keeping your own is fine
+    const b = browser()
+    await b.call('POST', '/auth/signup', {
+      fullName: 'Third',
+      username: 'third',
+      phone: '0913000000',
+      password: PASSWORD
+    })
+    const profile = { fullName: 'Third', companyName: '', address: '', tin: '' }
+    expect(
+      (await b.call('PATCH', '/auth/profile', { ...profile, phone: '0912345678' })).body.error
+    ).toBe('phone_taken')
+    expect(
+      (await b.call('PATCH', '/auth/profile', { ...profile, phone: '0913000000' })).status
+    ).toBe(200)
   })
 
   test('government accounts have no profile route', async () => {
@@ -220,9 +265,16 @@ describe('government users', () => {
 
   test('a new account must change its temporary password first', async () => {
     const { b } = await admin()
-    const created = await b.call('POST', '/govt/users', {
+    let created = await b.call('POST', '/govt/users', {
       username: 'new.clerk',
-      fullName: 'New Clerk'
+      fullName: 'New Clerk',
+      phone: '0712345678'
+    })
+    expect(created.body.error).toBe('invalid_phone')
+    created = await b.call('POST', '/govt/users', {
+      username: 'new.clerk',
+      fullName: 'New Clerk',
+      phone: '0961234567'
     })
     expect(created.status).toBe(200)
     const { temporaryPassword, user } = created.body.data

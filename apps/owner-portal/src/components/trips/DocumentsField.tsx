@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FileText, LoaderCircle, Paperclip, ScanText, X } from 'lucide-react'
+import { FileText, LoaderCircle, Paperclip, X } from 'lucide-react'
 import {
   DOCUMENT_EXTENSIONS,
   documentTypesFor,
@@ -21,24 +21,19 @@ export interface DocumentDraft {
 interface DocumentsFieldProps {
   tripKind: TripKind
   value: readonly DocumentDraft[]
-  // The document being uploaded or scanned, if any
+  // The document being uploaded, if any
   busy: DocumentType | null
-  // Scanning needs the vehicle (its unit decides what cargo can be read)
-  canScan: boolean
   onAttach: (docType: DocumentType, file: File) => void
   onRemove: (docType: DocumentType) => void
-  onScan: (docType: DocumentType) => void
 }
 
-// One slot per document the trip's type needs: attach a file, then scan it to fill in the form
+// One slot per document the trip's type needs: attach a file, or remove it to attach another
 function DocumentsField({
   tripKind,
   value,
   busy,
-  canScan,
   onAttach,
-  onRemove,
-  onScan
+  onRemove
 }: DocumentsFieldProps): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
@@ -88,30 +83,18 @@ function DocumentsField({
             </div>
             {working && <LoaderCircle size={16} className="animate-spin text-brand-700" />}
             {document ? (
-              <>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  disabled={busy !== null || !canScan}
-                  title={canScan ? undefined : t('trips.documents.chooseVehicle')}
-                  onClick={() => onScan(docType)}
-                >
-                  <ScanText size={16} />
-                  {working ? t('trips.documents.scanning') : t('trips.documents.scan')}
-                </button>
-                <button
-                  type="button"
-                  className="icon-btn"
-                  disabled={busy !== null}
-                  aria-label={t('trips.documents.removeOf', {
-                    name: t(`documentTypes.${docType}`)
-                  })}
-                  title={t('trips.documents.remove')}
-                  onClick={() => onRemove(docType)}
-                >
-                  <X size={16} />
-                </button>
-              </>
+              <button
+                type="button"
+                className="icon-btn"
+                disabled={busy !== null}
+                aria-label={t('trips.documents.removeOf', {
+                  name: t(`documentTypes.${docType}`)
+                })}
+                title={t('trips.documents.remove')}
+                onClick={() => onRemove(docType)}
+              >
+                <X size={16} />
+              </button>
             ) : (
               <button
                 type="button"

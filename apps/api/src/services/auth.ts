@@ -1,7 +1,9 @@
+// Accounts: logging in (with a rate limit), fleet owner sign-up, the owner's profile and changing
+// a password. Sessions themselves live in services/sessions.ts.
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'crypto'
 import { promisify } from 'util'
-import { eq } from 'drizzle-orm'
-import { getDb, users, type User } from '../db'
+import { and, count, eq, gte } from 'drizzle-orm'
+import { getDb, loginAttempts, users, type User } from '../db'
 import {
   MAX_ADDRESS_LENGTH,
   MAX_TIN_LENGTH,
@@ -10,11 +12,16 @@ import {
   type AuthErrorCode,
   type AuthResult,
   type AuthUser,
+  type ChangePasswordInput,
   type LogInInput,
   type ProfileInput,
-  type SignUpInput,
-  type UserRole
+  type SignUpInput
 } from '@masarat/shared/auth'
+import { createSession, deleteUserSessions, type ClientInfo } from './sessions'
+
+// Argon2id with Bun's defaults (OWASP's first choice for password storage)
+export const hashPassword = (password: string): Promise<string> =>
+  Bun.password.hash(password, { algorithm: 'argon2id' })
 
 const scrypt = promisify(scryptCallback) as (
   password: string,
@@ -22,25 +29,28 @@ const scrypt = promisify(scryptCallback) as (
   keyLength: number
 ) => Promise<Buffer>
 
-const KEY_LENGTH = 64
-
-// Stored as "scrypt$<salt hex>$<hash hex>"
-export async function hashPassword(password: string): Promise<string> {
-  const salt = randomBytes(16)
-  const hash = await scrypt(password, salt, KEY_LENGTH)
-  return `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`
-}
-
-async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const [algorithm, saltHex, hashHex] = stored.split('$')
-  if (algorithm !== 'scrypt' || !saltHex || !hashHex) return false
-
+// Hashes from before Argon2id ("scrypt$<salt hex>$<hash hex>"); rehashed on the next login
+async function verifyScrypt(password: string, stored: string): Promise<boolean> {
+  const [, saltHex, hashHex] = stored.split('$')
+  if (!saltHex || !hashHex) return false
   const expected = Buffer.from(hashHex, 'hex')
   const actual = await scrypt(password, Buffer.from(saltHex, 'hex'), expected.length)
   return timingSafeEqual(actual, expected)
 }
 
-function toAuthUser(user: User): AuthUser {
+async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  if (stored.startsWith('scrypt$')) return verifyScrypt(password, stored)
+  try {
+    return await Bun.password.verify(password, stored)
+  } catch {
+    return false
+  }
+}
+
+// Checked against when the username doesn't exist, so the answer takes as long either way
+const DUMMY_HASH = await hashPassword(randomBytes(16).toString('hex'))
+
+export function toAuthUser(user: User): AuthUser {
   return {
     id: user.id,
     username: user.username,
@@ -49,13 +59,15 @@ function toAuthUser(user: User): AuthUser {
     phone: user.phone,
     companyName: user.companyName,
     address: user.address,
-    tin: user.tin
+    tin: user.tin,
+    isAdmin: user.isAdmin,
+    mustChangePassword: user.mustChangePassword
   }
 }
 
-// IPC input comes from the renderer, so treat every field as untrusted
-const isRole = (value: unknown): value is UserRole => value === 'owner' || value === 'govt'
+// Input comes from the browser, so treat every field as untrusted
 const asText = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
+const asPassword = (value: unknown): string => (typeof value === 'string' ? value : '')
 
 // A fleet owner's carrier details: both optional, but limited in length
 function checkCarrierDetails(address: string, tin: string): AuthErrorCode | null {
@@ -64,97 +76,101 @@ function checkCarrierDetails(address: string, tin: string): AuthErrorCode | null
   return null
 }
 
-// One signed-in user per panel, kept here so later IPC handlers can authorize by role
-const sessions = new Map<UserRole, AuthUser>()
+// A signed-in user and the token for their session cookie
+export type LoginResult =
+  { ok: true; user: AuthUser; token: string } | { ok: false; error: AuthErrorCode }
 
-// Bumped when an auth request starts and on logout. A request only stores its session if no
-// newer request or logout happened while it was awaiting password hashing.
-const generations = new Map<UserRole, number>()
+// Password guessing: after this many failures in the window, logins for that username (or from
+// that IP) are refused until the window has passed
+export const RATE_WINDOW_MS = 15 * 60 * 1000
+export const MAX_FAILURES_PER_USERNAME = 5
+export const MAX_FAILURES_PER_IP = 20
 
-function nextGeneration(role: UserRole): number {
-  const generation = (generations.get(role) ?? 0) + 1
-  generations.set(role, generation)
-  return generation
+async function failuresSince(
+  column: typeof loginAttempts.username | typeof loginAttempts.ip,
+  value: string,
+  since: Date
+): Promise<number> {
+  const [row] = await getDb()
+    .select({ value: count() })
+    .from(loginAttempts)
+    .where(and(eq(column, value), eq(loginAttempts.succeeded, false), gte(loginAttempts.at, since)))
+  return row?.value ?? 0
 }
 
-function commitSession(generation: number, user: AuthUser): AuthResult {
-  if (generations.get(user.role) !== generation) return { ok: false, error: 'cancelled' }
-  sessions.set(user.role, user)
-  return { ok: true, user }
+async function isRateLimited(username: string, ip: string | null, now: Date): Promise<boolean> {
+  const since = new Date(now.getTime() - RATE_WINDOW_MS)
+  if ((await failuresSince(loginAttempts.username, username, since)) >= MAX_FAILURES_PER_USERNAME) {
+    return true
+  }
+  return ip !== null && (await failuresSince(loginAttempts.ip, ip, since)) >= MAX_FAILURES_PER_IP
 }
 
-export async function signUp(input: SignUpInput): Promise<AuthResult> {
+export async function logIn(
+  input: LogInInput,
+  client: ClientInfo,
+  now = new Date()
+): Promise<LoginResult> {
+  const username = asText(input?.username).toLowerCase()
+  const password = asPassword(input?.password)
+  if (!username || !password) return { ok: false, error: 'missing_fields' }
+  if (await isRateLimited(username, client.ip, now))
+    return { ok: false, error: 'too_many_attempts' }
+
+  const db = getDb()
+  const [found] = await db.select().from(users).where(eq(users.username, username)).limit(1)
+  const valid = await verifyPassword(password, found?.passwordHash ?? DUMMY_HASH)
+  await db.insert(loginAttempts).values({ username, ip: client.ip, succeeded: valid, at: now })
+  if (!found || !valid) return { ok: false, error: 'invalid_credentials' }
+  // Only reported after the password checks out, so it doesn't reveal which usernames exist
+  if (found.disabledAt !== null) return { ok: false, error: 'account_disabled' }
+
+  if (found.passwordHash.startsWith('scrypt$')) {
+    await db
+      .update(users)
+      .set({ passwordHash: await hashPassword(password) })
+      .where(eq(users.id, found.id))
+  }
+  const token = await createSession(found.id, client, now)
+  return { ok: true, user: toAuthUser(found), token }
+}
+
+// Fleet owners only; government accounts are created by a government admin
+export async function signUp(input: SignUpInput, client: ClientInfo): Promise<LoginResult> {
   const fullName = asText(input?.fullName)
   const username = asText(input?.username).toLowerCase()
-  const password = typeof input?.password === 'string' ? input.password : ''
+  const password = asPassword(input?.password)
 
-  if (!isRole(input?.role) || !fullName || !username || !password) {
-    return { ok: false, error: 'missing_fields' }
-  }
+  if (!fullName || !username || !password) return { ok: false, error: 'missing_fields' }
   if (!USERNAME_PATTERN.test(username)) return { ok: false, error: 'invalid_username' }
   if (password.length < PASSWORD_MIN_LENGTH) return { ok: false, error: 'weak_password' }
-  const isOwner = input.role === 'owner'
-  const address = isOwner ? asText(input.address) : ''
-  const tin = isOwner ? asText(input.tin) : ''
+  const address = asText(input.address)
+  const tin = asText(input.tin)
   const carrierError = checkCarrierDetails(address, tin)
   if (carrierError) return { ok: false, error: carrierError }
 
-  const generation = nextGeneration(input.role)
-  const db = getDb()
-  const [existing] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.username, username))
-    .limit(1)
-  if (existing) return { ok: false, error: 'username_taken' }
-
-  const [created] = await db
+  const [created] = await getDb()
     .insert(users)
     .values({
-      role: input.role,
+      role: 'owner',
       fullName,
       username,
       passwordHash: await hashPassword(password),
       phone: asText(input.phone) || null,
-      companyName: isOwner ? asText(input.companyName) || null : null,
+      companyName: asText(input.companyName) || null,
       address: address || null,
       tin: tin || null
     })
+    // The unique index decides, so two sign-ups with one username can't both succeed
+    .onConflictDoNothing({ target: users.username })
     .returning()
-
-  return commitSession(generation, toAuthUser(created))
+  if (!created) return { ok: false, error: 'username_taken' }
+  const token = await createSession(created.id, client)
+  return { ok: true, user: toAuthUser(created), token }
 }
 
-export async function logIn(input: LogInInput): Promise<AuthResult> {
-  const username = asText(input?.username).toLowerCase()
-  const password = typeof input?.password === 'string' ? input.password : ''
-
-  if (!isRole(input?.role) || !username || !password) {
-    return { ok: false, error: 'missing_fields' }
-  }
-
-  const generation = nextGeneration(input.role)
-  const [found] = await getDb().select().from(users).where(eq(users.username, username)).limit(1)
-  if (!found || !(await verifyPassword(password, found.passwordHash))) {
-    return { ok: false, error: 'invalid_credentials' }
-  }
-  // The account may have been deleted while the password was checked (demo data regenerated)
-  const [stillExists] = await getDb()
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.id, found.id))
-    .limit(1)
-  if (!stillExists) return { ok: false, error: 'invalid_credentials' }
-  // Only reported after the password checks out, so it doesn't reveal which usernames exist
-  if (found.role !== input.role) return { ok: false, error: 'wrong_panel' }
-
-  return commitSession(generation, toAuthUser(found))
-}
-
-// The signed-in fleet owner edits their own details; the session is updated to match
-export async function updateProfile(input: ProfileInput): Promise<AuthResult> {
-  const owner = sessions.get('owner')
-  if (!owner) return { ok: false, error: 'not_signed_in' }
+// The signed-in fleet owner edits their own details
+export async function updateProfile(ownerId: number, input: ProfileInput): Promise<AuthResult> {
   const fullName = asText(input?.fullName)
   if (!fullName) return { ok: false, error: 'missing_fields' }
   const address = asText(input?.address)
@@ -171,24 +187,35 @@ export async function updateProfile(input: ProfileInput): Promise<AuthResult> {
       address: address || null,
       tin: tin || null
     })
-    .where(eq(users.id, owner.id))
+    .where(and(eq(users.id, ownerId), eq(users.role, 'owner')))
     .returning()
   if (!updated) return { ok: false, error: 'not_signed_in' }
-  const user = toAuthUser(updated)
-  sessions.set('owner', user)
-  return { ok: true, user }
+  return { ok: true, user: toAuthUser(updated) }
 }
 
-export function logOut(role: UserRole): void {
-  nextGeneration(role)
-  sessions.delete(role)
-}
+// Replaces the user's password (also a temporary one) and signs out their other sessions
+export async function changePassword(
+  userId: number,
+  input: ChangePasswordInput,
+  currentToken: string
+): Promise<AuthResult> {
+  const currentPassword = asPassword(input?.currentPassword)
+  const newPassword = asPassword(input?.newPassword)
+  if (!currentPassword || !newPassword) return { ok: false, error: 'missing_fields' }
+  if (newPassword.length < PASSWORD_MIN_LENGTH) return { ok: false, error: 'weak_password' }
+  if (newPassword === currentPassword) return { ok: false, error: 'same_password' }
 
-// Signs out any panel whose user is about to be deleted (demo accounts on "Regenerate demo data")
-export function dropSessionsOf(userIds: ReadonlySet<number>): void {
-  for (const [role, user] of sessions) if (userIds.has(user.id)) logOut(role)
-}
-
-export function getSession(role: UserRole): AuthUser | null {
-  return sessions.get(role) ?? null
+  const db = getDb()
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
+  if (!user) return { ok: false, error: 'not_signed_in' }
+  if (!(await verifyPassword(currentPassword, user.passwordHash))) {
+    return { ok: false, error: 'wrong_password' }
+  }
+  const [updated] = await db
+    .update(users)
+    .set({ passwordHash: await hashPassword(newPassword), mustChangePassword: false })
+    .where(eq(users.id, userId))
+    .returning()
+  await deleteUserSessions(userId, currentToken)
+  return { ok: true, user: toAuthUser(updated) }
 }

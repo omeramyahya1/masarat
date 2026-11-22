@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun src/db/migrate.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "user:create-admin": "bun src/scripts/createAdmin.ts"
   },
   "dependencies": {
     "@masarat/shared": "workspace:*",

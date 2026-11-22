@@ -31,6 +31,8 @@ export function breakdownLabel(
       return t(`vehicleTypes.${row.key}`)
     case 'tripKind':
       return t(`tripKinds.${row.key}`)
+    case 'category':
+      return t(`tripCategories.${row.key}`)
     case 'company':
       return row.name ?? row.key
   }

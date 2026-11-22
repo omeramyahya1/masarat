@@ -20,9 +20,9 @@ The Electron demo showed both panels in one window with a toggle. The portals do
 
 This is step 1 of the move to the web: the code is reorganized but **not wired up yet**.
 
-- `apps/api` only serves `GET /health`. `apps/api/ROUTES.md` lists the endpoints still to build, one per Electron IPC channel. The services are there and Electron-free, but sessions are still the desktop model (one user per role, in memory).
+- `apps/api` only serves `GET /health`. `apps/api/ROUTES.md` lists the endpoints still to build, one per Electron IPC channel. The services are there, async and on Postgres, but sessions are still the desktop model (one user per role, in memory).
 - `@masarat/api-client` has the API's typed shape (the old `window.api`), but every call rejects with "not wired yet". So the portals render their login pages and nothing more.
-- The database is still SQLite through better-sqlite3, which Bun can't load. The database choice, auth, file storage and deployment are open questions for the production brainstorm.
+- The database is **Postgres**. Auth and sessions, file storage and deployment are still open questions for the production brainstorm.
 - **The data model is being revised.** The rules below describe the behaviour carried over from the MVP.
 - IPC channel names in the rules below (`documents:pick`, `govt:get-trip`, …) are the demo's, and each one becomes an API route. Anything the desktop did with native dialogs or `printToPDF` (picking files, opening files, saving PDFs, export save dialogs) still has to be redone for the browser. On the API side that's already started: uploads go through `stageDocument`, and `exportData` returns the files.
 
@@ -39,7 +39,7 @@ Bun workspaces (`apps/api`, `apps/*-portal`, `packages/*`):
 - `packages/api-client` (`@masarat/api-client`): the `api` object and its `MasaratApi` type.
 - `apps/owner-portal/src/components`: `fleet/`, `owner/`, `OwnerWorkspace`, and the trip form and list (`trips/TripForm`, `TripsPanel`, `CargoItemsEditor`, `DocumentsField`, …).
 - `apps/govt-portal/src/components/govt`: the dashboard, search, tax settings, report and exports.
-- `apps/api/src`: `services/`, `db/` (`schema.ts`, `client.ts`), `config.ts` (env: `PORT`, `DATABASE_PATH`, `STORAGE_DIR`). Migrations are in `apps/api/drizzle`.
+- `apps/api/src`: `services/`, `db/` (`schema.ts`, `client.ts`, `migrate.ts`), `config.ts` (env from `apps/api/.env`, see `.env.example`: `DATABASE_URL`, `PORT`, `STORAGE_DIR`, `DEMO_MODE`). Migrations are in `apps/api/drizzle`, service tests in `apps/api/test`.
 - `apps/desktop-demo`: the Electron MVP as of 1.1.1. It's a **separate bun project** (its own `bun.lock`, not a workspace) with its own copy of `src/shared`, so changes here never break it. See its `CLAUDE.md`.
 
 Short paths in the rules below: `services/*` is `apps/api/src/services/*`. Component and `lib/` paths are in `packages/ui/src` or in the portal that owns them.
@@ -120,7 +120,7 @@ Short paths in the rules below: `services/*` is `apps/api/src/services/*`. Compo
 - **Exports** (*Export* on the dashboard, `ExportDialog.tsx`), prefilled with the dashboard's filters. Exports are always in Arabic.
   - **Report (PDF)** (`ReportModal.tsx`): A4 sheets with the letterhead (`DocumentSheet` without barcode or QR). Page 1 has the parameters, key figures, revenue chart (fixed size, Arabic) and trip progress; page 2 has revenue by cargo and by tax and fee, and the breakdown. The user picks the chart grouping, breakdown and sort, and which sections to include. Saved with `govt:save-report-pdf`.
   - **Data (Excel / CSV)** (`services/exports.ts`, `packages/shared/src/exports.ts`): trips, bills & payments, cargo items and tax & fee lines. The period applies to the trip date, the bill's issue date or the payment date, with a trip status filter. Excel (exceljs) gives one right-to-left sheet per dataset with a frozen bold header; CSV is UTF-8 with a byte order mark, one file per dataset. Excel and CSV can be chosen together. In the demo several files go into a chosen folder; the API's `exportData` returns the files. The export dialog has no owner filter: exports cover every fleet owner. Headers and value labels come from the portal's Arabic translations (`export.columns.*`); plates stay in their stored form, amounts are numbers.
-- **Demo data** (`apps/api/src/services/demoData.ts`): on startup, if there are no demo owners, 4 demo fleet companies are seeded with about a year of trips, bills (with matching `esali_sim_bills` rows), payments and certificates, using the real trip cost and tax calculation (at the default percentages and fees). Each trip gets 1–4 cargo items with Arabic names, and about a quarter of tanker trips carry liquids. Some loads are mixed: about 15% of big-truck trips carry a container, and about 10% of fuel tanker trips carry liquids. It is deterministic (fixed PRNG seed, dates relative to today). Demo owners have an address and TIN (`packages/shared/src/demo.ts`), each vehicle a registration number, and each owner 5–8 drivers with Arabic names. Each trip also gets a trip type (imports and exports mostly on Port Sudan routes), sometimes trailers (big trucks), a driver, an Arabic sender and receiver, and packing details per item, and billed trips get the carrier details. All of these come from a second PRNG stream so the trips themselves stay the same. Demo users have `users.is_demo = 1`. The Government portal's hidden *⋯ → Regenerate demo data* deletes the demo owners and everything under them (including anything added by hand to a demo company), then reseeds; other owners' data and the demo government account are kept, and a signed-in demo owner is signed out.
+- **Demo data** (`apps/api/src/services/demoData.ts`): only in demo mode (`DEMO_MODE=true`, never in production). On startup, if there are no demo owners, 4 demo fleet companies are seeded with about a year of trips, bills (with matching `esali_sim_bills` rows), payments and certificates, using the real trip cost and tax calculation (at the default percentages and fees). Each trip gets 1–4 cargo items with Arabic names, and about a quarter of tanker trips carry liquids. Some loads are mixed: about 15% of big-truck trips carry a container, and about 10% of fuel tanker trips carry liquids. It is deterministic (fixed PRNG seed, dates relative to today). Demo owners have an address and TIN (`packages/shared/src/demo.ts`), each vehicle a registration number, and each owner 5–8 drivers with Arabic names. Each trip also gets a trip type (imports and exports mostly on Port Sudan routes), sometimes trailers (big trucks), a driver, an Arabic sender and receiver, and packing details per item, and billed trips get the carrier details. All of these come from a second PRNG stream so the trips themselves stay the same. Demo users have `users.is_demo = 1`. The Government portal's hidden *⋯ → Regenerate demo data* deletes the demo owners and everything under them (including anything added by hand to a demo company), then reseeds; other owners' data and the demo government account are kept, and a signed-in demo owner is signed out.
 - **Demo accounts** (`packages/shared/src/demo.ts`, listed under *Demo accounts* on both login pages; clicking one fills the form):
   - Government: `ministry.demo` / `govt2026`
   - Fleet owners: `nile.transport` / `nile2026`, `redsea.logistics` / `redsea2026`, `kordofan.haulage` / `kordofan2026`, `gezira.freight` / `gezira2026`
@@ -133,10 +133,12 @@ Short paths in the rules below: `services/*` is `apps/api/src/services/*`. Compo
 
 - **Use bun only, never npm or npx**: `bun install`, `bun run <script>`, `bunx <bin>`, `bun add` inside the workspace.
 - Bun blocks dependency install scripts unless the package is in `trustedDependencies`.
-- The database is still **SQLite (better-sqlite3) + Drizzle ORM** for now (`apps/api/src/db`, config in `apps/api/drizzle.config.ts`, migrations in `apps/api/drizzle`). The migration rules from the MVP still apply until the database changes:
-  - Migrations run with foreign keys off, then `foreign_key_check` runs, because drizzle rebuilds a table to change a CHECK.
-  - Always read a generated migration: when a rebuild copies a column that doesn't exist yet, the SELECT has to be fixed by hand.
-  - Renaming a column makes `drizzle-kit generate` ask an interactive question, which can't be answered here. Generate in two steps instead (first without the old columns, then with the new ones). Then merge them into one migration that uses `RENAME COLUMN`, keep the last snapshot, and fix its `prevId` and the journal.
+- The database is **Postgres + Drizzle ORM** through **postgres.js** (`apps/api/src/db`, config in `apps/api/drizzle.config.ts`, migrations in `apps/api/drizzle`). Locally it runs from `compose.yaml` (Postgres 18 on port **5433**, so it doesn't clash with another Postgres on 5432) with `bun run db:up`.
+  - Every query is async. One row is `const [row] = await …limit(1)`. A check-then-write that must not race runs in `db.transaction(async (tx) => …)` and locks the row with `.for('update')` (see `lockedStatus` in `services/trips.ts`).
+  - Text enums are `text` columns with a CHECK each (`inList`), not Postgres enums, so adding a value is a plain migration.
+  - Migrations are a deploy step (`bun run db:migrate`), never run by the API at startup. `0000_init.sql` is generated; `0001_reference_data.sql` is a custom migration (`drizzle-kit generate --custom`) seeding the 39 cities, the cargo rates and the default taxes and fees.
+  - Always read a generated migration before committing it. Renaming a column makes `drizzle-kit generate` ask an interactive question, which can't be answered here: write that migration by hand (`--custom` with `ALTER TABLE … RENAME COLUMN`) and update the schema to match.
+  - Tests (`bun run test`) use their own `masarat_test` database, created and migrated by `apps/api/test/setup.ts`.
   - When the shape of trip data changes, the migration deletes the **demo owners and everything under them** (their trips, bills, payments, certificates, `esali_sim_bills`, vehicles and drivers), so the next startup reseeds them in the new shape. **Other owners' data is always migrated, never deleted**: new columns start empty, bills already issued keep their lines and amounts, and copies in table rebuilds must keep every existing row.
 - Prettier skips `**/drizzle`, so it never reformats the migration snapshots.
 - The portals reach data only through `@masarat/api-client`, never the database.
@@ -146,10 +148,10 @@ Short paths in the rules below: `services/*` is `apps/api/src/services/*`. Compo
 All from the repo root:
 
 - `bun install`
+- `bun run db:up` / `db:down` (local Postgres), `bun run db:migrate`, `bun run db:generate` (new migration from `schema.ts`)
 - `bun run dev:api` (port 3000), `bun run dev:owner` (5173), `bun run dev:govt` (5174)
 - `bun run dev:demo`: the Electron demo. Run `bun install` in `apps/desktop-demo` first, since it isn't a workspace.
-- `bun run typecheck`, `bun run build` (both portals), `bun run lint`, `bun run format`
-- `bun run db:generate`: migrations for `apps/api`
+- `bun run typecheck`, `bun run test` (API services), `bun run build` (both portals), `bun run lint`, `bun run format`
 
 ## Releasing
 

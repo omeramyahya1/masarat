@@ -21,10 +21,14 @@ The production version is being built for the web. The original Electron MVP is 
 
 ## Setup
 
-Needs [Bun](https://bun.com) 1.4+. Bun is the only package manager: don't use npm.
+Needs [Bun](https://bun.com) 1.4+ and Podman (or Docker) for the local Postgres. Bun is the only
+package manager: don't use npm.
 
 ```bash
 bun install
+cp apps/api/.env.example apps/api/.env   # DATABASE_URL, DEMO_MODE, …
+bun run db:up                            # Postgres 18 on localhost:5433 (compose.yaml)
+bun run db:migrate                       # applies apps/api/drizzle
 ```
 
 ## Development
@@ -35,9 +39,12 @@ bun run dev:owner   # http://localhost:5173
 bun run dev:govt    # http://localhost:5174
 ```
 
+With `DEMO_MODE=true` the API seeds the demo fleet companies on its first start.
+
 ```bash
 bun run typecheck
 bun run lint
+bun run test        # API service tests, against a masarat_test database
 bun run build       # both portals
 ```
 

@@ -1,8 +1,7 @@
-// The typed client the web apps use to reach the API. Its shape is still mostly the Electron MVP's
-// window.api (see apps/desktop-demo/src/preload/index.d.ts), so the moved UI code compiles as is.
-// Wired so far: config, auth and govt.users. Every other call rejects with "not wired yet".
-// TODO(web): wire the rest, and adapt the calls that only made sense on the desktop: file
-// picking, opening files and saving PDFs.
+// The typed client the web apps use to reach the API, over fetch with the session cookie. Its
+// shape follows the Electron MVP's window.api, except where the desktop did things natively: files
+// are uploaded and downloaded, and documents print from the browser.
+// TODO(web): the government's calls other than govt.users still reject with "not wired yet".
 import type {
   AuthResult,
   AuthUser,
@@ -27,9 +26,11 @@ import type {
   TripRecord,
   TripReferenceData,
   TripSuggestions,
+  TripListQuery,
   VehicleInput,
   VehicleRecord
 } from '@masarat/shared/fleet'
+import type { Page } from '@masarat/shared/paging'
 import type { GovtSearchInput, GovtSearchResult, TripDetails } from '@masarat/shared/billing'
 import type { DashboardData } from '@masarat/shared/dashboard'
 import type { AnalyticsFilters, DashboardView, OwnerOption } from '@masarat/shared/analytics'
@@ -50,7 +51,8 @@ export interface FleetAPI {
 
 export interface TripsAPI {
   getReferenceData: () => Promise<FleetResult<TripReferenceData>>
-  list: () => Promise<FleetResult<TripRecord[]>>
+  // One page of the owner's trips, searched, filtered, sorted and grouped by the API
+  list: (query: TripListQuery) => Promise<FleetResult<Page<TripRecord>>>
   // Earlier senders, receivers and packing types, for the trip form
   suggestions: () => Promise<FleetResult<TripSuggestions>>
   create: (input: TripInput) => Promise<FleetResult<TripRecord>>
@@ -69,18 +71,19 @@ export interface BillingAPI {
   simulatePayment: (manifestId: number) => Promise<FleetResult<null>>
 }
 
-export interface DocumentsAPI {
-  // Opens a file picker and stages the file until the trip is saved; null data if cancelled
-  pick: (docType: DocumentType) => Promise<FleetResult<StagedDocument | null>>
-  // Opens a saved attachment in the system viewer
-  open: (documentId: number) => Promise<FleetResult<null>>
-  // Simulated OCR: reads a staged or saved attachment to fill in the trip form
-  scan: (input: ScanInput) => Promise<FleetResult<OcrResult>>
+// A file the API sent, with the name it should be saved under
+export interface DownloadedFile {
+  blob: Blob
+  fileName: string
 }
 
-export interface CertificatesAPI {
-  // Prints the current page (certificate print styles) to a PDF the user saves
-  savePdf: (fileName: string) => Promise<FleetResult<{ saved: boolean }>>
+export interface DocumentsAPI {
+  // Uploads a file the owner chose; it's staged until the trip is saved
+  upload: (docType: DocumentType, file: File) => Promise<FleetResult<StagedDocument>>
+  // A saved attachment, for the preview
+  file: (documentId: number) => Promise<FleetResult<DownloadedFile>>
+  // Simulated OCR: reads a staged or saved attachment to fill in the trip form
+  scan: (input: ScanInput) => Promise<FleetResult<OcrResult>>
 }
 
 // Government admins only
@@ -102,7 +105,8 @@ export interface GovtAPI {
   search: (input: GovtSearchInput) => Promise<FleetResult<GovtSearchResult[]>>
   // Any owner's trip, read-only
   getTrip: (manifestId: number) => Promise<FleetResult<TripDetails>>
-  openDocument: (documentId: number) => Promise<FleetResult<null>>
+  // Any trip's attachment, for the preview
+  documentFile: (documentId: number) => Promise<FleetResult<DownloadedFile>>
   // Prints the open report (its print styles) to a PDF the user saves
   saveReportPdf: (fileName: string) => Promise<FleetResult<{ saved: boolean }>>
   // Raw data (trips, bills, cargo items, tax lines) as an Excel workbook or CSV files
@@ -139,7 +143,6 @@ export interface MasaratApi {
   trips: TripsAPI
   billing: BillingAPI
   documents: DocumentsAPI
-  certificates: CertificatesAPI
   govt: GovtAPI
 }
 
@@ -149,20 +152,98 @@ const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000').replac
 // Fired when the API says the session has ended, so the app can send the user to log in again
 export const SIGNED_OUT_EVENT = 'masarat:signed-out'
 
-// One JSON call with the session cookie. The API answers errors with the same { ok, error } body
-// as successes, so the body is returned whatever the status.
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function send(method: string, path: string, body?: unknown): Promise<Response> {
+  const form = body instanceof FormData
   const response = await fetch(`${API_URL}${path}`, {
     method,
     credentials: 'include',
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body)
+    // A FormData body sets its own multipart Content-Type
+    headers: body === undefined || form ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : form ? body : JSON.stringify(body)
   })
-  const result = (await response.json()) as T
   if (response.status === 401 && path !== '/auth/me' && path !== '/auth/login') {
     window.dispatchEvent(new Event(SIGNED_OUT_EVENT))
   }
-  return result
+  return response
+}
+
+// One JSON call with the session cookie. The API answers errors with the same { ok, error } body
+// as successes, so the body is returned whatever the status.
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  return (await (await send(method, path, body)).json()) as T
+}
+
+// The file name from Content-Disposition, preferring the UTF-8 form (Arabic names)
+function fileNameOf(response: Response, fallback: string): string {
+  const header = response.headers.get('content-disposition') ?? ''
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(header)
+  if (utf8) {
+    try {
+      return decodeURIComponent(utf8[1])
+    } catch {
+      // Fall through to the plain name
+    }
+  }
+  return /filename="([^"]+)"/i.exec(header)?.[1] ?? fallback
+}
+
+// A file from the API, or its { ok: false, error } when it couldn't be sent
+async function download(
+  method: string,
+  path: string,
+  body?: unknown
+): Promise<FleetResult<DownloadedFile>> {
+  const response = await send(method, path, body)
+  if (!response.ok) return (await response.json()) as FleetResult<DownloadedFile>
+  return { ok: true, data: { blob: await response.blob(), fileName: fileNameOf(response, 'file') } }
+}
+
+// Query string from the set values; arrays and objects aren't used here
+function queryString(values: object): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined && value !== null && value !== '') params.set(key, String(value))
+  }
+  const text = params.toString()
+  return text ? `?${text}` : ''
+}
+
+const fleet: FleetAPI = {
+  listVehicles: () => request('GET', '/vehicles'),
+  addVehicle: (input) => request('POST', '/vehicles', input),
+  updateVehicle: (id, input) => request('PUT', `/vehicles/${id}`, input),
+  deleteVehicle: (id) => request('DELETE', `/vehicles/${id}`),
+  listDrivers: () => request('GET', '/drivers'),
+  addDriver: (input) => request('POST', '/drivers', input),
+  updateDriver: (id, input) => request('PUT', `/drivers/${id}`, input),
+  deleteDriver: (id) => request('DELETE', `/drivers/${id}`)
+}
+
+const trips: TripsAPI = {
+  getReferenceData: () => request('GET', '/trips/reference'),
+  list: (query) => request('GET', `/trips${queryString(query)}`),
+  suggestions: () => request('GET', '/trips/suggestions'),
+  create: (input) => request('POST', '/trips', input),
+  update: (id, input) => request('PUT', `/trips/${id}`, input),
+  delete: (id) => request('DELETE', `/trips/${id}`)
+}
+
+const billing: BillingAPI = {
+  getTrip: (id) => request('GET', `/trips/${id}`),
+  generate: (id) => request('POST', `/trips/${id}/bill`),
+  refresh: (id) => request('POST', `/trips/${id}/refresh`),
+  simulatePayment: (id) => request('POST', `/trips/${id}/simulate-payment`)
+}
+
+const documents: DocumentsAPI = {
+  upload: (docType, file) => {
+    const form = new FormData()
+    form.set('docType', docType)
+    form.set('file', file)
+    return request('POST', '/documents', form)
+  },
+  file: (id) => download('GET', `/documents/${id}/file`),
+  scan: (input) => request('POST', '/documents/scan', input)
 }
 
 const auth: AuthAPI = {
@@ -206,10 +287,9 @@ function group<T extends object>(name: string, wired: Partial<T> = {}): T {
 export const api: MasaratApi = {
   config,
   auth,
-  fleet: group('fleet'),
-  trips: group('trips'),
-  billing: group('billing'),
-  documents: group('documents'),
-  certificates: group('certificates'),
+  fleet,
+  trips,
+  billing,
+  documents,
   govt: group<GovtAPI>('govt', { users })
 }

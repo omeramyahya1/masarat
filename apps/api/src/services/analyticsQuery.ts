@@ -1,7 +1,7 @@
 // Turns the shared analytics filters (src/shared/analytics.ts) into query conditions, for the
 // dashboard, the report, the raw data export and the government search
 import { and, eq, exists, inArray, or, type SQL, type SQLWrapper } from 'drizzle-orm'
-import { alias } from 'drizzle-orm/sqlite-core'
+import { alias } from 'drizzle-orm/pg-core'
 import { cities, getDb, manifestCargoItems, manifests, users, vehicles } from '../db'
 import type { AnalyticsFilters } from '@masarat/shared/analytics'
 import type { OwnerOption } from '@masarat/shared/analytics'
@@ -60,12 +60,12 @@ export function inFilteredTrips(column: SQLWrapper, f: AnalyticsFilters): SQL | 
 }
 
 // Fleet owners, for the owner filter
-export function listOwners(): OwnerOption[] {
-  return getDb()
+export async function listOwners(): Promise<OwnerOption[]> {
+  const owners = await getDb()
     .select({ id: users.id, companyName: users.companyName, fullName: users.fullName })
     .from(users)
     .where(eq(users.role, 'owner'))
-    .all()
+  return owners
     .map((u) => ({ id: u.id, name: u.companyName || u.fullName }))
     .sort((a, b) => a.name.localeCompare(b.name))
 }

@@ -18,7 +18,7 @@ const toRecord = (driver: Driver, tripCount = 0): DriverRecord => ({
   createdAt: driver.createdAt.getTime()
 })
 
-// IPC input comes from the renderer, so treat every field as untrusted
+// Input comes from the browser, so treat every field as untrusted
 function validate(input: DriverInput): FleetResult<DriverInput> {
   const name = typeof input?.name === 'string' ? input.name.trim() : ''
   const rawPhone = typeof input?.phone === 'string' ? input.phone.trim() : ''
@@ -31,81 +31,86 @@ function validate(input: DriverInput): FleetResult<DriverInput> {
 }
 
 // Phone numbers are unique within an owner's drivers
-function phoneTaken(ownerId: number, phone: string, exceptId?: number): boolean {
+async function phoneTaken(ownerId: number, phone: string, exceptId?: number): Promise<boolean> {
   const condition = and(
     eq(drivers.ownerId, ownerId),
     eq(drivers.phone, phone),
     exceptId === undefined ? undefined : ne(drivers.id, exceptId)
   )
-  return Boolean(getDb().select({ id: drivers.id }).from(drivers).where(condition).get())
+  const [taken] = await getDb().select({ id: drivers.id }).from(drivers).where(condition).limit(1)
+  return Boolean(taken)
 }
 
-export function findOwnedDriver(ownerId: number, driverId: unknown): Driver | undefined {
+export async function findOwnedDriver(
+  ownerId: number,
+  driverId: unknown
+): Promise<Driver | undefined> {
   if (typeof driverId !== 'number') return undefined
-  return getDb()
+  const [driver] = await getDb()
     .select()
     .from(drivers)
     .where(and(eq(drivers.id, driverId), eq(drivers.ownerId, ownerId)))
-    .get()
+    .limit(1)
+  return driver
 }
 
-export function listDrivers(ownerId: number): DriverRecord[] {
-  return getDb()
+export async function listDrivers(ownerId: number): Promise<DriverRecord[]> {
+  const rows = await getDb()
     .select({ driver: drivers, tripCount: count(manifests.id) })
     .from(drivers)
     .leftJoin(manifests, eq(manifests.driverId, drivers.id))
     .where(eq(drivers.ownerId, ownerId))
     .groupBy(drivers.id)
     .orderBy(asc(drivers.name), asc(drivers.id))
-    .all()
-    .map((row) => toRecord(row.driver, row.tripCount))
+  return rows.map((row) => toRecord(row.driver, row.tripCount))
 }
 
-export function addDriver(ownerId: number, input: DriverInput): FleetResult<DriverRecord> {
+export async function addDriver(
+  ownerId: number,
+  input: DriverInput
+): Promise<FleetResult<DriverRecord>> {
   const checked = validate(input)
   if (!checked.ok) return checked
-  if (phoneTaken(ownerId, checked.data.phone)) return { ok: false, error: 'phone_taken' }
+  if (await phoneTaken(ownerId, checked.data.phone)) return { ok: false, error: 'phone_taken' }
 
-  const created = getDb()
+  const [created] = await getDb()
     .insert(drivers)
     .values({ ownerId, ...checked.data })
     .returning()
-    .get()
   return { ok: true, data: toRecord(created) }
 }
 
-export function updateDriver(
+export async function updateDriver(
   ownerId: number,
   driverId: number,
   input: DriverInput
-): FleetResult<DriverRecord> {
-  const existing = findOwnedDriver(ownerId, driverId)
+): Promise<FleetResult<DriverRecord>> {
+  const existing = await findOwnedDriver(ownerId, driverId)
   if (!existing) return { ok: false, error: 'driver_not_found' }
   const checked = validate(input)
   if (!checked.ok) return checked
-  if (phoneTaken(ownerId, checked.data.phone, existing.id)) {
+  if (await phoneTaken(ownerId, checked.data.phone, existing.id)) {
     return { ok: false, error: 'phone_taken' }
   }
 
-  const updated = getDb()
+  const [updated] = await getDb()
     .update(drivers)
     .set(checked.data)
     .where(eq(drivers.id, existing.id))
     .returning()
-    .get()
   return { ok: true, data: toRecord(updated) }
 }
 
-export function deleteDriver(ownerId: number, driverId: number): FleetResult<null> {
-  const existing = findOwnedDriver(ownerId, driverId)
+export async function deleteDriver(ownerId: number, driverId: number): Promise<FleetResult<null>> {
+  const existing = await findOwnedDriver(ownerId, driverId)
   if (!existing) return { ok: false, error: 'driver_not_found' }
   // A draft still needs its driver; billed manifests keep their own copy of the name and phone
-  const draft = getDb()
+  const [draft] = await getDb()
     .select({ id: manifests.id })
     .from(manifests)
     .where(and(eq(manifests.driverId, existing.id), eq(manifests.status, 'draft')))
-    .get()
+    .limit(1)
   if (draft) return { ok: false, error: 'driver_in_use' }
-  getDb().delete(drivers).where(eq(drivers.id, existing.id)).run()
+  await getDb().delete(drivers).where(eq(drivers.id, existing.id))
   return { ok: true, data: null }
 }

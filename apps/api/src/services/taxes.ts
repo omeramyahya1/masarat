@@ -16,25 +16,24 @@ import { getFeeSettings, getTaxSettings } from './trips'
 
 const HISTORY_LIMIT = 20
 
-export function getTaxSettingsView(): TaxSettingsView {
+export async function getTaxSettingsView(): Promise<TaxSettingsView> {
   const db = getDb()
+  const history = await db
+    .select({
+      code: taxSettingChanges.code,
+      oldValue: taxSettingChanges.oldValue,
+      newValue: taxSettingChanges.newValue,
+      changedBy: users.fullName,
+      changedAt: taxSettingChanges.changedAt
+    })
+    .from(taxSettingChanges)
+    .innerJoin(users, eq(taxSettingChanges.changedBy, users.id))
+    .orderBy(desc(taxSettingChanges.changedAt), desc(taxSettingChanges.id))
+    .limit(HISTORY_LIMIT)
   return {
-    rates: getTaxSettings(db),
-    fees: getFeeSettings(db),
-    history: db
-      .select({
-        code: taxSettingChanges.code,
-        oldValue: taxSettingChanges.oldValue,
-        newValue: taxSettingChanges.newValue,
-        changedBy: users.fullName,
-        changedAt: taxSettingChanges.changedAt
-      })
-      .from(taxSettingChanges)
-      .innerJoin(users, eq(taxSettingChanges.changedBy, users.id))
-      .orderBy(desc(taxSettingChanges.changedAt), desc(taxSettingChanges.id))
-      .limit(HISTORY_LIMIT)
-      .all()
-      .map((change) => ({ ...change, changedAt: change.changedAt.getTime() }))
+    rates: await getTaxSettings(db),
+    fees: await getFeeSettings(db),
+    history: history.map((change) => ({ ...change, changedAt: change.changedAt.getTime() }))
   }
 }
 
@@ -45,17 +44,22 @@ const isValidValue = (code: LineCode, value: unknown): value is number =>
   value >= 0 &&
   value <= (isFeeCode(code) ? MAX_FEE : MAX_TAX_BPS)
 
-export function updateTaxRates(userId: number, input: TaxRatesInput): FleetResult<TaxSettingsView> {
+export async function updateTaxRates(
+  userId: number,
+  input: TaxRatesInput
+): Promise<FleetResult<TaxSettingsView>> {
   if (!input || typeof input !== 'object') return { ok: false, error: 'missing_fields' }
   const changes = LINE_CODES.filter((code) => input[code] !== undefined)
   const invalid = changes.find((code) => !isValidValue(code, input[code]))
   if (invalid) return { ok: false, error: isFeeCode(invalid) ? 'invalid_fee' : 'invalid_tax_rate' }
 
   const db = getDb()
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
+    // Locked so two changes at once log their old values in order
+    await tx.select({ id: taxSettings.id }).from(taxSettings).for('update')
     const current = new Map<LineCode, number>([
-      ...getTaxSettings(tx).map((s) => [s.code, s.rateBps] as const),
-      ...getFeeSettings(tx).map((f) => [f.code, f.amount] as const)
+      ...(await getTaxSettings(tx)).map((s) => [s.code, s.rateBps] as const),
+      ...(await getFeeSettings(tx)).map((f) => [f.code, f.amount] as const)
     ])
     const changedAt = new Date()
     for (const code of changes) {
@@ -63,15 +67,12 @@ export function updateTaxRates(userId: number, input: TaxRatesInput): FleetResul
       const oldValue = current.get(code)
       if (oldValue === newValue) continue
       const values = isFeeCode(code) ? { amount: newValue } : { rateBps: newValue }
-      if (oldValue === undefined)
-        tx.insert(taxSettings)
-          .values({ code, ...values })
-          .run()
-      else tx.update(taxSettings).set(values).where(eq(taxSettings.code, code)).run()
-      tx.insert(taxSettingChanges)
+      if (oldValue === undefined) await tx.insert(taxSettings).values({ code, ...values })
+      else await tx.update(taxSettings).set(values).where(eq(taxSettings.code, code))
+      await tx
+        .insert(taxSettingChanges)
         .values({ code, oldValue: oldValue ?? 0, newValue, changedBy: userId, changedAt })
-        .run()
     }
   })
-  return { ok: true, data: getTaxSettingsView() }
+  return { ok: true, data: await getTaxSettingsView() }
 }

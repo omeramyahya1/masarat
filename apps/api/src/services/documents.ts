@@ -39,15 +39,12 @@ export function clearStaging(): void {
 
 // Removes trip folders no attachment row points to any more: left behind when removing them
 // failed after their trip (or its attachments) was deleted. Runs on startup.
-export function removeOrphanFolders(): void {
+export async function removeOrphanFolders(): Promise<void> {
   if (!existsSync(documentsRoot())) return
-  const inUse = new Set(
-    getDb()
-      .selectDistinct({ manifestId: tripDocuments.manifestId })
-      .from(tripDocuments)
-      .all()
-      .map((d) => String(d.manifestId))
-  )
+  const rows = await getDb()
+    .selectDistinct({ manifestId: tripDocuments.manifestId })
+    .from(tripDocuments)
+  const inUse = new Set(rows.map((d) => String(d.manifestId)))
   for (const entry of readdirSync(documentsRoot(), { withFileTypes: true })) {
     if (entry.isDirectory() && /^\d+$/.test(entry.name) && !inUse.has(entry.name)) {
       rmSync(join(documentsRoot(), entry.name), { recursive: true, force: true })
@@ -109,9 +106,12 @@ export function removeTripFolder(manifestId: number): void {
 
 // The owner's own attachment, by id
 // A null owner is the government, which may open any trip's attachments
-function findOwnedDocument(ownerId: number | null, documentId: unknown): TripDocument | undefined {
+async function findOwnedDocument(
+  ownerId: number | null,
+  documentId: unknown
+): Promise<TripDocument | undefined> {
   if (typeof documentId !== 'number') return undefined
-  return getDb()
+  const [row] = await getDb()
     .select({ document: tripDocuments })
     .from(tripDocuments)
     .innerJoin(manifests, eq(tripDocuments.manifestId, manifests.id))
@@ -122,15 +122,16 @@ function findOwnedDocument(ownerId: number | null, documentId: unknown): TripDoc
         ownerId === null ? undefined : eq(vehicles.ownerId, ownerId)
       )
     )
-    .get()?.document
+    .limit(1)
+  return row?.document
 }
 
 // A saved attachment's file and original name, for the viewer and the scanner
-export function findOwnedDocumentFile(
+export async function findOwnedDocumentFile(
   ownerId: number | null,
   documentId: unknown
-): { path: string; fileName: string } | undefined {
-  const document = findOwnedDocument(ownerId, documentId)
+): Promise<{ path: string; fileName: string } | undefined> {
+  const document = await findOwnedDocument(ownerId, documentId)
   return document
     ? { path: storedPath(document.manifestId, document.storedName), fileName: document.fileName }
     : undefined

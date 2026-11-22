@@ -342,14 +342,14 @@ function tripsOn(rand: Random, day: Date, ageDays: number): number {
 
 async function createAccount(account: DemoAccount): Promise<number | null> {
   const db = getDb()
-  const taken = db
+  const [taken] = await db
     .select({ id: users.id })
     .from(users)
     .where(eq(users.username, account.username))
-    .get()
+    .limit(1)
   // Someone already signed up with this username; leave their account alone
   if (taken) return null
-  return db
+  const [created] = await db
     .insert(users)
     .values({
       role: account.role,
@@ -362,30 +362,40 @@ async function createAccount(account: DemoAccount): Promise<number | null> {
       isDemo: true
     })
     .returning({ id: users.id })
-    .get().id
+  return created.id
 }
 
 async function seedOwners(): Promise<void> {
   try {
-    // Accounts first: hashing passwords is async and the transaction can't await
+    // Accounts first, outside the trips' transaction: hashing the passwords takes a while
     const ownerIds: number[] = []
     for (const account of DEMO_OWNER_ACCOUNTS) {
       const id = await createAccount(account)
       if (id !== null) ownerIds.push(id)
     }
-    if (ownerIds.length > 0) seedTrips(ownerIds)
+    if (ownerIds.length > 0) await seedTrips(ownerIds)
   } catch (err) {
     // Don't leave empty demo accounts behind, or the next startup would skip seeding. Only this
     // attempt's accounts exist here: seedOwners runs when there are no demo owners left.
-    deleteDemoOwners()
+    await deleteDemoOwners()
     throw err
   }
 }
 
-function seedTrips(ownerIds: number[]): void {
+// Rows are inserted this many at a time, well under Postgres's limit of parameters per query
+const BATCH_ROWS = 1000
+
+async function insertInBatches<T>(
+  rows: readonly T[],
+  insert: (batch: T[]) => Promise<unknown>
+): Promise<void> {
+  for (let i = 0; i < rows.length; i += BATCH_ROWS) await insert(rows.slice(i, i + BATCH_ROWS))
+}
+
+async function seedTrips(ownerIds: number[]): Promise<void> {
   const db = getDb()
   const rand = mulberry32(20261117)
-  const cityRows = db
+  const cityRows = await db
     .select({
       id: cities.id,
       name: cities.name,
@@ -394,14 +404,10 @@ function seedTrips(ownerIds: number[]): void {
       lng: cities.lng
     })
     .from(cities)
-    .all()
+    .orderBy(cities.id)
   const cityByName = new Map(cityRows.map((c) => [c.name, c]))
   const rates = new Map(
-    db
-      .select()
-      .from(taxRates)
-      .all()
-      .map((r) => [r.cargoType, r])
+    (await db.select().from(taxRates).orderBy(taxRates.id)).map((r) => [r.cargoType, r])
   )
   const rateList = [...rates.values()]
 
@@ -416,30 +422,14 @@ function seedTrips(ownerIds: number[]): void {
 
   // Keep generated identifiers clear of anything already in the DB
   const plates = new Set(
-    db
-      .select({ plate: vehicles.plateNumber })
-      .from(vehicles)
-      .all()
-      .map((v) => v.plate)
+    (await db.select({ plate: vehicles.plateNumber }).from(vehicles)).map((v) => v.plate)
   )
   const billIds = new Set([
-    ...db
-      .select({ id: payments.billId })
-      .from(payments)
-      .all()
-      .map((p) => p.id),
-    ...db
-      .select({ id: esaliSimBills.billId })
-      .from(esaliSimBills)
-      .all()
-      .map((b) => b.id)
+    ...(await db.select({ id: payments.billId }).from(payments)).map((p) => p.id),
+    ...(await db.select({ id: esaliSimBills.billId }).from(esaliSimBills)).map((b) => b.id)
   ])
   const refs = new Set(
-    db
-      .select({ ref: payments.paymentRef })
-      .from(payments)
-      .all()
-      .map((p) => p.ref)
+    (await db.select({ ref: payments.paymentRef }).from(payments)).map((p) => p.ref)
   )
 
   const uniquePlate = (): string => {
@@ -498,15 +488,18 @@ function seedTrips(ownerIds: number[]): void {
   })
   // The carrier details billed trips were issued with
   const owners = new Map(
-    db
-      .select()
-      .from(users)
-      .where(inArray(users.id, ownerIds))
-      .all()
-      .map((u) => [u.id, u])
+    (await db.select().from(users).where(inArray(users.id, ownerIds))).map((u) => [u.id, u])
   )
 
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
+    // A trip's own rows, written in batches once every manifest has its id
+    const itemRows: (typeof manifestCargoItems.$inferInsert)[] = []
+    const trailerRows: (typeof manifestTrailers.$inferInsert)[] = []
+    const taxRows: (typeof manifestTaxes.$inferInsert)[] = []
+    const simBillRows: (typeof esaliSimBills.$inferInsert)[] = []
+    const paymentRows: (typeof payments.$inferInsert)[] = []
+    const certificateRows: (typeof certificates.$inferInsert)[] = []
+
     const fleet: SeedVehicle[] = []
     const driversOf = new Map<number, { id: number; name: string; phone: string }[]>()
     for (const ownerId of ownerIds) {
@@ -515,7 +508,7 @@ function seedTrips(ownerIds: number[]): void {
       while (phones.size < driverCount) phones.add(`09${digits(extra, 8)}`)
       driversOf.set(
         ownerId,
-        tx
+        await tx
           .insert(drivers)
           .values(
             [...phones].map((phone) => ({
@@ -525,7 +518,6 @@ function seedTrips(ownerIds: number[]): void {
             }))
           )
           .returning({ id: drivers.id, name: drivers.name, phone: drivers.phone })
-          .all()
       )
 
       const count = between(rand, 8, 14)
@@ -534,7 +526,7 @@ function seedTrips(ownerIds: number[]): void {
         const { unit, min, max, step } = CAPACITY[vehicleType]
         const capacity = between(rand, min / step, max / step) * step
         const createdAt = new Date(today.getTime() - between(rand, HISTORY_DAYS, 500) * DAY_MS)
-        const { id } = tx
+        const [{ id }] = await tx
           .insert(vehicles)
           .values({
             ownerId,
@@ -547,7 +539,6 @@ function seedTrips(ownerIds: number[]): void {
             updatedAt: createdAt
           })
           .returning({ id: vehicles.id })
-          .get()
         fleet.push({ id, ownerId, vehicleType, capacity })
       }
     }
@@ -626,7 +617,7 @@ function seedTrips(ownerIds: number[]): void {
         const owner = owners.get(vehicle.ownerId)
         const billed = status !== 'draft'
 
-        const { id: manifestId } = tx
+        const [{ id: manifestId }] = await tx
           .insert(manifests)
           .values({
             vehicleId: vehicle.id,
@@ -658,103 +649,95 @@ function seedTrips(ownerIds: number[]): void {
             updatedAt: status === 'draft' ? createdAt : status === 'billed' ? billedAt : paidAt
           })
           .returning({ id: manifests.id })
-          .get()
-        tx.insert(manifestCargoItems)
-          .values(
-            items.map((item, position) => ({
-              manifestId,
-              position,
-              ...packed(extra, item),
-              ratePerKm: rates.get(item.cargoType)?.ratePerKm ?? 0,
-              perQuantity: rates.get(item.cargoType)?.perQuantity ?? 1,
-              cost: priced.costs[position],
-              createdAt,
-              updatedAt: createdAt
-            }))
-          )
-          .run()
-        if (trailerCount > 0) {
-          tx.insert(manifestTrailers)
-            .values(
-              Array.from({ length: trailerCount }, (_, position) => ({
-                manifestId,
-                position,
-                plateNumber: uniqueTrailerPlate(),
-                createdAt,
-                updatedAt: createdAt
-              }))
-            )
-            .run()
-        }
-        tx.insert(manifestTaxes)
-          .values(
-            taxes.lines.map((line) => ({ manifestId, ...line, createdAt, updatedAt: createdAt }))
-          )
-          .run()
+        itemRows.push(
+          ...items.map((item, position) => ({
+            manifestId,
+            position,
+            ...packed(extra, item),
+            ratePerKm: rates.get(item.cargoType)?.ratePerKm ?? 0,
+            perQuantity: rates.get(item.cargoType)?.perQuantity ?? 1,
+            cost: priced.costs[position],
+            createdAt,
+            updatedAt: createdAt
+          }))
+        )
+        trailerRows.push(
+          ...Array.from({ length: trailerCount }, (_, position) => ({
+            manifestId,
+            position,
+            plateNumber: uniqueTrailerPlate(),
+            createdAt,
+            updatedAt: createdAt
+          }))
+        )
+        taxRows.push(
+          ...taxes.lines.map((line) => ({ manifestId, ...line, createdAt, updatedAt: createdAt }))
+        )
         if (status === 'draft') continue
 
         const paid = status === 'certified'
         const billId = uniqueBillId(billedAt)
         const paymentRef = paid ? uniqueRef() : null
-        tx.insert(esaliSimBills)
-          .values({
-            billId,
-            amount: taxAmount,
-            status: paid ? 'paid' : 'pending',
-            paymentRef,
-            paidAt: paid ? paidAt : null,
-            createdAt: billedAt,
-            updatedAt: paid ? paidAt : billedAt
-          })
-          .run()
-        tx.insert(payments)
-          .values({
-            manifestId,
-            billId,
-            amount: taxAmount,
-            status: paid ? 'paid' : 'pending',
-            bank: paid ? 'E-Sali' : null,
-            paymentRef,
-            paidAt: paid ? paidAt : null,
-            createdAt: billedAt,
-            updatedAt: paid ? paidAt : billedAt
-          })
-          .run()
+        simBillRows.push({
+          billId,
+          amount: taxAmount,
+          status: paid ? 'paid' : 'pending',
+          paymentRef,
+          paidAt: paid ? paidAt : null,
+          createdAt: billedAt,
+          updatedAt: paid ? paidAt : billedAt
+        })
+        paymentRows.push({
+          manifestId,
+          billId,
+          amount: taxAmount,
+          status: paid ? 'paid' : 'pending',
+          bank: paid ? 'E-Sali' : null,
+          paymentRef,
+          paidAt: paid ? paidAt : null,
+          createdAt: billedAt,
+          updatedAt: paid ? paidAt : billedAt
+        })
         if (!paid) continue
 
-        tx.insert(certificates)
-          .values({
-            manifestId,
-            certificateNo: certificateNoFor(manifestId, paidAt),
-            manifestNo: manifestNoFor(manifestId, paidAt),
-            qrToken: randomBytes(16).toString('hex'),
-            issuedAt: paidAt,
-            validUntil: validUntilFor(tripDate),
-            createdAt: paidAt,
-            updatedAt: paidAt
-          })
-          .run()
+        certificateRows.push({
+          manifestId,
+          certificateNo: certificateNoFor(manifestId, paidAt),
+          manifestNo: manifestNoFor(manifestId, paidAt),
+          qrToken: randomBytes(16).toString('hex'),
+          issuedAt: paidAt,
+          validUntil: validUntilFor(tripDate),
+          createdAt: paidAt,
+          updatedAt: paidAt
+        })
       }
     }
+
+    await insertInBatches(itemRows, (rows) => tx.insert(manifestCargoItems).values(rows))
+    await insertInBatches(trailerRows, (rows) => tx.insert(manifestTrailers).values(rows))
+    await insertInBatches(taxRows, (rows) => tx.insert(manifestTaxes).values(rows))
+    await insertInBatches(simBillRows, (rows) => tx.insert(esaliSimBills).values(rows))
+    await insertInBatches(paymentRows, (rows) => tx.insert(payments).values(rows))
+    await insertInBatches(certificateRows, (rows) => tx.insert(certificates).values(rows))
   })
 }
 
-const demoOwnerIds = (): number[] =>
-  getDb()
+async function demoOwnerIds(): Promise<number[]> {
+  const rows = await getDb()
     .select({ id: users.id })
     .from(users)
     .where(and(eq(users.isDemo, true), eq(users.role, 'owner')))
-    .all()
-    .map((u) => u.id)
+  return rows.map((u) => u.id)
+}
 
 // Deletes the demo owners and everything that hangs off them, children first
-function deleteDemoOwners(): void {
-  const ownerIds = demoOwnerIds()
+async function deleteDemoOwners(): Promise<void> {
+  const ownerIds = await demoOwnerIds()
   if (ownerIds.length === 0) return
   dropSessionsOf(new Set(ownerIds))
 
   // Folders of demo trips that had attachments, removed once the rows are gone for good
-  const folders = getDb().transaction((tx) => {
+  const folders = await getDb().transaction(async (tx) => {
     const demoVehicles = tx
       .select({ id: vehicles.id })
       .from(vehicles)
@@ -768,23 +751,22 @@ function deleteDemoOwners(): void {
       .from(payments)
       .where(inArray(payments.manifestId, demoManifests))
 
-    tx.delete(esaliSimBills).where(inArray(esaliSimBills.billId, demoBills)).run()
-    tx.delete(certificates).where(inArray(certificates.manifestId, demoManifests)).run()
-    tx.delete(manifestCargoItems).where(inArray(manifestCargoItems.manifestId, demoManifests)).run()
-    tx.delete(manifestTaxes).where(inArray(manifestTaxes.manifestId, demoManifests)).run()
-    tx.delete(manifestTrailers).where(inArray(manifestTrailers.manifestId, demoManifests)).run()
+    await tx.delete(esaliSimBills).where(inArray(esaliSimBills.billId, demoBills))
+    await tx.delete(certificates).where(inArray(certificates.manifestId, demoManifests))
+    await tx.delete(manifestCargoItems).where(inArray(manifestCargoItems.manifestId, demoManifests))
+    await tx.delete(manifestTaxes).where(inArray(manifestTaxes.manifestId, demoManifests))
+    await tx.delete(manifestTrailers).where(inArray(manifestTrailers.manifestId, demoManifests))
     // Files attached by hand to a demo company's trips go too
-    const attached = tx
+    const attached = await tx
       .selectDistinct({ manifestId: tripDocuments.manifestId })
       .from(tripDocuments)
       .where(inArray(tripDocuments.manifestId, demoManifests))
-      .all()
-    tx.delete(tripDocuments).where(inArray(tripDocuments.manifestId, demoManifests)).run()
-    tx.delete(payments).where(inArray(payments.manifestId, demoManifests)).run()
-    tx.delete(manifests).where(inArray(manifests.vehicleId, demoVehicles)).run()
-    tx.delete(vehicles).where(inArray(vehicles.ownerId, ownerIds)).run()
-    tx.delete(drivers).where(inArray(drivers.ownerId, ownerIds)).run()
-    tx.delete(users).where(inArray(users.id, ownerIds)).run()
+    await tx.delete(tripDocuments).where(inArray(tripDocuments.manifestId, demoManifests))
+    await tx.delete(payments).where(inArray(payments.manifestId, demoManifests))
+    await tx.delete(manifests).where(inArray(manifests.vehicleId, demoVehicles))
+    await tx.delete(vehicles).where(inArray(vehicles.ownerId, ownerIds))
+    await tx.delete(drivers).where(inArray(drivers.ownerId, ownerIds))
+    await tx.delete(users).where(inArray(users.id, ownerIds))
     return attached.map((a) => a.manifestId)
   })
   // A folder that can't be removed now is picked up by removeOrphanFolders on the next startup
@@ -800,13 +782,13 @@ function deleteDemoOwners(): void {
 // On startup: seed once if there are no demo owners yet, and make sure the demo government
 // account exists
 export async function ensureDemoData(): Promise<void> {
-  if (demoOwnerIds().length === 0) await seedOwners()
+  if ((await demoOwnerIds()).length === 0) await seedOwners()
   await createAccount(DEMO_GOVT_ACCOUNT)
 }
 
 // Government panel "Regenerate demo data": rebuilds the demo owners' data; hand-made data stays
 export async function regenerateDemoData(): Promise<void> {
-  deleteDemoOwners()
+  await deleteDemoOwners()
   await seedOwners()
   await createAccount(DEMO_GOVT_ACCOUNT)
 }

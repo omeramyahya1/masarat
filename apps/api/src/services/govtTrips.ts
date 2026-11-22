@@ -1,7 +1,7 @@
 // The government's trip search: by E-Sali bill ID, receipt or manifest number, trip number,
 // plate, company or city name, and by route
 import { and, desc, eq, like, or, sql, type SQL } from 'drizzle-orm'
-import { alias } from 'drizzle-orm/sqlite-core'
+import { alias } from 'drizzle-orm/pg-core'
 import { certificates, cities, getDb, manifests, payments, users, vehicles } from '../db'
 import {
   MAX_SEARCH_RESULTS,
@@ -14,10 +14,10 @@ import { plateSearchKey } from '@masarat/shared/plate'
 const origin = alias(cities, 'search_origin')
 const destination = alias(cities, 'search_destination')
 
-// LIKE with the user's text taken literally
+// Case-insensitive LIKE with the user's text taken literally
 const escapeLike = (value: string): string => value.replace(/[\\%_]/g, (c) => `\\${c}`)
 const contains = (column: Parameters<typeof like>[0], text: string): SQL =>
-  sql`${column} LIKE ${`%${escapeLike(text)}%`} ESCAPE '\\'`
+  sql`${column} ILIKE ${`%${escapeLike(text)}%`} ESCAPE '\\'`
 
 // What the text can mean, most specific first
 function textConditions(raw: string): SQL | undefined {
@@ -72,7 +72,9 @@ function textConditions(raw: string): SQL | undefined {
   )
 }
 
-export function searchTrips(input: GovtSearchInput): FleetResult<GovtSearchResult[]> {
+export async function searchTrips(
+  input: GovtSearchInput
+): Promise<FleetResult<GovtSearchResult[]>> {
   const query = typeof input?.query === 'string' ? input.query.slice(0, 80) : ''
   const originCityId = typeof input?.originCityId === 'number' ? input.originCityId : null
   const destinationCityId =
@@ -82,7 +84,7 @@ export function searchTrips(input: GovtSearchInput): FleetResult<GovtSearchResul
     return { ok: false, error: 'missing_fields' }
   }
 
-  const rows = getDb()
+  const rows = await getDb()
     .select({
       manifestId: manifests.id,
       manifestNo: certificates.manifestNo,
@@ -112,7 +114,6 @@ export function searchTrips(input: GovtSearchInput): FleetResult<GovtSearchResul
     )
     .orderBy(desc(manifests.tripDate), desc(manifests.id))
     .limit(MAX_SEARCH_RESULTS)
-    .all()
 
   return {
     ok: true,

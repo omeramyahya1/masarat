@@ -3,7 +3,7 @@
 // in Arabic, passed in by the renderer.
 import ExcelJS from 'exceljs'
 import { and, asc, eq, gte, inArray, lt, type SQL } from 'drizzle-orm'
-import { alias } from 'drizzle-orm/sqlite-core'
+import { alias } from 'drizzle-orm/pg-core'
 import {
   certificates,
   cities,
@@ -37,7 +37,7 @@ const origin = alias(cities, 'export_origin')
 const destination = alias(cities, 'export_destination')
 
 // The trips the export covers: the filters, the period on the chosen date, and the status
-function selectTripIds(input: ExportInput): number[] {
+async function selectTripIds(input: ExportInput): Promise<number[]> {
   const { from, to } = resolveRange(input.filters.range, new Date())
   const period: SQL | undefined =
     input.dateBasis === 'trip'
@@ -51,25 +51,24 @@ function selectTripIds(input: ExportInput): number[] {
       : input.status === 'billed'
         ? inArray(manifests.status, ['billed', 'paid'])
         : eq(manifests.status, input.status)
-  return getDb()
+  const rows = await getDb()
     .select({ id: manifests.id })
     .from(manifests)
     .leftJoin(payments, eq(payments.manifestId, manifests.id))
     .where(and(period, status, inFilteredTrips(manifests.id, input.filters)))
     .orderBy(asc(manifests.tripDate), asc(manifests.id))
-    .all()
-    .map((r) => r.id)
+  return rows.map((r) => r.id)
 }
 
 // Builds each dataset's rows, in EXPORT_COLUMNS order
-function buildRows(input: ExportInput, ids: number[]): Record<ExportDataset, Row[]> {
+async function buildRows(input: ExportInput, ids: number[]): Promise<Record<ExportDataset, Row[]>> {
   const db = getDb()
   const value = (group: string, key: string | null | undefined): string | null =>
     key ? (input.labels.values[group]?.[key] ?? key) : null
   const empty: Record<ExportDataset, Row[]> = { trips: [], bills: [], items: [], taxLines: [] }
   if (ids.length === 0) return empty
 
-  const trips = db
+  const trips = await db
     .select({
       id: manifests.id,
       manifestNo: certificates.manifestNo,
@@ -114,15 +113,13 @@ function buildRows(input: ExportInput, ids: number[]): Record<ExportDataset, Row
     .leftJoin(certificates, eq(certificates.manifestId, manifests.id))
     .where(inArray(manifests.id, ids))
     .orderBy(asc(manifests.tripDate), asc(manifests.id))
-    .all()
   const byId = new Map(trips.map((trip) => [trip.id, trip]))
 
-  const items = db
+  const items = await db
     .select()
     .from(manifestCargoItems)
     .where(inArray(manifestCargoItems.manifestId, ids))
     .orderBy(asc(manifestCargoItems.manifestId), asc(manifestCargoItems.position))
-    .all()
   const cargoTypes = new Map<number, Set<string>>()
   for (const item of items) {
     cargoTypes.set(
@@ -131,12 +128,11 @@ function buildRows(input: ExportInput, ids: number[]): Record<ExportDataset, Row
     )
   }
   const trailers = new Map<number, string[]>()
-  for (const trailer of db
+  for (const trailer of await db
     .select()
     .from(manifestTrailers)
     .where(inArray(manifestTrailers.manifestId, ids))
-    .orderBy(asc(manifestTrailers.position))
-    .all()) {
+    .orderBy(asc(manifestTrailers.position))) {
     trailers.set(trailer.manifestId, [
       ...(trailers.get(trailer.manifestId) ?? []),
       trailer.plateNumber
@@ -208,12 +204,11 @@ function buildRows(input: ExportInput, ids: number[]): Record<ExportDataset, Row
       item.notes
     ])
   }
-  for (const line of db
+  for (const line of await db
     .select()
     .from(manifestTaxes)
     .where(inArray(manifestTaxes.manifestId, ids))
-    .orderBy(asc(manifestTaxes.manifestId), asc(manifestTaxes.id))
-    .all()) {
+    .orderBy(asc(manifestTaxes.manifestId), asc(manifestTaxes.id))) {
     const trip = byId.get(line.manifestId)
     rows.taxLines.push([
       line.manifestId,
@@ -297,7 +292,7 @@ export interface ExportFile {
 export async function exportData(
   input: ExportInput
 ): Promise<FleetResult<{ files: ExportFile[]; rows: ExportResult['rows'] }>> {
-  const data = buildRows(input, selectTripIds(input))
+  const data = await buildRows(input, await selectTripIds(input))
   const rows = Object.fromEntries(input.datasets.map((d) => [d, data[d].length]))
   const { from, to } = resolveRange(input.filters.range, new Date())
   const span = `${formatDay(from)}-${formatDay(new Date(to.getTime() - 1))}`

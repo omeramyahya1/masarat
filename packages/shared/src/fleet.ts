@@ -1,5 +1,6 @@
 // Types and rules shared by the main process (fleet and trip services) and the renderer
-import type { ChargeRecord, TaxLine } from './tax'
+import type { PassengerInput, PassengerRecord } from './passengers'
+import type { ChargeRecord, TaxLine, TripCategory } from './tax'
 import type { PageSize } from './paging'
 
 // Enum values, also used by the DB schema so the UI and services share one source of truth
@@ -9,9 +10,11 @@ export const VEHICLE_TYPES = [
   'light_duty_truck',
   'jumbo_truck',
   'tanker',
-  'container_truck'
+  'container_truck',
+  // Carries passengers: its capacity is its seats
+  'bus'
 ] as const
-export const QUANTITY_UNITS = ['ton', 'liter'] as const
+export const QUANTITY_UNITS = ['ton', 'liter', 'seat'] as const
 export const CARGO_TYPES = ['fuel', 'liquids', 'containers', 'general_cargo'] as const
 // Units a cargo item can be entered in; each converts to its vehicle's capacity unit
 export const ITEM_UNITS = ['kg', 'ton', 'liter', 'm3'] as const
@@ -35,9 +38,15 @@ export type ItemUnit = (typeof ITEM_UNITS)[number]
 export type TripKind = (typeof TRIP_KINDS)[number]
 export type DocumentType = (typeof DOCUMENT_TYPES)[number]
 
+// A bus carries passengers; every other vehicle carries cargo
+export const tripCategoryFor = (type: VehicleType): TripCategory =>
+  type === 'bus' ? 'passenger' : 'cargo'
+
 // The documents that apply to a trip of this kind: the invoice and packing list always, the
-// certificate of origin for imports, and the import/export authorization for both
-export function documentTypesFor(kind: TripKind): DocumentType[] {
+// certificate of origin for imports, and the import/export authorization for both. Passenger
+// trips have none for now.
+export function documentTypesFor(kind: TripKind, category: TripCategory = 'cargo'): DocumentType[] {
+  if (category === 'passenger') return []
   return DOCUMENT_TYPES.filter(
     (type) =>
       (type !== 'certificate_of_origin' || kind === 'import') &&
@@ -51,7 +60,9 @@ export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
 
 const ITEM_UNITS_FOR: Record<QuantityUnit, readonly ItemUnit[]> = {
   ton: ['ton', 'kg'],
-  liter: ['liter', 'm3']
+  liter: ['liter', 'm3'],
+  // A bus carries passengers, not cargo items
+  seat: []
 }
 
 // Item units that can be loaded on a vehicle measured in this unit
@@ -96,9 +107,9 @@ export const PACKING_SUGGESTIONS = [
 ] as const
 export const MAX_ITEM_NAME_LENGTH = 80
 
-// Tankers carry liquids by default; everything else is measured in tons
+// Tankers carry liquids, buses seat passengers; everything else is measured in tons
 export const defaultUnitFor = (type: VehicleType): QuantityUnit =>
-  type === 'tanker' ? 'liter' : 'ton'
+  type === 'tanker' ? 'liter' : type === 'bus' ? 'seat' : 'ton'
 
 export interface VehicleInput {
   plateNumber: string
@@ -163,6 +174,8 @@ export interface TripReferenceData {
   ticketRatePerKm: number
   // The taxes and fees as they are now, for the form's preview
   charges: ChargeRecord[]
+  // km/h per kind of trip, for the suggested arrival (the government's settings)
+  averageSpeedKmh: Record<TripCategory, number>
 }
 
 export interface CargoItem {
@@ -225,9 +238,14 @@ export interface TripInput {
   vehicleId: number
   originCityId: number
   destinationCityId: number
+  // A cargo trip's load; empty for a passenger trip
   items: CargoItem[]
-  // Local calendar date, YYYY-MM-DD
-  tripDate: string
+  // A passenger trip's passengers (a bus); omitted or empty for cargo
+  passengers?: PassengerInput[]
+  // Local date and time, YYYY-MM-DDTHH:MM, Sudan time. The arrival is the estimate.
+  departureAt: string
+  arrivalAt: string
+  // Ignored for a passenger trip, which is always domestic
   tripKind: TripKind
   // Trailer plates, as stored ("KH 12/34567"), in order
   trailers: string[]
@@ -249,18 +267,29 @@ export interface TripRecord {
   registrationNo: string | null
   originCityId: number
   destinationCityId: number
-  cargoType: CargoType
+  // From the vehicle: a bus's trips carry passengers
+  category: TripCategory
+  // A cargo trip's main type (the costliest); null for passengers
+  cargoType: CargoType | null
+  // The load in the vehicle's unit; a passenger trip's tickets (seats sold, infants not counted)
   cargoQuantity: number
   cargoUnit: QuantityUnit
-  tripDate: number
+  departureAt: number
+  // The estimated arrival
+  arrivalAt: number
   distanceKm: number
+  // Cargo: the main type's rate; passengers: the ticket rate per km
   ratePerKm: number
-  // rate × distance × quantity; the taxes are percentages of it
+  // A passenger ticket's price; null for cargo
+  ticketPrice: number | null
+  // Cargo: rate × distance × quantity per item; passengers: ticket price × tickets. The taxes are
+  // percentages of it.
   tripCost: number
   // Total of the tax lines; this is what the bill asks for
   taxAmount: number
   taxes: TaxLine[]
   items: CargoItemRecord[]
+  passengers: PassengerRecord[]
   status: ManifestStatus
   createdAt: number
   tripKind: TripKind
@@ -288,6 +317,9 @@ export const BILLING_REQUIREMENTS = [
   'shipper',
   'receiver',
   'packing',
+  // A passenger trip: at least one ticket, and an ID for everyone who has a seat
+  'passengers',
+  'passenger_ids',
   'carrier_address',
   'carrier_tin'
 ] as const
@@ -297,16 +329,23 @@ const isComplete = (party: Party): boolean =>
   Boolean(party.name.trim() && party.address.trim() && party.phone.trim())
 
 export function missingForBilling(
-  trip: Pick<TripRecord, 'driverId' | 'shipper' | 'receiver' | 'items'>,
+  trip: Pick<TripRecord, 'category' | 'driverId' | 'shipper' | 'receiver' | 'items' | 'passengers'>,
   company: { address: string | null; tin: string | null }
 ): BillingRequirement[] {
+  const cargo = trip.category === 'cargo'
+  const seated = trip.passengers.filter((p) => !p.isInfant)
   const met: Record<BillingRequirement, boolean> = {
     driver: trip.driverId !== null,
-    shipper: isComplete(trip.shipper),
-    receiver: isComplete(trip.receiver),
+    shipper: !cargo || isComplete(trip.shipper),
+    receiver: !cargo || isComplete(trip.receiver),
     packing:
-      trip.items.length > 0 &&
-      trip.items.every((item) => Boolean(item.packingType?.trim()) && item.packageCount !== null),
+      !cargo ||
+      (trip.items.length > 0 &&
+        trip.items.every(
+          (item) => Boolean(item.packingType?.trim()) && item.packageCount !== null
+        )),
+    passengers: cargo || seated.length > 0,
+    passenger_ids: cargo || seated.every((p) => p.idType !== null && p.idNumber !== null),
     carrier_address: Boolean(company.address?.trim()),
     carrier_tin: Boolean(company.tin?.trim())
   }
@@ -328,6 +367,14 @@ export type FleetErrorCode =
   | 'unit_in_use'
   | 'city_not_found'
   | 'same_route'
+  // The estimated arrival has to be after the departure
+  | 'invalid_arrival'
+  // Passengers: names, IDs, seats within the bus, an infant on a passenger's seat
+  | 'invalid_passengers'
+  | 'seat_taken'
+  | 'template_not_found'
+  | 'invalid_template'
+  | 'invalid_settings'
   | 'invalid_quantity'
   | 'unit_mismatch'
   | 'over_capacity'
@@ -363,9 +410,9 @@ export type FleetErrorCode =
 export type FleetResult<T> = { ok: true; data: T } | { ok: false; error: FleetErrorCode }
 
 // The cargo types a trip carries, main type first; trips from before cargo items existed have
-// only their own
+// only their own, and a passenger trip none
 export function tripCargoTypes(trip: Pick<TripRecord, 'cargoType' | 'items'>): CargoType[] {
-  if (trip.items.length === 0) return [trip.cargoType]
+  if (trip.items.length === 0) return trip.cargoType ? [trip.cargoType] : []
   const types = [...new Set(trip.items.map((item) => item.cargoType))]
   return [
     ...types.filter((type) => type === trip.cargoType),
@@ -375,7 +422,7 @@ export function tripCargoTypes(trip: Pick<TripRecord, 'cargoType' | 'items'>): C
 
 // The company's trips list: search, filters, sort and group, paged by the API
 export const TRIP_SORTS = [
-  'tripDate',
+  'departureAt',
   'createdAt',
   'amount',
   'tripCost',
@@ -391,7 +438,8 @@ export const TRIP_GROUPS = [
   'route',
   'tripKind',
   'cargoType',
-  'branch'
+  'branch',
+  'category'
 ] as const
 export type TripGroup = (typeof TRIP_GROUPS)[number]
 // "billed" also matches the legacy "paid" status
@@ -402,6 +450,7 @@ export interface TripListQuery {
   pageSize: PageSize
   query?: string
   status?: (typeof TRIP_STATUS_FILTERS)[number]
+  category?: TripCategory
   tripKind?: TripKind
   cargoType?: CargoType
   vehicleId?: number

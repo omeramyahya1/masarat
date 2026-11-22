@@ -3,16 +3,18 @@
 // translations, so every visible string stays in the locale files.
 import type { AnalyticsFilters } from './analytics'
 
-export const EXPORT_DATASETS = ['trips', 'bills', 'items', 'taxLines'] as const
+export const EXPORT_DATASETS = ['trips', 'bills', 'items', 'passengers', 'taxLines'] as const
 export type ExportDataset = (typeof EXPORT_DATASETS)[number]
 
 export const EXPORT_COLUMNS = {
   trips: [
     'tripId',
     'manifestNo',
-    'tripDate',
+    'departureAt',
+    'arrivalAt',
     'createdAt',
     'status',
+    'category',
     'company',
     'plate',
     'registrationNo',
@@ -31,6 +33,7 @@ export const EXPORT_COLUMNS = {
     'cargoTypes',
     'cargoQuantity',
     'cargoUnit',
+    'ticketPrice',
     'tripCost',
     'amountDue',
     'billId',
@@ -61,8 +64,32 @@ export const EXPORT_COLUMNS = {
     'cost',
     'notes'
   ],
+  // A passenger trip's passengers. Their ID numbers only with includeIdNumbers.
+  passengers: [
+    'tripId',
+    'manifestNo',
+    'departureAt',
+    'seatNo',
+    'fullName',
+    'isInfant',
+    'idType',
+    'idNumber',
+    'notes'
+  ],
   taxLines: ['tripId', 'manifestNo', 'billId', 'line', 'rate', 'amount', 'paidAt']
 } as const satisfies Record<ExportDataset, readonly string[]>
+
+// Personal data left out of a file unless the export asks for it
+export const ID_COLUMNS: readonly string[] = ['idType', 'idNumber']
+
+// A dataset's columns in this export
+export const exportColumns = (
+  dataset: ExportDataset,
+  includeIdNumbers: boolean | undefined
+): readonly string[] =>
+  includeIdNumbers
+    ? EXPORT_COLUMNS[dataset]
+    : EXPORT_COLUMNS[dataset].filter((c) => !ID_COLUMNS.includes(c))
 
 // Which date the period applies to
 export const DATE_BASES = ['trip', 'billed', 'paid'] as const
@@ -91,6 +118,8 @@ export interface ExportInput {
   datasets: ExportDataset[]
   // One or both; files of more than one kind go into a folder
   formats: ExportFormat[]
+  // Passengers' ID types and numbers in the passengers dataset; off unless asked for
+  includeIdNumbers?: boolean
   labels: ExportLabels
 }
 
@@ -116,6 +145,7 @@ export function isExportOptions(value: unknown): value is Omit<ExportInput, 'fil
     Array.isArray(v.datasets) &&
     v.datasets.length > 0 &&
     v.datasets.every((d) => isOneOf(EXPORT_DATASETS, d)) &&
+    (v.includeIdNumbers === undefined || typeof v.includeIdNumbers === 'boolean') &&
     isObject(v.labels) &&
     isObject(v.labels.columns) &&
     isObject(v.labels.sheets) &&

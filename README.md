@@ -1,7 +1,7 @@
 # Masarat
 
-Electronic transport manifests and tax collection for Sudan: fleet owners create trips, the system
-prices their taxes and fees, issues an E-Sali bill ID, and once it's paid issues the payment
+Electronic transport manifests and tax collection for Sudan: transport companies book trips at
+their branches, the system prices their taxes and fees, issues an E-Sali bill ID, and once it's paid issues the payment
 receipt and the authorized manifest with a QR code checkpoint officers can scan.
 
 The production version is being built for the web. The original Electron MVP is kept in
@@ -9,16 +9,16 @@ The production version is being built for the web. The original Electron MVP is 
 
 ## Layout
 
-| Workspace             | What it is                                                                |
-| --------------------- | ------------------------------------------------------------------------- |
-| `apps/api`            | Hono API on Bun, `api.masarat.com`                                        |
-| `apps/site`           | Landing page, login and fleet owner sign-up, `masarat.com` (Vite + React) |
-| `apps/owner-portal`   | Fleet owner portal, `owner.masarat.com` (Vite + React)                    |
-| `apps/govt-portal`    | Government portal, `govt.masarat.com` (Vite + React)                      |
-| `packages/shared`     | Domain rules: plates, trip cost and taxes, bill IDs, analytics filters    |
-| `packages/ui`         | React components, i18n (English / Arabic) and styles the web apps use     |
-| `packages/api-client` | Typed client the web apps use to call the API                             |
-| `apps/desktop-demo`   | The Electron MVP (separate bun project, frozen)                           |
+| Workspace             | What it is                                                             |
+| --------------------- | ---------------------------------------------------------------------- |
+| `apps/api`            | Hono API on Bun, `api.masarat.com`                                     |
+| `apps/site`           | Landing page, login and company sign-up, `masarat.com` (Vite + React)  |
+| `apps/owner-portal`   | Transport company portal, `owner.masarat.com` (Vite + React)           |
+| `apps/govt-portal`    | Government portal, `govt.masarat.com` (Vite + React)                   |
+| `packages/shared`     | Domain rules: plates, trip cost and taxes, bill IDs, analytics filters |
+| `packages/ui`         | React components, i18n (English / Arabic) and styles the web apps use  |
+| `packages/api-client` | Typed client the web apps use to call the API                          |
+| `apps/desktop-demo`   | The Electron MVP (separate bun project, frozen)                        |
 
 ## Setup
 
@@ -42,8 +42,9 @@ bun run dev:owner   # http://localhost:5173
 bun run dev:govt    # http://localhost:5174
 ```
 
-With `DEMO_MODE=true` the API seeds the demo fleet companies on its first start, and the login
-page lists their accounts. A new deployment gets its first government admin from the server:
+With `DEMO_MODE=true` the API seeds the demo companies (with their branches, admins, clerks and
+accountants) on its first start, and the login page lists their accounts. The migrations were
+rebased on 2026-11-22: drop an older local database and run `bun run db:migrate` again. A new deployment gets its first government admin from the server:
 `bun run --filter @masarat/api user:create-admin <username> <phone> "<full name>"`.
 
 ```bash

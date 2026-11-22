@@ -10,7 +10,7 @@ import {
   type BreakdownSort,
   type BucketSize,
   type DashboardView,
-  type OwnerOption
+  type CompanyOption
 } from '@masarat/shared/analytics'
 import type { DashboardData } from '@masarat/shared/dashboard'
 import type { CityRecord, FleetErrorCode } from '@masarat/shared/fleet'
@@ -50,23 +50,23 @@ function ExportDialog({
   initialFilters,
   initialView,
   cities,
-  owners,
+  companies,
   onClose
 }: {
   initialFilters: AnalyticsFilters
   initialView: DashboardView
   cities: readonly CityRecord[]
-  owners: readonly OwnerOption[]
+  companies: readonly CompanyOption[]
   onClose: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const titleId = useId()
   const mounted = useMountedRef()
   const [tab, setTab] = useState<Tab>('report')
-  // Exports cover every fleet owner, so the dashboard's owner filter isn't carried over
+  // Exports cover every company, so the dashboard's company filter isn't carried over
   const [filters, setFilters] = useState<AnalyticsFilters>(() => ({
     ...initialFilters,
-    ownerId: null
+    companyId: null
   }))
   const [view, setView] = useState<DashboardView>(initialView)
   const [sections, setSections] = useState<ReadonlySet<ReportSection>>(
@@ -135,8 +135,8 @@ function ExportDialog({
           <AnalyticsFilterFields
             filters={filters}
             cities={cities}
-            owners={owners}
-            showOwner={false}
+            companies={companies}
+            showCompany={false}
             onChange={setFilters}
           />
         </fieldset>
@@ -238,7 +238,7 @@ function ExportDialog({
             </div>
           </>
         ) : (
-          <DataExportFields filters={filters} cities={cities} onClose={onClose} />
+          <DataExportFields filters={filters} onClose={onClose} />
         )}
       </div>
 
@@ -248,7 +248,7 @@ function ExportDialog({
           view={view}
           sections={sections}
           cities={cities}
-          owners={owners}
+          companies={companies}
           onClose={() => setReport(null)}
         />
       )}

@@ -1,13 +1,13 @@
 import { useTranslation } from 'react-i18next'
 import { CheckCircle2, FileCheck2, QrCode } from 'lucide-react'
 import { PANEL_ICONS } from '@masarat/ui/panels'
-import type { UserRole } from '@masarat/shared/auth'
+import type { UserKind } from '@masarat/shared/permissions'
 import type { Page } from '../router'
 import Link from '../components/Link'
 
-const AUDIENCES: { role: UserRole; key: 'owners' | 'govt' }[] = [
-  { role: 'owner', key: 'owners' },
-  { role: 'govt', key: 'govt' }
+const AUDIENCES: { kind: UserKind; key: 'owners' | 'govt' }[] = [
+  { kind: 'company', key: 'owners' },
+  { kind: 'govt', key: 'govt' }
 ]
 const POINTS = ['p1', 'p2', 'p3', 'p4'] as const
 const STEPS = ['s1', 's2', 's3'] as const
@@ -70,8 +70,8 @@ function LandingPage({ navigate }: { navigate: (page: Page) => void }): React.JS
       </section>
 
       <section className="mx-auto grid max-w-6xl gap-6 px-4 py-14 sm:px-6 md:grid-cols-2">
-        {AUDIENCES.map(({ role, key }) => {
-          const Icon = PANEL_ICONS[role]
+        {AUDIENCES.map(({ kind, key }) => {
+          const Icon = PANEL_ICONS[kind]
           return (
             <article key={key} className="card p-6">
               <div className="mb-4 flex items-center gap-3">

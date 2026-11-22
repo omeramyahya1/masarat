@@ -1,44 +1,13 @@
-// Government portal → Users: government admins manage the government accounts
+// Government portal → Users: government admins manage the government accounts (the same rules as a
+// company's Team, see services/members.ts)
 import { Hono } from 'hono'
-import type { NewGovtUserInput } from '@masarat/shared/govtUsers'
-import {
-  createGovtUser,
-  listGovtUsers,
-  resetPassword,
-  setAdmin,
-  setDisabled
-} from '../services/govtUsers'
-import { fail, idParam, readJson, send, type AppEnv } from '../http/context'
-import { requireAdmin, requireUser } from '../http/middleware'
+import type { AppEnv } from '../http/context'
+import { requireKind, requirePermission, requireUser } from '../http/middleware'
+import { memberRoutes } from './company'
 
 export const govtUserRoutes = new Hono<AppEnv>()
-  .use(requireUser(), requireAdmin)
-  .get('/', async (c) => send(c, { ok: true, data: await listGovtUsers() }))
-  .post('/', async (c) =>
-    send(c, await createGovtUser((await readJson(c)) as unknown as NewGovtUserInput))
+  .use(requireUser(), requireKind('govt'), requirePermission('govt.users'))
+  .route(
+    '/',
+    memberRoutes(() => ({ kind: 'govt' }))
   )
-  .post('/:id/disable', async (c) => {
-    const id = idParam(c)
-    return id === null
-      ? fail(c, 'user_not_found')
-      : send(c, await setDisabled(c.get('user')!.id, id, true))
-  })
-  .post('/:id/enable', async (c) => {
-    const id = idParam(c)
-    return id === null
-      ? fail(c, 'user_not_found')
-      : send(c, await setDisabled(c.get('user')!.id, id, false))
-  })
-  .post('/:id/reset-password', async (c) => {
-    const id = idParam(c)
-    return id === null
-      ? fail(c, 'user_not_found')
-      : send(c, await resetPassword(c.get('user')!.id, id))
-  })
-  .post('/:id/admin', async (c) => {
-    const id = idParam(c)
-    const { isAdmin } = await readJson(c)
-    if (id === null) return fail(c, 'user_not_found')
-    if (typeof isAdmin !== 'boolean') return fail(c, 'missing_fields')
-    return send(c, await setAdmin(c.get('user')!.id, id, isAdmin))
-  })

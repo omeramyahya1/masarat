@@ -83,7 +83,7 @@ export const MAX_NOTES_LENGTH = 200
 export const MAX_PACKAGE_COUNT = 1_000_000
 
 // Common packing types, offered as suggestions (labels in packingTypes.*). The field is free text:
-// what's stored is the text the owner picked or typed.
+// what's stored is the text the member picked or typed.
 export const PACKING_SUGGESTIONS = [
   'barrels',
   'sacks',
@@ -140,8 +140,10 @@ export interface DriverRecord extends DriverInput {
 export interface CityRecord {
   id: number
   name: string
-  nameAr: string | null
+  nameAr: string
+  // The state's English name (unique, used as its key in filters) and Arabic name
   state: string
+  stateAr: string
   lat: number
   lng: number
 }
@@ -201,7 +203,7 @@ export interface Party {
   phone: string
 }
 
-// The fleet owner as carrier, copied onto the manifest when its bill is generated
+// The company as carrier, copied onto the manifest when its bill is generated
 export interface CarrierDetails {
   name: string
   address: string
@@ -216,6 +218,8 @@ export interface CargoItemRecord extends CargoItem {
 }
 
 export interface TripInput {
+  // The branch it's booked at; a branch member's own branch is used whatever this says
+  branchId?: number | null
   vehicleId: number
   originCityId: number
   destinationCityId: number
@@ -225,7 +229,7 @@ export interface TripInput {
   tripKind: TripKind
   // Trailer plates, as stored ("KH 12/34567"), in order
   trailers: string[]
-  // One of the owner's drivers; drafts may leave it empty
+  // One of the company's drivers; drafts may leave it empty
   driverId: number | null
   shipper: Party
   receiver: Party
@@ -235,6 +239,8 @@ export interface TripInput {
 
 export interface TripRecord {
   id: number
+  branchId: number
+  branchName: string
   vehicleId: number
   plateNumber: string
   vehicleType: VehicleType
@@ -290,7 +296,7 @@ const isComplete = (party: Party): boolean =>
 
 export function missingForBilling(
   trip: Pick<TripRecord, 'driverId' | 'shipper' | 'receiver' | 'items'>,
-  owner: { address: string | null; tin: string | null }
+  company: { address: string | null; tin: string | null }
 ): BillingRequirement[] {
   const met: Record<BillingRequirement, boolean> = {
     driver: trip.driverId !== null,
@@ -299,14 +305,18 @@ export function missingForBilling(
     packing:
       trip.items.length > 0 &&
       trip.items.every((item) => Boolean(item.packingType?.trim()) && item.packageCount !== null),
-    carrier_address: Boolean(owner.address?.trim()),
-    carrier_tin: Boolean(owner.tin?.trim())
+    carrier_address: Boolean(company.address?.trim()),
+    carrier_tin: Boolean(company.tin?.trim())
   }
   return BILLING_REQUIREMENTS.filter((requirement) => !met[requirement])
 }
 
 export type FleetErrorCode =
   | 'not_signed_in'
+  // A trip is booked at an active branch of the company
+  | 'branch_required'
+  | 'branch_not_found'
+  | 'branch_inactive'
   | 'missing_fields'
   | 'invalid_plate'
   | 'invalid_capacity'
@@ -357,7 +367,7 @@ export function tripCargoTypes(trip: Pick<TripRecord, 'cargoType' | 'items'>): C
   ]
 }
 
-// The owner's trips list: search, filters, sort and group, paged by the API
+// The company's trips list: search, filters, sort and group, paged by the API
 export const TRIP_SORTS = [
   'tripDate',
   'createdAt',
@@ -374,7 +384,8 @@ export const TRIP_GROUPS = [
   'driver',
   'route',
   'tripKind',
-  'cargoType'
+  'cargoType',
+  'branch'
 ] as const
 export type TripGroup = (typeof TRIP_GROUPS)[number]
 // "billed" also matches the legacy "paid" status
@@ -389,6 +400,7 @@ export interface TripListQuery {
   cargoType?: CargoType
   vehicleId?: number
   driverId?: number
+  branchId?: number
   // YYYY-MM-DD, both days included
   from?: string
   to?: string

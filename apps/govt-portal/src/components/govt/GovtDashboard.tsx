@@ -9,7 +9,7 @@ import {
   bucketsFor,
   type AnalyticsFilters,
   type DashboardView,
-  type OwnerOption
+  type CompanyOption
 } from '@masarat/shared/analytics'
 import { useFormat } from '@masarat/ui/lib/format'
 import { useMountedRef } from '@masarat/ui/lib/useMountedRef'
@@ -29,7 +29,7 @@ import { api } from '@masarat/api-client'
 // Recharts is large; load it only when the government panel opens
 const RevenueChart = lazy(() => import('./RevenueChart'))
 
-// Government landing view: collection totals and activity across every fleet owner
+// Government landing view: collection totals and activity across every company
 function GovtDashboard({
   onOpenTrip
 }: {
@@ -40,7 +40,7 @@ function GovtDashboard({
   const mounted = useMountedRef()
   const [filters, setFilters] = useState<AnalyticsFilters>(DEFAULT_FILTERS)
   const [view, setView] = useState<DashboardView>(DEFAULT_VIEW)
-  const [owners, setOwners] = useState<OwnerOption[]>([])
+  const [companies, setCompanies] = useState<CompanyOption[]>([])
   // What the main process needs; the breakdown's sort is applied here without asking it again
   const request = useMemo<DashboardView>(
     () => ({ bucket: view.bucket, breakdown: view.breakdown, sort: 'revenue' }),
@@ -59,8 +59,8 @@ function GovtDashboard({
 
   useEffect(() => {
     api.govt
-      .listOwners()
-      .then((result) => mounted.current && result.ok && setOwners(result.data))
+      .listCompanies()
+      .then((result) => mounted.current && result.ok && setCompanies(result.data))
       .catch(() => undefined)
   }, [mounted])
 
@@ -178,7 +178,7 @@ function GovtDashboard({
       <AnalyticsFilterFields
         filters={filters}
         cities={cities}
-        owners={owners}
+        companies={companies}
         onChange={changeFilters}
       />
     </div>
@@ -195,7 +195,7 @@ function GovtDashboard({
       initialFilters={filters}
       initialView={view}
       cities={cities}
-      owners={owners}
+      companies={companies}
       onClose={() => setExporting(false)}
     />
   )

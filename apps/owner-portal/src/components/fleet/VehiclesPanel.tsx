@@ -10,6 +10,7 @@ import {
 import { plateSearchKey } from '@masarat/shared/plate'
 import { useListView, type ListViewConfig } from '@masarat/ui/lib/useListView'
 import ListToolbar from '@masarat/ui/components/ui/ListToolbar'
+import { useCan } from '@masarat/ui/lib/account'
 import { useFormat } from '@masarat/ui/lib/format'
 import { FormAlert } from '@masarat/ui/components/form/fields'
 import Modal from '@masarat/ui/components/ui/Modal'
@@ -19,6 +20,8 @@ import { api } from '@masarat/api-client'
 
 function VehiclesPanel(): React.JSX.Element {
   const { t } = useTranslation()
+  // Without it the list is read-only
+  const canManage = useCan()('fleet.manage')
   const format = useFormat()
   const [vehicles, setVehicles] = useState<VehicleRecord[] | null>(null)
   const [error, setError] = useState<FleetErrorCode | null>(null)
@@ -106,7 +109,7 @@ function VehiclesPanel(): React.JSX.Element {
       <td className="tabular-nums">{format.quantity(vehicle.capacity, vehicle.capacityUnit)}</td>
       <td className="tabular-nums">{format.number(vehicle.tripCount)}</td>
       <td>
-        <div className="flex justify-end gap-1">
+        <div className={`flex justify-end gap-1 ${canManage ? '' : 'hidden'}`}>
           <button
             type="button"
             className="icon-btn"
@@ -142,7 +145,7 @@ function VehiclesPanel(): React.JSX.Element {
           <h2 className="text-lg font-semibold text-stone-900">{t('fleet.title')}</h2>
           <p className="text-sm text-stone-500">{t('fleet.subtitle')}</p>
         </div>
-        {vehicles && vehicles.length > 0 && (
+        {canManage && vehicles && vehicles.length > 0 && (
           <button type="button" className="btn btn-primary" onClick={() => setEditing('new')}>
             <Plus size={16} />
             {t('fleet.add')}
@@ -165,10 +168,16 @@ function VehiclesPanel(): React.JSX.Element {
           </div>
           <h3 className="font-semibold text-stone-900">{t('fleet.empty.title')}</h3>
           <p className="max-w-sm text-sm text-stone-500">{t('fleet.empty.body')}</p>
-          <button type="button" className="btn btn-primary mt-2" onClick={() => setEditing('new')}>
-            <Plus size={16} />
-            {t('fleet.add')}
-          </button>
+          {canManage && (
+            <button
+              type="button"
+              className="btn btn-primary mt-2"
+              onClick={() => setEditing('new')}
+            >
+              <Plus size={16} />
+              {t('fleet.add')}
+            </button>
+          )}
         </div>
       ) : (
         <>

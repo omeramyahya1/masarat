@@ -2,18 +2,19 @@
 // as one Excel workbook (a sheet per dataset) or CSV files (one per dataset). Headers and labels are
 // in Arabic, passed in by the renderer.
 import ExcelJS from 'exceljs'
-import { and, asc, eq, gte, inArray, lt, type SQL } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, lt, sql, type SQL, type SQLWrapper } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import {
   certificates,
   cities,
+  companies,
   getDb,
   manifestCargoItems,
   manifestTaxes,
   manifestTrailers,
   manifests,
   payments,
-  users,
+  states,
   vehicles
 } from '../db'
 import { formatDay, resolveRange } from '@masarat/shared/analytics'
@@ -60,6 +61,9 @@ async function selectTripIds(input: ExportInput): Promise<number[]> {
   return rows.map((r) => r.id)
 }
 
+const stateNameAr = (stateId: SQLWrapper): SQL<string> =>
+  sql<string>`(select ${states.nameAr} from ${states} where ${states.id} = ${stateId})`
+
 // Builds each dataset's rows, in EXPORT_COLUMNS order
 async function buildRows(input: ExportInput, ids: number[]): Promise<Record<ExportDataset, Row[]>> {
   const db = getDb()
@@ -76,18 +80,18 @@ async function buildRows(input: ExportInput, ids: number[]): Promise<Record<Expo
       createdAt: manifests.createdAt,
       status: manifests.status,
       cargoType: manifests.cargoType,
-      companyName: users.companyName,
-      fullName: users.fullName,
+      companyName: companies.name,
       plate: vehicles.plateNumber,
       registrationNo: vehicles.registrationNo,
       vehicleType: vehicles.vehicleType,
       tripKind: manifests.tripKind,
       origin: origin.name,
       originAr: origin.nameAr,
-      originState: origin.state,
+      // Exports are in Arabic
+      originState: stateNameAr(origin.stateId),
       destination: destination.name,
       destinationAr: destination.nameAr,
-      destinationState: destination.state,
+      destinationState: stateNameAr(destination.stateId),
       distanceKm: manifests.distanceKm,
       driverName: manifests.driverName,
       driverPhone: manifests.driverPhone,
@@ -106,7 +110,7 @@ async function buildRows(input: ExportInput, ids: number[]): Promise<Record<Expo
     })
     .from(manifests)
     .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-    .innerJoin(users, eq(vehicles.ownerId, users.id))
+    .innerJoin(companies, eq(vehicles.companyId, companies.id))
     .innerJoin(origin, eq(manifests.originCityId, origin.id))
     .innerJoin(destination, eq(manifests.destinationCityId, destination.id))
     .leftJoin(payments, eq(payments.manifestId, manifests.id))
@@ -139,7 +143,6 @@ async function buildRows(input: ExportInput, ids: number[]): Promise<Record<Expo
     ])
   }
 
-  const owner = (t: (typeof trips)[number]): string => t.companyName || t.fullName
   const rows = empty
   for (const t of trips) {
     rows.trips.push([
@@ -148,16 +151,16 @@ async function buildRows(input: ExportInput, ids: number[]): Promise<Record<Expo
       t.tripDate,
       t.createdAt,
       value('statuses', t.status),
-      owner(t),
+      t.companyName,
       t.plate,
       t.registrationNo,
       value('vehicleTypes', t.vehicleType),
       (trailers.get(t.id) ?? []).join('، ') || null,
       value('tripKinds', t.tripKind),
       t.originAr ?? t.origin,
-      value('states', t.originState),
+      t.originState,
       t.destinationAr ?? t.destination,
-      value('states', t.destinationState),
+      t.destinationState,
       t.distanceKm,
       t.driverName,
       t.driverPhone,
@@ -179,7 +182,7 @@ async function buildRows(input: ExportInput, ids: number[]): Promise<Record<Expo
         t.billId,
         t.id,
         t.manifestNo,
-        owner(t),
+        t.companyName,
         t.plate,
         t.billAmount,
         value('paymentStatuses', t.billStatus),

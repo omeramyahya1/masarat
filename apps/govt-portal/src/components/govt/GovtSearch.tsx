@@ -12,7 +12,7 @@ import Pagination from '@masarat/ui/components/ui/Pagination'
 import { RouteLabel } from './parts'
 import { api } from '@masarat/api-client'
 
-// Trips of every owner matching the government search, a page at a time (newest first). A new
+// Trips of every company matching the government search, a page at a time (newest first). A new
 // search mounts a new one (keyed by its input), so it starts on page 1.
 function GovtSearch({
   input,

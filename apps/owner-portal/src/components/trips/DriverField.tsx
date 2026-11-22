@@ -7,16 +7,19 @@ import { formatSudanPhone } from '@masarat/shared/phone'
 import { SelectField } from '@masarat/ui/components/form/fields'
 import DriverDialog from '../fleet/DriverDialog'
 
-// Picks one of the owner's drivers, or adds a new one without leaving the trip form
+// Picks one of the company's drivers, or (with drivers.manage) adds a new one without leaving the
+// trip form
 function DriverField({
   drivers,
   value,
+  canAdd,
   onChange,
   onAdded
 }: {
   drivers: readonly DriverRecord[]
   // Driver id as a string, '' when none is picked
   value: string
+  canAdd: boolean
   onChange: (value: string) => void
   onAdded: (driver: DriverRecord) => void
 }): React.JSX.Element {
@@ -24,7 +27,7 @@ function DriverField({
   const [adding, setAdding] = useState(false)
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
+    <div className={`grid items-end gap-2 ${canAdd ? 'grid-cols-[minmax(0,1fr)_auto]' : ''}`}>
       <SelectField
         label={t('trips.fields.driver')}
         placeholder={t(
@@ -39,10 +42,12 @@ function DriverField({
         }))}
         onChange={(e) => onChange(e.target.value)}
       />
-      <button type="button" className="btn btn-secondary" onClick={() => setAdding(true)}>
-        <UserPlus size={16} />
-        {t('trips.fields.newDriver')}
-      </button>
+      {canAdd && (
+        <button type="button" className="btn btn-secondary" onClick={() => setAdding(true)}>
+          <UserPlus size={16} />
+          {t('trips.fields.newDriver')}
+        </button>
+      )}
       {/* Portaled out of the trip form: a <form> nested in another is submitted natively by the
           browser (reloading the app) instead of reaching React */}
       {adding &&

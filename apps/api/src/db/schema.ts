@@ -8,7 +8,10 @@ import {
   timestamp,
   index,
   check,
-  uniqueIndex
+  primaryKey,
+  unique,
+  uniqueIndex,
+  type AnyPgColumn
 } from 'drizzle-orm/pg-core'
 import {
   VEHICLE_TYPES,
@@ -21,9 +24,14 @@ import {
   DOCUMENT_TYPES
 } from '@masarat/shared/fleet'
 import { FEE_CODES, LINE_CODES, MAX_FEE, TAX_CODES } from '@masarat/shared/tax'
+import {
+  BUILTIN_ROLE_KEYS,
+  PERMISSIONS,
+  ROLE_SCOPES,
+  USER_KINDS
+} from '@masarat/shared/permissions'
 
-// Enum values live in src/shared so the renderer can use them too
-export const USER_ROLES = ['owner', 'govt'] as const
+// Enum values live in packages/shared so the portals can use them too
 export {
   VEHICLE_TYPES,
   QUANTITY_UNITS,
@@ -51,24 +59,126 @@ const timestamps = {
     .$onUpdate(() => new Date())
 }
 
+// Sudan's states, and the cities trips run between. Seeded by drizzle/0001_reference_data.sql.
+export const states = pgTable('states', {
+  id,
+  name: text('name').notNull().unique(),
+  nameAr: text('name_ar').notNull(),
+  // Set once the state's cities exist (the seed inserts the states first)
+  capitalCityId: integer('capital_city_id').references((): AnyPgColumn => cities.id, {
+    onDelete: 'restrict'
+  }),
+  ...timestamps
+})
+
+export const cities = pgTable(
+  'cities',
+  {
+    id,
+    name: text('name').notNull().unique(),
+    nameAr: text('name_ar').notNull(),
+    stateId: integer('state_id')
+      .notNull()
+      .references(() => states.id, { onDelete: 'restrict' }),
+    lat: doublePrecision('lat').notNull(),
+    lng: doublePrecision('lng').notNull(),
+    ...timestamps
+  },
+  (t) => [index('cities_state_id_idx').on(t.stateId)]
+)
+
+// A transport company (شركة النقل). Its name, address and TIN are printed on its manifests as the
+// carrier. Vehicles and drivers belong to the company; trips are booked at one of its branches.
+export const companies = pgTable('companies', {
+  id,
+  name: text('name').notNull(),
+  address: text('address'),
+  tin: text('tin'),
+  // Seeded demo companies (see services/demoData.ts); "Regenerate demo data" only touches these
+  isDemo: boolean('is_demo').notNull().default(false),
+  ...timestamps
+})
+
+// Where a company sells tickets and books cargo: often a booth at a land port
+export const branches = pgTable(
+  'branches',
+  {
+    id,
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    cityId: integer('city_id')
+      .notNull()
+      .references(() => cities.id, { onDelete: 'restrict' }),
+    // A closed branch keeps its trips and members but takes no new trips
+    active: boolean('active').notNull().default(true),
+    ...timestamps
+  },
+  (t) => [uniqueIndex('branches_company_name_idx').on(t.companyId, t.name)]
+)
+
+// A set of permissions (packages/shared/src/permissions.ts). Government roles have no company. The
+// built-in ones have a key; a locked built-in role's permissions come from the code, not
+// role_permissions.
+export const roles = pgTable(
+  'roles',
+  {
+    id,
+    companyId: integer('company_id').references(() => companies.id, { onDelete: 'restrict' }),
+    key: text('key', { enum: BUILTIN_ROLE_KEYS }),
+    name: text('name').notNull(),
+    scope: text('scope', { enum: ROLE_SCOPES }).notNull(),
+    ...timestamps
+  },
+  (t) => [
+    check('roles_key_check', sql`${t.key} IS NULL OR ${t.key} IN (${inList(BUILTIN_ROLE_KEYS)})`),
+    check('roles_scope_check', sql`${t.scope} IN (${inList(ROLE_SCOPES)})`),
+    // The government's roles are fixed: only companies make their own
+    check('roles_govt_check', sql`${t.companyId} IS NOT NULL OR ${t.key} IS NOT NULL`),
+    // NULLS NOT DISTINCT: the government's roles (no company) are unique too
+    unique('roles_company_name_unique').on(t.companyId, t.name).nullsNotDistinct(),
+    // One of each built-in role per company (and one for the government, company 0 here)
+    uniqueIndex('roles_company_key_idx')
+      .on(sql`coalesce(${t.companyId}, 0)`, t.key)
+      .where(sql`${t.key} IS NOT NULL`)
+  ]
+)
+
+export const rolePermissions = pgTable(
+  'role_permissions',
+  {
+    roleId: integer('role_id')
+      .notNull()
+      .references(() => roles.id, { onDelete: 'cascade' }),
+    permission: text('permission', { enum: PERMISSIONS }).notNull()
+  },
+  (t) => [
+    primaryKey({ columns: [t.roleId, t.permission] }),
+    check('role_permissions_permission_check', sql`${t.permission} IN (${inList(PERMISSIONS)})`)
+  ]
+)
+
+// Everyone who signs in: a company's members and the government's staff
 export const users = pgTable(
   'users',
   {
     id,
     username: text('username').notNull().unique(),
     passwordHash: text('password_hash').notNull(),
-    role: text('role', { enum: USER_ROLES }).notNull(),
+    kind: text('kind', { enum: USER_KINDS }).notNull(),
     fullName: text('full_name').notNull(),
     // A Sudanese mobile number, "+249…" (normalizeSudanPhone), one account per number
     phone: text('phone').notNull().unique(),
-    companyName: text('company_name'),
-    // Fleet owners' carrier details, printed on their manifests
-    address: text('address'),
-    tin: text('tin'),
-    // Seeded demo accounts (see services/demoData.ts); "Regenerate demo data" only touches these
+    // A company member's company; null for the government
+    companyId: integer('company_id').references(() => companies.id, { onDelete: 'restrict' }),
+    roleId: integer('role_id')
+      .notNull()
+      .references(() => roles.id, { onDelete: 'restrict' }),
+    // The member's branch, when their role is branch-scoped (checked by services/members.ts)
+    branchId: integer('branch_id').references(() => branches.id, { onDelete: 'restrict' }),
+    // Seeded demo accounts (see services/demoData.ts)
     isDemo: boolean('is_demo').notNull().default(false),
-    // Government admins manage the government accounts (Users section)
-    isAdmin: boolean('is_admin').notNull().default(false),
     // A disabled account can't log in and has no sessions; its records stay
     disabledAt: timestamp('disabled_at', { withTimezone: true }),
     // Set when an admin creates the account or resets its password
@@ -76,8 +186,12 @@ export const users = pgTable(
     ...timestamps
   },
   (t) => [
-    check('users_role_check', sql`${t.role} IN (${inList(USER_ROLES)})`),
-    check('users_admin_check', sql`NOT ${t.isAdmin} OR ${t.role} = 'govt'`)
+    index('users_company_id_idx').on(t.companyId),
+    check('users_kind_check', sql`${t.kind} IN (${inList(USER_KINDS)})`),
+    check(
+      'users_company_check',
+      sql`(${t.kind} = 'company') = (${t.companyId} IS NOT NULL) AND (${t.kind} = 'company' OR ${t.branchId} IS NULL)`
+    )
   ]
 )
 
@@ -115,40 +229,28 @@ export const loginAttempts = pgTable(
   ]
 )
 
-// A fleet owner's drivers, picked on each trip (the manifest keeps a copy of the name and phone)
+// A company's drivers, picked on each trip (the manifest keeps a copy of the name and phone)
 export const drivers = pgTable(
   'drivers',
   {
     id,
-    ownerId: integer('owner_id')
+    companyId: integer('company_id')
       .notNull()
-      .references(() => users.id, { onDelete: 'restrict' }),
+      .references(() => companies.id, { onDelete: 'restrict' }),
     name: text('name').notNull(),
     phone: text('phone').notNull(),
     ...timestamps
   },
-  (t) => [uniqueIndex('drivers_owner_phone_idx').on(t.ownerId, t.phone)]
+  (t) => [uniqueIndex('drivers_company_phone_idx').on(t.companyId, t.phone)]
 )
-
-// Seeded by drizzle/0001_reference_data.sql
-export const cities = pgTable('cities', {
-  id,
-  name: text('name').notNull().unique(),
-  // Arabic display name; the UI falls back to `name` when it's missing
-  nameAr: text('name_ar'),
-  state: text('state').notNull(),
-  lat: doublePrecision('lat').notNull(),
-  lng: doublePrecision('lng').notNull(),
-  ...timestamps
-})
 
 export const vehicles = pgTable(
   'vehicles',
   {
     id,
-    ownerId: integer('owner_id')
+    companyId: integer('company_id')
       .notNull()
-      .references(() => users.id, { onDelete: 'restrict' }),
+      .references(() => companies.id, { onDelete: 'restrict' }),
     plateNumber: text('plate_number').notNull().unique(),
     // رقم الترخيص. Required by the UI and services; null only for vehicles added before it existed
     registrationNo: text('registration_no'),
@@ -158,7 +260,7 @@ export const vehicles = pgTable(
     ...timestamps
   },
   (t) => [
-    index('vehicles_owner_id_idx').on(t.ownerId),
+    index('vehicles_company_id_idx').on(t.companyId),
     check('vehicles_type_check', sql`${t.vehicleType} IN (${inList(VEHICLE_TYPES)})`),
     check('vehicles_unit_check', sql`${t.capacityUnit} IN (${inList(QUANTITY_UNITS)})`),
     check('vehicles_capacity_check', sql`${t.capacity} > 0`)
@@ -183,7 +285,7 @@ export const taxRates = pgTable(
   ]
 )
 
-// The owner is derived via vehicle_id -> vehicles.owner_id
+// The company is derived via vehicle_id -> vehicles.company_id
 export const manifests = pgTable(
   'manifests',
   {
@@ -191,6 +293,11 @@ export const manifests = pgTable(
     vehicleId: integer('vehicle_id')
       .notNull()
       .references(() => vehicles.id, { onDelete: 'restrict' }),
+    // The company branch the trip was booked at, and who booked it
+    branchId: integer('branch_id')
+      .notNull()
+      .references(() => branches.id, { onDelete: 'restrict' }),
+    createdBy: integer('created_by').references(() => users.id, { onDelete: 'set null' }),
     originCityId: integer('origin_city_id')
       .notNull()
       .references(() => cities.id, { onDelete: 'restrict' }),
@@ -223,7 +330,7 @@ export const manifests = pgTable(
     receiverName: text('receiver_name'),
     receiverAddress: text('receiver_address'),
     receiverPhone: text('receiver_phone'),
-    // The owner's carrier details, copied when the bill is generated
+    // The company's carrier details, copied when the bill is generated
     carrierName: text('carrier_name'),
     carrierAddress: text('carrier_address'),
     carrierTin: text('carrier_tin'),
@@ -231,6 +338,7 @@ export const manifests = pgTable(
   },
   (t) => [
     index('manifests_vehicle_id_idx').on(t.vehicleId),
+    index('manifests_branch_id_idx').on(t.branchId),
     check('manifests_trip_kind_check', sql`${t.tripKind} IN (${inList(TRIP_KINDS)})`),
     index('manifests_status_idx').on(t.status),
     check('manifests_route_check', sql`${t.originCityId} <> ${t.destinationCityId}`),
@@ -430,6 +538,10 @@ export const esaliSimBills = pgTable(
 )
 
 export type User = typeof users.$inferSelect
+export type Company = typeof companies.$inferSelect
+export type Branch = typeof branches.$inferSelect
+export type Role = typeof roles.$inferSelect
+export type State = typeof states.$inferSelect
 export type Session = typeof sessions.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type City = typeof cities.$inferSelect

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { LoaderCircle, Pencil, Plus, Trash2, UsersRound } from 'lucide-react'
 import type { DriverRecord, FleetErrorCode } from '@masarat/shared/fleet'
 import { formatSudanPhone } from '@masarat/shared/phone'
+import { useCan } from '@masarat/ui/lib/account'
 import { useFormat } from '@masarat/ui/lib/format'
 import { useListView, type ListViewConfig } from '@masarat/ui/lib/useListView'
 import { FormAlert } from '@masarat/ui/components/form/fields'
@@ -14,6 +15,8 @@ import { api } from '@masarat/api-client'
 // The fleet owner's drivers, picked on each trip
 function DriversPanel(): React.JSX.Element {
   const { t } = useTranslation()
+  // Without it the list is read-only
+  const canManage = useCan()('drivers.manage')
   const [drivers, setDrivers] = useState<DriverRecord[] | null>(null)
   const [error, setError] = useState<FleetErrorCode | null>(null)
   // 'new' opens the add dialog; a record opens it for editing
@@ -64,7 +67,7 @@ function DriversPanel(): React.JSX.Element {
           <h2 className="text-lg font-semibold text-stone-900">{t('drivers.title')}</h2>
           <p className="text-sm text-stone-500">{t('drivers.subtitle')}</p>
         </div>
-        {drivers && drivers.length > 0 && (
+        {canManage && drivers && drivers.length > 0 && (
           <button type="button" className="btn btn-primary" onClick={() => setEditing('new')}>
             <Plus size={16} />
             {t('drivers.add')}
@@ -87,10 +90,16 @@ function DriversPanel(): React.JSX.Element {
           </div>
           <h3 className="font-semibold text-stone-900">{t('drivers.empty.title')}</h3>
           <p className="max-w-sm text-sm text-stone-500">{t('drivers.empty.body')}</p>
-          <button type="button" className="btn btn-primary mt-2" onClick={() => setEditing('new')}>
-            <Plus size={16} />
-            {t('drivers.add')}
-          </button>
+          {canManage && (
+            <button
+              type="button"
+              className="btn btn-primary mt-2"
+              onClick={() => setEditing('new')}
+            >
+              <Plus size={16} />
+              {t('drivers.add')}
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -132,7 +141,7 @@ function DriversPanel(): React.JSX.Element {
                     </td>
                     <td className="tabular-nums">{format.number(driver.tripCount)}</td>
                     <td>
-                      <div className="flex justify-end gap-1">
+                      <div className={`flex justify-end gap-1 ${canManage ? '' : 'hidden'}`}>
                         <button
                           type="button"
                           className="icon-btn"

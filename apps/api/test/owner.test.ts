@@ -1,7 +1,8 @@
-// The owner portal's routes: vehicles, drivers, trips (paged), billing and attachments
+// The company portal's routes: vehicles, drivers, trips (paged), billing, attachments, and what
+// each role and branch may see and do
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { getDb, manifests } from '../src/db'
-import { resetData, signedIn, type Browser } from './helpers'
+import { browser, resetData, signedIn, type Browser } from './helpers'
 
 const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a])
 
@@ -12,9 +13,14 @@ const OWNER = {
   tin: '300123'
 }
 
-async function setup(
-  b: Browser
-): Promise<{ vehicleId: number; driverId: number; cities: Record<string, number> }> {
+interface Ids {
+  vehicleId: number
+  driverId: number
+  branchId: number
+  cities: Record<string, number>
+}
+
+async function setup(b: Browser): Promise<Ids> {
   const vehicle = await b.call('POST', '/vehicles', {
     plateNumber: 'KH 12/34567',
     registrationNo: 'R-1',
@@ -23,18 +29,22 @@ async function setup(
     capacityUnit: 'ton'
   })
   const driver = await b.call('POST', '/drivers', { name: 'Ahmed Ali', phone: '0912345678' })
+  return { vehicleId: vehicle.body.data.id, driverId: driver.body.data.id, ...(await context(b)) }
+}
+
+// The company's first branch, and the cities by name
+async function context(b: Browser): Promise<{ branchId: number; cities: Record<string, number> }> {
   const reference = await b.call('GET', '/trips/reference')
   const cities = Object.fromEntries(
     reference.body.data.cities.map((c: { name: string; id: number }) => [c.name, c.id])
   )
-  return { vehicleId: vehicle.body.data.id, driverId: driver.body.data.id, cities }
+  const branches = await b.call('GET', '/branches')
+  return { branchId: branches.body.data[0].id, cities }
 }
 
-function tripInput(
-  ids: { vehicleId: number; driverId: number; cities: Record<string, number> },
-  overrides: Record<string, unknown> = {}
-): Record<string, unknown> {
+function tripInput(ids: Ids, overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
+    branchId: ids.branchId,
     vehicleId: ids.vehicleId,
     originCityId: ids.cities.Khartoum,
     destinationCityId: ids.cities['Port Sudan'],
@@ -74,18 +84,18 @@ async function upload(
 beforeEach(resetData)
 
 describe('access', () => {
-  test('owner routes need an owner session', async () => {
-    const { b: govt } = await signedIn('govt.one', 'govt')
+  test('company routes need a company session', async () => {
+    const { b: govt } = await signedIn('govt.one', 'govt_admin')
     expect((await govt.call('GET', '/vehicles')).status).toBe(403)
     const { b: anon } = { b: (await import('./helpers')).browser() }
     expect((await anon.call('GET', '/trips')).status).toBe(401)
   })
 
-  test("another owner's vehicles, trips and files are not found", async () => {
-    const { b } = await signedIn('owner.one', 'owner', OWNER)
+  test("another company's vehicles, trips and files are not found", async () => {
+    const { b } = await signedIn('owner.one', 'company_admin', OWNER)
     const ids = await setup(b)
     const trip = await b.call('POST', '/trips', tripInput(ids))
-    const { b: other } = await signedIn('owner.two', 'owner')
+    const { b: other } = await signedIn('owner.two', 'company_admin')
     expect((await other.call('PUT', `/vehicles/${ids.vehicleId}`, {})).status).toBe(404)
     expect((await other.call('GET', `/trips/${trip.body.data.id}`)).status).toBe(404)
     expect((await other.call('POST', `/trips/${trip.body.data.id}/bill`)).status).toBe(404)
@@ -95,7 +105,7 @@ describe('access', () => {
 
 describe('trip to certificate', () => {
   test('draft, bill, pay (demo), refresh', async () => {
-    const { b } = await signedIn('owner.one', 'owner', OWNER)
+    const { b } = await signedIn('owner.one', 'company_admin', OWNER)
     const ids = await setup(b)
     const created = await b.call('POST', '/trips', tripInput(ids))
     expect(created.status).toBe(200)
@@ -114,7 +124,7 @@ describe('trip to certificate', () => {
 describe('demo-only actions', () => {
   test('paying a bill is refused outside demo mode', async () => {
     const { config } = await import('../src/config')
-    const { b } = await signedIn('owner.one', 'owner', OWNER)
+    const { b } = await signedIn('owner.one', 'company_admin', OWNER)
     const ids = await setup(b)
     const { id } = (await b.call('POST', '/trips', tripInput(ids))).body.data
     await b.call('POST', `/trips/${id}/bill`)
@@ -129,7 +139,7 @@ describe('demo-only actions', () => {
 
 describe('attachments', () => {
   test('upload, save with the trip, preview; other owners and fakes are refused', async () => {
-    const { b } = await signedIn('owner.one', 'owner', OWNER)
+    const { b } = await signedIn('owner.one', 'company_admin', OWNER)
     const ids = await setup(b)
     const staged = await upload(b, PDF, 'فاتورة.pdf')
     expect(staged.status).toBe(200)
@@ -140,7 +150,7 @@ describe('attachments', () => {
       'invalid_document'
     )
     // Another owner can't attach this upload
-    const { b: other } = await signedIn('owner.two', 'owner')
+    const { b: other } = await signedIn('owner.two', 'company_admin')
     const otherIds = await setup2(other)
     const stolen = await other.call(
       'POST',
@@ -167,9 +177,7 @@ describe('attachments', () => {
 })
 
 // A second owner's vehicle and driver, with a plate of their own
-async function setup2(
-  b: Browser
-): Promise<{ vehicleId: number; driverId: number; cities: Record<string, number> }> {
+async function setup2(b: Browser): Promise<Ids> {
   const vehicle = await b.call('POST', '/vehicles', {
     plateNumber: 'RS 3/111',
     registrationNo: 'R-2',
@@ -178,16 +186,12 @@ async function setup2(
     capacityUnit: 'ton'
   })
   const driver = await b.call('POST', '/drivers', { name: 'Omer', phone: '0913333333' })
-  const reference = await b.call('GET', '/trips/reference')
-  const cities = Object.fromEntries(
-    reference.body.data.cities.map((c: { name: string; id: number }) => [c.name, c.id])
-  )
-  return { vehicleId: vehicle.body.data.id, driverId: driver.body.data.id, cities }
+  return { vehicleId: vehicle.body.data.id, driverId: driver.body.data.id, ...(await context(b)) }
 }
 
 describe('paged trips list', () => {
   test('pages, totals, filters, search and groups across pages', async () => {
-    const { b } = await signedIn('owner.one', 'owner', OWNER)
+    const { b } = await signedIn('owner.one', 'company_admin', OWNER)
     const ids = await setup(b)
     // 30 trips over two months, every third one to Kassala
     for (let i = 0; i < 30; i++) {
@@ -250,10 +254,196 @@ describe('paged trips list', () => {
   }, 60_000)
 
   test('a page past the end shows the last page', async () => {
-    const { b } = await signedIn('owner.one', 'owner', OWNER)
+    const { b } = await signedIn('owner.one', 'company_admin', OWNER)
     const ids = await setup(b)
     await b.call('POST', '/trips', tripInput(ids))
     const result = await b.call('GET', '/trips?page=9')
     expect(result.body.data).toMatchObject({ page: 1, total: 1 })
   })
+})
+
+describe('branches and roles', () => {
+  // A company with two branches, its admin, and a clerk at each branch
+  async function company(): Promise<{
+    admin: Browser
+    clerk1: Browser
+    clerk2: Browser
+    ids: Ids
+    branch2: number
+    companyId: number
+  }> {
+    const { b: admin, companyId } = await signedIn('owner.one', 'company_admin', OWNER)
+    const ids = await setup(admin)
+    const second = await admin.call('POST', '/branches', {
+      name: 'Port office',
+      cityId: ids.cities['Port Sudan']
+    })
+    expect(second.status).toBe(200)
+    const branch2 = second.body.data.id
+    const clerk1 = (await signedIn('clerk.one', 'clerk', { companyId: companyId! })).b
+    const clerk2 = (
+      await signedIn('clerk.two', 'clerk', { companyId: companyId!, branchId: branch2 })
+    ).b
+    return { admin, clerk1, clerk2, ids, branch2, companyId: companyId! }
+  }
+
+  test('a clerk books at their own branch and sees only its trips', async () => {
+    const { admin, clerk1, clerk2, ids, branch2 } = await company()
+    // The admin picks the branch; without one there's nothing to book at
+    expect(
+      (await admin.call('POST', '/trips', tripInput(ids, { branchId: null }))).body.error
+    ).toBe('branch_required')
+    const atBranch2 = await admin.call('POST', '/trips', tripInput(ids, { branchId: branch2 }))
+    expect(atBranch2.body.data.branchId).toBe(branch2)
+
+    // Clerk 1's trip is at their branch, whatever the request says
+    const own = await clerk1.call('POST', '/trips', tripInput(ids, { branchId: branch2 }))
+    expect(own.body.data.branchId).toBe(ids.branchId)
+
+    expect((await clerk1.call('GET', '/trips')).body.data).toMatchObject({ total: 1, overall: 1 })
+    expect((await clerk2.call('GET', '/trips')).body.data.total).toBe(1)
+    expect((await admin.call('GET', '/trips')).body.data.total).toBe(2)
+    expect((await clerk1.call('GET', `/trips/${atBranch2.body.data.id}`)).status).toBe(404)
+    expect((await clerk1.call('POST', `/trips/${atBranch2.body.data.id}/bill`)).status).toBe(404)
+    const branchFilter = await admin.call('GET', `/trips?branchId=${branch2}&group=branch`)
+    expect(branchFilter.body.data.groups).toEqual([
+      expect.objectContaining({ key: String(branch2), count: 1 })
+    ])
+
+    // Clerks see vehicles and drivers for the form, but can't change them or the company
+    expect((await clerk1.call('GET', '/vehicles')).status).toBe(200)
+    expect((await clerk1.call('DELETE', `/vehicles/${ids.vehicleId}`)).status).toBe(403)
+    expect((await clerk1.call('GET', '/members')).status).toBe(403)
+    expect((await clerk1.call('PUT', '/company', { name: 'X' })).status).toBe(403)
+
+    // A closed branch takes no new trips
+    await admin.call('PUT', `/branches/${ids.branchId}`, {
+      name: 'Main office',
+      cityId: ids.cities.Khartoum,
+      active: false
+    })
+    expect((await clerk1.call('POST', '/trips', tripInput(ids))).body.error).toBe('branch_inactive')
+  }, 30_000)
+
+  test("a custom role's checkboxes take effect at once", async () => {
+    const { admin, ids } = await company()
+    const role = await admin.call('POST', '/roles', {
+      name: 'Dispatcher',
+      scope: 'company',
+      permissions: ['trips.view']
+    })
+    expect(role.body.data).toMatchObject({ locked: false, permissions: ['trips.view'] })
+    const created = await admin.call('POST', '/members', {
+      username: 'dispatch',
+      fullName: 'Dispatcher',
+      phone: '0915550000',
+      roleId: role.body.data.id
+    })
+    expect(created.status).toBe(200)
+    const dispatcher = browser('http://localhost:5173')
+    const { temporaryPassword } = created.body.data
+    await dispatcher.call('POST', '/auth/login', {
+      username: 'dispatch',
+      password: temporaryPassword
+    })
+    await dispatcher.call('POST', '/auth/change-password', {
+      currentPassword: temporaryPassword,
+      newPassword: 'another-horse'
+    })
+    expect((await dispatcher.call('GET', '/trips')).status).toBe(200)
+    expect((await dispatcher.call('POST', '/trips', tripInput(ids))).status).toBe(403)
+
+    // Ticking "edit" also ticks "view"; the dispatcher can book on their next request
+    const updated = await admin.call('PUT', `/roles/${role.body.data.id}`, {
+      name: 'Dispatcher',
+      scope: 'company',
+      permissions: ['trips.edit']
+    })
+    expect(updated.body.data.permissions).toEqual(['trips.view', 'trips.edit'])
+    expect((await dispatcher.call('POST', '/trips', tripInput(ids))).status).toBe(200)
+
+    // A role in use can't be deleted or change scope; the built-in admin role can't be edited
+    expect((await admin.call('DELETE', `/roles/${role.body.data.id}`)).body.error).toBe(
+      'role_in_use'
+    )
+    expect(
+      (
+        await admin.call('PUT', `/roles/${role.body.data.id}`, {
+          name: 'Dispatcher',
+          scope: 'branch',
+          permissions: ['trips.edit']
+        })
+      ).body.error
+    ).toBe('role_in_use')
+    const roles = (await admin.call('GET', '/roles')).body.data
+    const adminRole = roles.find((r: { key: string }) => r.key === 'company_admin')
+    expect(
+      (
+        await admin.call('PUT', `/roles/${adminRole.id}`, {
+          name: 'x',
+          scope: 'company',
+          permissions: ['trips.view']
+        })
+      ).body.error
+    ).toBe('role_locked')
+    // Only the company's own permissions can be ticked
+    expect(
+      (
+        await admin.call('POST', '/roles', {
+          name: 'Spy',
+          scope: 'company',
+          permissions: ['govt.users']
+        })
+      ).body.error
+    ).toBe('invalid_role')
+  }, 30_000)
+
+  test('team: branch roles need a branch, and the last admin stays', async () => {
+    const { admin, companyId } = await company()
+    const roles = (await admin.call('GET', '/roles')).body.data
+    const roleId = (key: string): number => roles.find((r: { key: string }) => r.key === key).id
+    const noBranch = await admin.call('POST', '/members', {
+      username: 'clerk.three',
+      fullName: 'Clerk',
+      phone: '0915550001',
+      roleId: roleId('clerk')
+    })
+    expect(noBranch.body.error).toBe('branch_required')
+    // Another company's role isn't found
+    const { b: other } = await signedIn('owner.two', 'company_admin')
+    const otherRoles = (await other.call('GET', '/roles')).body.data
+    expect(
+      (
+        await admin.call('POST', '/members', {
+          username: 'clerk.three',
+          fullName: 'Clerk',
+          phone: '0915550001',
+          roleId: otherRoles[0].id
+        })
+      ).body.error
+    ).toBe('role_not_found')
+
+    const team = (await admin.call('GET', '/members')).body.data
+    expect(team).toHaveLength(3)
+    const me = team.find((m: { username: string }) => m.username === 'owner.one')
+    expect((await admin.call('POST', `/members/${me.id}/disable`)).body.error).toBe(
+      'cannot_change_self'
+    )
+    // Another admin may demote the first, since an admin remains; the demoted one loses Team
+    const { b: deputy } = await signedIn('deputy', 'company_admin', { companyId })
+    const deputyId = (await deputy.call('GET', '/auth/me')).body.user.id
+    expect(
+      (await deputy.call('PUT', `/members/${me.id}/role`, { roleId: roleId('accountant') })).status
+    ).toBe(200)
+    expect(
+      (await admin.call('PUT', `/members/${deputyId}/role`, { roleId: roleId('accountant') }))
+        .status
+    ).toBe(403)
+    expect((await deputy.call('GET', '/members')).body.data).toHaveLength(4)
+    const clerk = team.find((m: { username: string }) => m.username === 'clerk.one')
+    expect(
+      (await deputy.call('PUT', `/members/${clerk.id}/role`, { roleId: roleId('company_admin') }))
+        .body.data.role.key
+    ).toBe('company_admin')
+  }, 30_000)
 })

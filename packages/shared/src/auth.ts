@@ -1,40 +1,65 @@
 // Types and rules shared by the API (auth services) and the web apps (auth forms)
 
-export type UserRole = 'owner' | 'govt'
+import type { Permission, RoleSummary, UserKind } from './permissions'
+
+// A transport company's own details. The name, address and TIN are printed on its manifests as
+// the carrier.
+export interface CompanyProfile {
+  id: number
+  name: string
+  address: string | null
+  // Tax Identification Number (الرقم الضريبي)
+  tin: string | null
+}
+
+export interface BranchSummary {
+  id: number
+  name: string
+  cityId: number
+  active: boolean
+}
 
 export interface AuthUser {
   id: number
   username: string
-  role: UserRole
+  // Decides the portal: a company's members use the company portal, the government its own
+  kind: UserKind
   fullName: string
   phone: string
-  companyName: string | null
-  // Fleet owners' carrier details, printed on their manifests
-  address: string | null
-  tin: string | null
-  // Government accounts that manage the other government accounts
-  isAdmin: boolean
+  // The member's company; null for the government
+  company: CompanyProfile | null
+  role: RoleSummary
+  // A branch-scoped member's branch (they see and book its trips only); null otherwise
+  branch: BranchSummary | null
+  // What the role allows (with the implied permissions), for showing only what the user can use.
+  // The API checks every request itself.
+  permissions: Permission[]
   // Set on an account an admin created or reset: it has to pick its own password first
   mustChangePassword: boolean
 }
 
-// Only fleet owners sign themselves up; government accounts are created by an admin
+// Signing up creates a transport company and its first member, the company admin. Government
+// accounts are created by a government admin.
 export interface SignUpInput {
   fullName: string
   username: string
   password: string
   // A Sudanese mobile number, required (see phone.ts)
   phone: string
-  companyName?: string
+  companyName: string
   address?: string
   tin?: string
 }
 
-// A fleet owner's own details, editable from their Profile section
+// Anyone's own details (Profile section)
 export interface ProfileInput {
   fullName: string
   phone: string
-  companyName: string
+}
+
+// The company's details (Company section, `company.profile`)
+export interface CompanyInput {
+  name: string
   address: string
   tin: string
 }

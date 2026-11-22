@@ -1,4 +1,4 @@
-// The owner's trips list, paged: search, filters, sort, and grouping across pages. Rows are ordered
+// The company's trips list (a branch member's: their branch's), paged: search, filters, sort, and grouping across pages. Rows are ordered
 // by their group first, so each page carries the headers of the groups on it, with each group's
 // count and total due over every page.
 import {
@@ -32,6 +32,7 @@ import {
 } from '@masarat/shared/fleet'
 import { DEFAULT_PAGE_SIZE, isPageSize, type GroupSummary, type Page } from '@masarat/shared/paging'
 import { plateSearchKey } from '@masarat/shared/plate'
+import { tripScopeCondition, type CompanyScope } from './access'
 import { contains, escapeLike, plateKeyOf } from './sqlText'
 import { toTripRecords, tripColumns } from './trips'
 
@@ -69,6 +70,7 @@ export function parseTripListQuery(raw: Record<string, string | undefined>): Tri
     cargoType: oneOf(CARGO_TYPES, raw.cargoType),
     vehicleId: positiveInt(raw.vehicleId),
     driverId: positiveInt(raw.driverId),
+    branchId: positiveInt(raw.branchId),
     from: day(raw.from) ? raw.from : undefined,
     to: day(raw.to) ? raw.to : undefined,
     sort: oneOf(TRIP_SORTS, raw.sort) ?? 'tripDate',
@@ -85,7 +87,7 @@ const positionIn = (values: readonly string[], column: SQLWrapper): SQL =>
 // Each group's key, and how the groups are ordered
 function grouping(group: TripGroup, lang: 'en' | 'ar'): { key: SQL; order: SQL[] } {
   const cityName = (city: typeof origin | typeof destination): SQL =>
-    lang === 'ar' ? sql`coalesce(${city.nameAr}, ${city.name})` : sql`${city.name}`
+    lang === 'ar' ? sql`${city.nameAr}` : sql`${city.name}`
   switch (group) {
     case 'status':
       return {
@@ -130,6 +132,11 @@ function grouping(group: TripGroup, lang: 'en' | 'ar'): { key: SQL; order: SQL[]
         key: sql`${manifests.cargoType}`,
         order: [asc(positionIn(CARGO_TYPES, manifests.cargoType))]
       }
+    case 'branch':
+      return {
+        key: sql`${manifests.branchId}::text`,
+        order: [asc(tripColumns.branchName), asc(manifests.branchId)]
+      }
   }
 }
 
@@ -172,12 +179,12 @@ function searchCondition(text: string): SQL | undefined {
   )
 }
 
-function filterConditions(ownerId: number, q: TripListQuery): SQL | undefined {
+function filterConditions(scope: CompanyScope, q: TripListQuery): SQL | undefined {
   const from = q.from ? day(q.from) : undefined
   const to = q.to ? day(q.to) : undefined
   const nextDay = to ? new Date(to.getFullYear(), to.getMonth(), to.getDate() + 1) : undefined
   return and(
-    eq(vehicles.ownerId, ownerId),
+    tripScopeCondition(scope),
     q.status === 'billed'
       ? inArray(manifests.status, ['billed', 'paid'])
       : q.status
@@ -203,6 +210,7 @@ function filterConditions(ownerId: number, q: TripListQuery): SQL | undefined {
       : undefined,
     q.vehicleId ? eq(manifests.vehicleId, q.vehicleId) : undefined,
     q.driverId ? eq(manifests.driverId, q.driverId) : undefined,
+    q.branchId ? eq(manifests.branchId, q.branchId) : undefined,
     from ? gte(manifests.tripDate, from) : undefined,
     nextDay ? lt(manifests.tripDate, nextDay) : undefined,
     q.query ? searchCondition(q.query) : undefined
@@ -210,11 +218,11 @@ function filterConditions(ownerId: number, q: TripListQuery): SQL | undefined {
 }
 
 export async function listTripsPage(
-  ownerId: number,
+  scope: CompanyScope,
   q: TripListQuery
 ): Promise<FleetResult<Page<TripRecord>>> {
   const db = getDb()
-  const where = filterConditions(ownerId, q)
+  const where = filterConditions(scope, q)
   const [[{ total }], [{ overall }]] = await Promise.all([
     db
       .select({ total: count() })
@@ -227,7 +235,7 @@ export async function listTripsPage(
       .select({ overall: count() })
       .from(manifests)
       .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-      .where(eq(vehicles.ownerId, ownerId))
+      .where(tripScopeCondition(scope))
   ])
 
   // A page past the end shows the last one

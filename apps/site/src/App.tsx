@@ -18,9 +18,9 @@ type Session =
 
 // Sends a signed-in user to their portal: back to the page they came from, or the portal's home
 const goToPortal = (user: AuthUser): void =>
-  window.location.replace(destinationFor(user.role, nextParam()))
+  window.location.replace(destinationFor(user.kind, nextParam()))
 
-// masarat.com: the landing page, login and fleet owner sign-up. Whoever is signed in is sent on
+// masarat.com: the landing page, login and company sign-up. Whoever is signed in is sent on
 // to their portal, except an account that still has to replace its temporary password.
 function App(): React.JSX.Element {
   const { t } = useTranslation()

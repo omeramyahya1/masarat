@@ -3,6 +3,8 @@ import type { MiddlewareHandler } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { getCookie } from 'hono/cookie'
 import { config } from '../config'
+import type { Permission, UserKind } from '@masarat/shared/permissions'
+import { accountOf } from '../services/access'
 import { findSession, SESSION_COOKIE } from '../services/sessions'
 import { fail, type AppEnv } from './context'
 
@@ -22,7 +24,8 @@ export const originCheck = createMiddleware<AppEnv>(async (c, next) => {
 export const session = createMiddleware<AppEnv>(async (c, next) => {
   const token = getCookie(c, SESSION_COOKIE) ?? ''
   c.set('token', token)
-  c.set('user', token ? await findSession(token) : null)
+  const user = token ? await findSession(token) : null
+  c.set('user', user ? await accountOf(user) : null)
   return next()
 })
 
@@ -39,14 +42,17 @@ export const requireUser = (
     return next()
   })
 
-export const requireRole = (role: 'owner' | 'govt'): MiddlewareHandler<AppEnv> =>
+// A company member or a government user
+export const requireKind = (kind: UserKind): MiddlewareHandler<AppEnv> =>
   createMiddleware<AppEnv>(async (c, next) => {
-    if (c.get('user')?.role !== role) return fail(c, 'forbidden')
+    if (c.get('user')?.kind !== kind) return fail(c, 'forbidden')
     return next()
   })
 
-export const requireAdmin = createMiddleware<AppEnv>(async (c, next) => {
-  const user = c.get('user')
-  if (user?.role !== 'govt' || !user.isAdmin) return fail(c, 'forbidden')
-  return next()
-})
+// The user's role grants at least one of these
+export const requirePermission = (...permissions: Permission[]): MiddlewareHandler<AppEnv> =>
+  createMiddleware<AppEnv>(async (c, next) => {
+    const granted = c.get('user')?.permissions ?? []
+    if (!permissions.some((p) => granted.includes(p))) return fail(c, 'forbidden')
+    return next()
+  })

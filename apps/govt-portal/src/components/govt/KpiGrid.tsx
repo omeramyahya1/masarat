@@ -66,7 +66,7 @@ function KpiGrid({
         icon={Truck}
         label={t('govt.dashboard.kpis.vehicles')}
         value={format.number(kpis.vehicles)}
-        caption={t('govt.dashboard.kpis.fleetOwners', { value: format.number(kpis.fleetOwners) })}
+        caption={t('govt.dashboard.kpis.companies', { value: format.number(kpis.companies) })}
       />
     </div>
   )

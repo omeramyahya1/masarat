@@ -13,7 +13,7 @@ export const EXPORT_COLUMNS = {
     'tripDate',
     'createdAt',
     'status',
-    'owner',
+    'company',
     'plate',
     'registrationNo',
     'vehicleType',
@@ -40,7 +40,7 @@ export const EXPORT_COLUMNS = {
     'billId',
     'tripId',
     'manifestNo',
-    'owner',
+    'company',
     'plate',
     'amount',
     'status',
@@ -79,7 +79,7 @@ export type ExportFormat = (typeof EXPORT_FORMATS)[number]
 export interface ExportLabels {
   sheets: Record<ExportDataset, string>
   columns: Record<ExportDataset, Record<string, string>>
-  // Value labels by group (statuses, cargoTypes, vehicleTypes, tripKinds, units, states,
+  // Value labels by group (statuses, cargoTypes, vehicleTypes, tripKinds, units,
   // paymentStatuses, lines), each keyed by its stored value
   values: Record<string, Record<string, string>>
 }

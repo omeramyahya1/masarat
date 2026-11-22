@@ -9,20 +9,22 @@ import { resetData, signedIn, type Browser } from './helpers'
 
 const LABELS = { columns: {}, sheets: {}, values: {} }
 let govt: Browser
+let agent: Browser
 let owner: Browser
 
 beforeAll(async () => {
   await resetData()
   await ensureDemoData()
-  govt = (await signedIn('inspector', 'govt')).b
-  owner = (await signedIn('owner.x', 'owner')).b
+  govt = (await signedIn('inspector', 'govt_admin')).b
+  agent = (await signedIn('analyst', 'govt_agent')).b
+  owner = (await signedIn('owner.x', 'company_admin')).b
 }, 60_000)
 
 describe('access', () => {
-  test('owners are refused every government route', async () => {
+  test('companies are refused every government route', async () => {
     for (const [method, path] of [
       ['GET', '/govt/reference'],
-      ['GET', '/govt/owners'],
+      ['GET', '/govt/companies'],
       ['POST', '/govt/dashboard'],
       ['GET', '/govt/search?query=nile'],
       ['GET', '/govt/trips/1'],
@@ -31,6 +33,17 @@ describe('access', () => {
     ]) {
       expect((await owner.call(method, path, method === 'POST' ? {} : undefined)).status).toBe(403)
     }
+  })
+
+  test('agents see the dashboard, search and exports, but not taxes and fees or users', async () => {
+    expect((await agent.call('GET', '/govt/search?query=nile')).status).toBe(200)
+    expect((await agent.call('GET', '/govt/companies')).status).toBe(200)
+    expect((await agent.call('GET', '/govt/tax-settings')).status).toBe(403)
+    expect((await agent.call('PUT', '/govt/tax-settings', { rates: {} })).status).toBe(403)
+    expect((await agent.call('GET', '/govt/users')).status).toBe(403)
+    const me = (await agent.call('GET', '/auth/me')).body.user
+    expect(me).toMatchObject({ kind: 'govt', company: null, role: { key: 'govt_agent' } })
+    expect(me.permissions).toEqual(['govt.dashboard', 'govt.search', 'govt.exports'])
   })
 })
 
@@ -78,12 +91,13 @@ describe('search', () => {
 })
 
 describe('trips and files', () => {
-  test("any owner's trip opens read-only, and its attachments too", async () => {
+  test("any company's trip opens read-only, and its attachments too", async () => {
     const found = await govt.call('GET', '/govt/search?query=nile&pageSize=25')
     const id = found.body.data.rows[0].manifestId
     const trip = await govt.call('GET', `/govt/trips/${id}`)
     expect(trip.body.data.trip.id).toBe(id)
-    expect(trip.body.data.owner.companyName).toBeTruthy()
+    expect(trip.body.data.company.name).toBeTruthy()
+    expect(trip.body.data.bookedBy.phone).toMatch(/^\+249/)
     expect((await govt.call('GET', '/govt/documents/999999/file')).status).toBe(404)
     // A saved attachment's row without its file is also "not found", never a crash
     const [doc] = await getDb()

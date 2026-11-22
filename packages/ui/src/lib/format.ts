@@ -49,6 +49,8 @@ export interface Formatters {
   // Stored English plate ("KH 12/34567") in the current language ("خ ١٢ / ٣٤٥٦٧" in Arabic)
   plate: (plate: string) => string
   city: (city: Pick<CityRecord, 'name' | 'nameAr'> | undefined) => string
+  // A state by its cities' record (English name and Arabic name)
+  state: (city: Pick<CityRecord, 'state' | 'stateAr'> | undefined) => string
 }
 
 // Formatters for a given language; the certificate always uses Arabic whatever the UI language
@@ -109,7 +111,8 @@ export function createFormatters(isArabic: boolean, t: TFunction): Formatters {
       const { code, series, number } = parts
       return `${PLATE_LETTERS_AR[code]} ${toArabicDigits(String(series))} / ${toArabicDigits(String(number))}`
     },
-    city: (city) => (city ? (isArabic && city.nameAr) || city.name : '—')
+    city: (city) => (city ? (isArabic && city.nameAr) || city.name : '—'),
+    state: (city) => (city ? (isArabic ? city.stateAr : city.state) : '—')
   }
 }
 

@@ -1,5 +1,5 @@
 // E-Sali bills, payments and certificates, shared by the main process and the renderer
-import type { TripRecord } from './fleet'
+import type { TripKind, TripRecord } from './fleet'
 
 // yyyy mm 0dd (day as 3 digits) + 13 digits, e.g. 2026110170000123456789
 export const ESALI_BILL_ID_RE = /^\d{4}(0[1-9]|1[0-2])0(0[1-9]|[12]\d|3[01])\d{13}$/
@@ -45,10 +45,33 @@ export interface TripDetails {
   certificate: CertificateRecord | null
 }
 
-// What the documents' QR code encodes. Later this becomes a URL to a page that shows the
-// manifest's live status (looked up by the certificate's qr_token).
-export function buildQrPayload(billId: string, plateNumber: string, manifestNo: string): string {
-  return JSON.stringify({ esaliBillId: billId, status: 'paid', plate: plateNumber, manifestNo })
+// What the documents' QR code encodes: the public verify page for this certificate, e.g.
+// https://masarat.com/verify/<qr_token>. Anyone who scans it sees whether the manifest is valid.
+export const verifyUrl = (siteUrl: string, qrToken: string): string =>
+  `${siteUrl.replace(/\/+$/, '')}/verify/${qrToken}`
+
+// certificates.qr_token: 32 lowercase hex characters
+export const QR_TOKEN_PATTERN = /^[0-9a-f]{32}$/
+
+// What the public verify page shows: enough for an officer to match the printed copy, and no
+// personal contacts (no sender, receiver or driver details)
+export interface ManifestVerification {
+  // Valid until the end of its validity date; expired after
+  status: 'valid' | 'expired'
+  manifestNo: string
+  certificateNo: string
+  plateNumber: string
+  tripKind: TripKind
+  origin: { name: string; nameAr: string | null }
+  destination: { name: string; nameAr: string | null }
+  tripDate: number
+  issuedAt: number
+  validUntil: number
+  // The carrier printed on the manifest
+  carrierName: string
+  amountPaid: number
+  // When the API answered
+  checkedAt: number
 }
 
 // A trip found by the government search

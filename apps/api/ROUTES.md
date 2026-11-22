@@ -24,6 +24,8 @@ The government portal's routes are done: `/govt/reference`, `/govt/owners`, `POS
 and `POST /govt/demo/regenerate` (demo mode). The report prints from the browser, so
 `govt:save-report-pdf` has no route.
 
+Public: `GET /verify/:token`, what a manifest's QR code opens (rate-limited per IP).
+
 Every IPC channel of the demo now has its route.
 
 These are dropped on the web: `updater:*`, `app:get-version` (the portals get the version at build

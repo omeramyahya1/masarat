@@ -1172,6 +1172,32 @@
     "footer": {
       "tagline": "Electronic manifest and transport tax system",
       "rights": "© {{year}} Masarat"
+    },
+    "verify": {
+      "valid": "Valid manifest",
+      "expired": "Expired manifest",
+      "validUntil": "Valid until {{date}}",
+      "expiredOn": "Its validity ended on {{date}}",
+      "fields": {
+        "manifestNo": "Manifest no.",
+        "receiptNo": "Receipt no.",
+        "plate": "Plate number",
+        "tripKind": "Trip type",
+        "route": "Route",
+        "tripDate": "Trip date",
+        "carrier": "Carrier",
+        "amountPaid": "Taxes and fees paid",
+        "issuedAt": "Issued on"
+      },
+      "note": "Checked {{time}}. Compare these details with the printed manifest.",
+      "notFound": {
+        "title": "No manifest found",
+        "body": "This code doesn't match any authorized manifest. The document may not be genuine."
+      },
+      "failed": {
+        "title": "Couldn't check this manifest",
+        "body": "Masarat can't be reached right now. Check your connection and try again."
+      }
     }
   }
 }

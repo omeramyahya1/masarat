@@ -8,7 +8,7 @@ import { missingForBilling, type FleetResult } from '@masarat/shared/fleet'
 import { calculateTaxes } from '@masarat/shared/tax'
 import {
   CERTIFICATE_VALID_DAYS,
-  buildQrPayload,
+  verifyUrl,
   type CertificateRecord,
   type PaymentRecord,
   type TripDetails
@@ -137,10 +137,12 @@ export async function getTripDetails(
           manifestNo: certificate.manifestNo,
           issuedAt: certificate.issuedAt.getTime(),
           validUntil: certificate.validUntil.getTime(),
-          qrDataUrl: await QRCode.toDataURL(
-            buildQrPayload(payment.billId, trip.plateNumber, certificate.manifestNo),
-            { errorCorrectionLevel: 'M', margin: 1, width: 320 }
-          ),
+          // A link to the public verify page, which officers scan at checkpoints
+          qrDataUrl: await QRCode.toDataURL(verifyUrl(config.siteUrl, certificate.qrToken), {
+            errorCorrectionLevel: 'M',
+            margin: 1,
+            width: 320
+          }),
           receiptBarcode: barcodeDataUrl(certificate.certificateNo),
           manifestBarcode: barcodeDataUrl(certificate.manifestNo)
         }

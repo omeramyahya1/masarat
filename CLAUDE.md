@@ -10,7 +10,7 @@ It started as an **Electron MVP / demo** for the relevant government agency (kep
 
 Three web apps and one API, each on its own (sub)domain:
 
-1. **Site** (`apps/site`, `masarat.com`): the public landing page, **login for everyone**, fleet owner sign-up, and the forced password change. A signed-in user is sent to their portal.
+1. **Site** (`apps/site`, `masarat.com`): the public landing page, **login for everyone**, fleet owner sign-up, the forced password change, and the public **verify page** a manifest's QR code opens. A signed-in user is sent to their portal (except from the verify page).
 2. **Fleet Owner portal** (`apps/owner-portal`, `owner.masarat.com`): used by transport/fleet operators.
 3. **Government portal** (`apps/govt-portal`, `govt.masarat.com`): used by government staff. It has the dashboard, search, tax settings, exports and (admins only) *Users*.
 4. **API** (`apps/api`, `api.masarat.com`): one Hono app on Bun that all three call.
@@ -121,7 +121,8 @@ Short paths in the rules below: `services/*` is `apps/api/src/services/*`. Compo
   - Then the **authorized manifest** (`ManifestPage.tsx`) (تصريح حركة بضائع بري), number `MNF-<yyyy>-<manifestId 6 digits>` (`manifest_no`). It lists the vehicle, trailers, registration no., route and trip type; a table of the carrier, driver, sender and receiver; the cargo (description, packing, packages, weight, notes); the financial and customs section (قيمة الترحيل = the trip cost, رقم الإقرار الجمركي left blank); and name / signature / date / stamp blocks for the carrier, the driver (received the goods) and the receiver (on delivery). Customs, Zakat and others stamp the printed copy; that's out of scope. A typical trip fits one A4 page.
   - **Pagination** (`usePagedRows.ts`): the manifest renders a hidden copy of itself on one sheet with every cargo row, measures it (again once fonts load), and deals the rows out: page 1 opens with the vehicle, trip and parties table, later pages are titled "(تابع)" and repeat the cargo table header, and the total row, financial section and signatures stay together on the last page with at least one row above them.
   - The barcodes come from `bwip-js` (imported as `bwip-js/node`), rendered as SVG by the API (the main process in the demo).
-- **QR payload** (`buildQrPayload`): JSON `{"esaliBillId","status":"paid","plate","manifestNo"}`, the same on both documents. Later it should become a URL to a page showing the manifest's status (looked up by `certificates.qr_token`).
+- **QR code** (`verifyUrl` in `packages/shared/src/billing.ts`): a link to the public verify page, `<SITE_URL>/verify/<certificates.qr_token>` (32 random hex characters), the same on both documents. The desktop demo still encodes its old JSON payload.
+- **Verify page** (`apps/site/src/pages/VerifyPage.tsx`, `VerifyApp.tsx`; `GET /verify/:token`, `services/verify.ts`): public, no sign-in, and it never redirects (an officer may or may not be signed in). It shows **Valid** until the end of the certificate's `valid_until`, then **Expired**, with the MNF and MSR numbers, plate, trip type, route, trip date, carrier, taxes and fees paid and issue date, plus when it was checked. Only paid bills' certificates are found; an unknown or malformed token shows "No manifest found". **No sender, receiver or driver details** leave the API. The route allows 60 checks a minute per IP (`http/rateLimit.ts`, in memory).
 
 ## Government dashboard & demo data
 

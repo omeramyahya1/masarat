@@ -14,6 +14,7 @@ import { driverRoutes, vehicleRoutes } from './routes/fleet'
 import { govtRoutes } from './routes/govt'
 import { govtUserRoutes } from './routes/govtUsers'
 import { tripRoutes } from './routes/trips'
+import { verifyRoutes } from './routes/verify'
 
 // Request bodies: JSON stays small; an attachment upload may carry one file of up to 20 MB
 const JSON_LIMIT = bodyLimit({ maxSize: 64 * 1024, onError: (c) => fail(c, 'too_large') })
@@ -49,6 +50,7 @@ export const app = new Hono<AppEnv>()
   .route('/drivers', driverRoutes)
   .route('/trips', tripRoutes)
   .route('/documents', documentRoutes)
+  .route('/verify', verifyRoutes)
 
 app.notFound((c) => fail(c, 'not_found'))
 app.onError((err, c) => {

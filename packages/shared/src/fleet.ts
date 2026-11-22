@@ -1,5 +1,6 @@
 // Types and rules shared by the main process (fleet and trip services) and the renderer
 import type { FeeSetting, TaxLine, TaxSetting } from './tax'
+import type { PageSize } from './paging'
 
 // Enum values, also used by the DB schema so the UI and services share one source of truth
 export const VEHICLE_TYPES = [
@@ -354,4 +355,46 @@ export function tripCargoTypes(trip: Pick<TripRecord, 'cargoType' | 'items'>): C
     ...types.filter((type) => type === trip.cargoType),
     ...types.filter((type) => type !== trip.cargoType)
   ]
+}
+
+// The owner's trips list: search, filters, sort and group, paged by the API
+export const TRIP_SORTS = [
+  'tripDate',
+  'createdAt',
+  'amount',
+  'tripCost',
+  'distance',
+  'status'
+] as const
+export type TripSort = (typeof TRIP_SORTS)[number]
+export const TRIP_GROUPS = [
+  'status',
+  'month',
+  'vehicle',
+  'driver',
+  'route',
+  'tripKind',
+  'cargoType'
+] as const
+export type TripGroup = (typeof TRIP_GROUPS)[number]
+// "billed" also matches the legacy "paid" status
+export const TRIP_STATUS_FILTERS = ['draft', 'billed', 'certified'] as const
+
+export interface TripListQuery {
+  page: number
+  pageSize: PageSize
+  query?: string
+  status?: (typeof TRIP_STATUS_FILTERS)[number]
+  tripKind?: TripKind
+  cargoType?: CargoType
+  vehicleId?: number
+  driverId?: number
+  // YYYY-MM-DD, both days included
+  from?: string
+  to?: string
+  sort: TripSort
+  direction: 'asc' | 'desc'
+  group?: TripGroup
+  // Route groups are ordered by city name in this language
+  lang?: 'en' | 'ar'
 }

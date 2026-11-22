@@ -13,27 +13,24 @@ Done: `GET /health`, `GET /config`, `POST /auth/login`, `POST /auth/signup` (fle
 `POST /auth/logout`, `GET /auth/me`, `PATCH /auth/profile` (owner), `POST /auth/change-password`,
 and `/govt/users` (`GET`, `POST`, `POST /:id/{disable,enable,reset-password,admin}`; admins).
 
-| Group        | IPC channel                                                                                                   | Service function                                  | Who              |
-| ------------ | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ---------------- |
-| fleet        | `fleet:list-vehicles`, `fleet:add-vehicle`, `fleet:update-vehicle`, `fleet:delete-vehicle`                    | `services/fleet.ts`                               | owner            |
-| fleet        | `fleet:list-drivers`, `fleet:add-driver`, `fleet:update-driver`, `fleet:delete-driver`                        | `services/drivers.ts`                             | owner            |
-| trips        | `trips:get-reference-data`, `trips:list`, `trips:suggestions`, `trips:create`, `trips:update`, `trips:delete` | `services/trips.ts`                               | owner            |
-| billing      | `billing:get-trip`, `billing:generate`, `billing:refresh`, `billing:simulate-payment`                         | `services/billing.ts`                             | owner            |
-| documents    | `documents:pick` → **upload** (`stageDocument`)                                                               | `services/documents.ts`                           | owner            |
-| documents    | `documents:open` → **download** (`findOwnedDocumentFile`)                                                     | `services/documents.ts`                           | owner            |
-| documents    | `documents:scan`                                                                                              | `services/ocr.ts` (`scanDocument`)                | owner            |
-| certificates | `certificates:save-pdf` → done in the browser (print to PDF)                                                  | none                                              | both portals     |
-| govt         | `govt:get-reference-data`, `govt:list-owners`                                                                 | `services/trips.ts`, `services/analyticsQuery.ts` | govt             |
-| govt         | `govt:dashboard`                                                                                              | `services/dashboard.ts`                           | govt             |
-| govt         | `govt:search`, `govt:get-trip`                                                                                | `services/govtTrips.ts`, `services/billing.ts`    | govt             |
-| govt         | `govt:open-document` → **download**                                                                           | `services/documents.ts`                           | govt             |
-| govt         | `govt:export-data` → **download** (`exportData` returns the files)                                            | `services/exports.ts`                             | govt             |
-| govt         | `govt:save-report-pdf` → done in the browser                                                                  | none                                              | govt             |
-| govt         | `govt:get-tax-settings`, `govt:update-tax-rates`                                                              | `services/taxes.ts`                               | govt             |
-| govt         | `govt:regenerate-demo`                                                                                        | `services/demoData.ts`                            | govt (demo only) |
+The owner portal's routes are done too: `/vehicles`, `/drivers` (CRUD), `/trips` (`GET /` paged,
+`/reference`, `/suggestions`, `POST`, `PUT|DELETE /:id`, `GET /:id`, `POST /:id/{bill,refresh,simulate-payment}`)
+and `/documents` (`POST /` multipart upload, `POST /scan`, `GET /:id/file`). Saving the
+certificate as PDF is the browser's print dialog, so `certificates:save-pdf` has no route.
+
+| Group | IPC channel                                                        | Service function                                  | Who              |
+| ----- | ------------------------------------------------------------------ | ------------------------------------------------- | ---------------- |
+| govt  | `govt:get-reference-data`, `govt:list-owners`                      | `services/trips.ts`, `services/analyticsQuery.ts` | govt             |
+| govt  | `govt:dashboard`                                                   | `services/dashboard.ts`                           | govt             |
+| govt  | `govt:search`, `govt:get-trip`                                     | `services/govtTrips.ts`, `services/billing.ts`    | govt             |
+| govt  | `govt:open-document` → **download**                                | `services/documents.ts`                           | govt             |
+| govt  | `govt:export-data` → **download** (`exportData` returns the files) | `services/exports.ts`                             | govt             |
+| govt  | `govt:save-report-pdf` → done in the browser                       | none                                              | govt             |
+| govt  | `govt:get-tax-settings`, `govt:update-tax-rates`                   | `services/taxes.ts`                               | govt             |
+| govt  | `govt:regenerate-demo`                                             | `services/demoData.ts`                            | govt (demo only) |
 
 These are dropped on the web: `updater:*`, `app:get-version` (the portals get the version at build
 time) and `ping`.
 
-Startup work in the Electron main process (`ensureDemoData`, `clearStaging`, `removeOrphanFolders`)
-moves to the API's startup.
+The Electron main process's startup work (`clearStaging`, `removeOrphanFolders`, `ensureDemoData` in
+demo mode) runs at the API's startup, in `src/index.ts`.

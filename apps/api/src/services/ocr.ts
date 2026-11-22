@@ -233,7 +233,7 @@ export async function scanDocument(
   const source = input.source
   let file: { path: string; fileName: string } | undefined
   if (source && 'token' in source) {
-    const staged = findStaged(source.token)
+    const staged = findStaged(ownerId, source.token)
     file = staged ? { path: stagedPath(staged), fileName: staged.fileName } : undefined
   } else if (source && 'id' in source) {
     file = await findOwnedDocumentFile(ownerId, source.id)

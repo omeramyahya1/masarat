@@ -7,8 +7,19 @@ import { config } from './config'
 import { log } from './log'
 import { fail, type AppEnv } from './http/context'
 import { originCheck, session } from './http/middleware'
+import { MAX_DOCUMENT_BYTES } from '@masarat/shared/fleet'
 import { authRoutes } from './routes/auth'
+import { documentRoutes } from './routes/documents'
+import { driverRoutes, vehicleRoutes } from './routes/fleet'
 import { govtUserRoutes } from './routes/govtUsers'
+import { tripRoutes } from './routes/trips'
+
+// Request bodies: JSON stays small; an attachment upload may carry one file of up to 20 MB
+const JSON_LIMIT = bodyLimit({ maxSize: 64 * 1024, onError: (c) => fail(c, 'too_large') })
+const UPLOAD_LIMIT = bodyLimit({
+  maxSize: MAX_DOCUMENT_BYTES + 64 * 1024,
+  onError: (c) => fail(c, 'document_too_large')
+})
 
 export const app = new Hono<AppEnv>()
   .use(
@@ -21,14 +32,19 @@ export const app = new Hono<AppEnv>()
     })
   )
   .use(originCheck)
-  // JSON requests only so far; file uploads get their own limit when their routes exist
-  .use(bodyLimit({ maxSize: 64 * 1024, onError: (c) => fail(c, 'too_large') }))
+  .use((c, next) =>
+    (c.req.method === 'POST' && c.req.path === '/documents' ? UPLOAD_LIMIT : JSON_LIMIT)(c, next)
+  )
   .use(session)
   .get('/health', (c) => c.json({ ok: true }))
   // What the web apps need to know before signing in
   .get('/config', (c) => c.json({ ok: true, data: { demoMode: config.demoMode } }))
   .route('/auth', authRoutes)
   .route('/govt/users', govtUserRoutes)
+  .route('/vehicles', vehicleRoutes)
+  .route('/drivers', driverRoutes)
+  .route('/trips', tripRoutes)
+  .route('/documents', documentRoutes)
 
 app.notFound((c) => fail(c, 'not_found'))
 app.onError((err, c) => {

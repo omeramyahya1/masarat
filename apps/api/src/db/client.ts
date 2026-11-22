@@ -13,7 +13,10 @@ let database: AppDatabase | null = null
 export function getDb(): AppDatabase {
   if (!database) {
     // Notices ("already exists, skipping" from migrations, …) are informational only
-    client = postgres(config.databaseUrl, { onnotice: () => {} })
+    client = postgres(config.databaseUrl, {
+      onnotice: () => {},
+      connection: { TimeZone: config.timeZone }
+    })
     database = drizzle(client, { schema })
   }
   return database

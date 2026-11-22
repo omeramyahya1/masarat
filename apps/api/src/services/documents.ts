@@ -26,8 +26,10 @@ const manifestDir = (manifestId: number): string => join(documentsRoot(), String
 export const isDocumentType = (value: unknown): value is DocumentType =>
   (DOCUMENT_TYPES as readonly unknown[]).includes(value)
 
-// What we know about a staged file; kept in memory, since staging doesn't outlive the app
+// What we know about a staged file; kept in memory, since staging doesn't outlive the API process.
+// It belongs to the owner who uploaded it: nobody else can attach or scan it.
 interface Staged extends StagedDocument {
+  ownerId: number
   storedName: string
 }
 const staged = new Map<string, Staged>()
@@ -52,8 +54,19 @@ export async function removeOrphanFolders(): Promise<void> {
   }
 }
 
+// The first bytes each allowed type starts with, so a renamed file of another kind is refused
+const SIGNATURES: Record<string, number[][]> = {
+  pdf: [[0x25, 0x50, 0x44, 0x46]],
+  png: [[0x89, 0x50, 0x4e, 0x47]],
+  jpg: [[0xff, 0xd8, 0xff]],
+  jpeg: [[0xff, 0xd8, 0xff]]
+}
+const hasSignature = (bytes: Uint8Array, extension: string): boolean =>
+  (SIGNATURES[extension] ?? []).some((signature) => signature.every((b, i) => bytes[i] === b))
+
 // Writes an uploaded file into staging, for the trip form to attach when the trip is saved
 export function stageDocument(
+  ownerId: number,
   docType: unknown,
   fileName: string,
   bytes: Uint8Array
@@ -65,21 +78,23 @@ export function stageDocument(
   }
   const size = bytes.byteLength
   if (size > MAX_DOCUMENT_BYTES) return { ok: false, error: 'document_too_large' }
+  if (!hasSignature(bytes, extension)) return { ok: false, error: 'invalid_document' }
 
   const token = randomBytes(16).toString('hex')
   const storedName = `${token}.${extension}`
   mkdirSync(stagingDir(), { recursive: true })
   writeFileSync(join(stagingDir(), storedName), bytes)
   const document: StagedDocument = { token, docType, fileName: basename(fileName), size }
-  staged.set(token, { ...document, storedName })
+  staged.set(token, { ...document, ownerId, storedName })
   return { ok: true, data: document }
 }
 
-// A staged file, if the token is one we handed out and the file is still there
-export function findStaged(token: unknown): Staged | undefined {
+// A staged file, if the token is one we handed this owner and the file is still there
+export function findStaged(ownerId: number, token: unknown): Staged | undefined {
   if (typeof token !== 'string' || !TOKEN_PATTERN.test(token)) return undefined
   const document = staged.get(token)
-  return document && existsSync(join(stagingDir(), document.storedName)) ? document : undefined
+  if (!document || document.ownerId !== ownerId) return undefined
+  return existsSync(join(stagingDir(), document.storedName)) ? document : undefined
 }
 
 export const stagedPath = (document: Staged): string => join(stagingDir(), document.storedName)

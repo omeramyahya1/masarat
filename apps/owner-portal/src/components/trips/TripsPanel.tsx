@@ -1,21 +1,26 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, ArrowRight, LoaderCircle, Plus, Route } from 'lucide-react'
 import {
   CARGO_TYPES,
-  MANIFEST_STATUSES,
+  TRIP_GROUPS,
   TRIP_KINDS,
+  TRIP_SORTS,
+  TRIP_STATUS_FILTERS,
   tripCargoTypes,
+  type DriverRecord,
   type FleetErrorCode,
+  type TripGroup,
+  type TripListQuery,
   type TripRecord,
-  type TripReferenceData
+  type TripReferenceData,
+  type VehicleRecord
 } from '@masarat/shared/fleet'
 import type { AuthUser } from '@masarat/shared/auth'
-import { parseDay } from '@masarat/shared/analytics'
-import { plateSearchKey } from '@masarat/shared/plate'
 import { useFormat } from '@masarat/ui/lib/format'
-import { useListView, type ListViewConfig } from '@masarat/ui/lib/useListView'
+import { useServerList, type ServerListState } from '@masarat/ui/lib/useServerList'
 import ListToolbar from '@masarat/ui/components/ui/ListToolbar'
+import Pagination from '@masarat/ui/components/ui/Pagination'
 import { FormAlert } from '@masarat/ui/components/form/fields'
 import PlateBadge from '@masarat/ui/components/fleet/PlateBadge'
 import TripDetails from '@masarat/ui/components/trips/TripDetails'
@@ -39,137 +44,95 @@ function TripsPanel({
     'list'
   )
   const [reference, setReference] = useState<TripReferenceData | null>(null)
-  const [trips, setTrips] = useState<TripRecord[] | null>(null)
+  // For the filters and the group headers
+  const [vehicles, setVehicles] = useState<VehicleRecord[]>([])
+  const [drivers, setDrivers] = useState<DriverRecord[]>([])
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [created, setCreated] = useState<TripRecord | null>(null)
   const [deleted, setDeleted] = useState<number | null>(null)
 
-  // Search, filters, sort and grouping over the loaded trips
-  const listConfig = useMemo<ListViewConfig<TripRecord>>(() => {
-    const city = (id: number): string => format.city(reference?.cities.find((c) => c.id === id))
-    const cityNames = (id: number): string => {
-      const found = reference?.cities.find((c) => c.id === id)
-      return `${found?.name ?? ''} ${found?.nameAr ?? ''}`
-    }
-    const route = (trip: TripRecord): string =>
-      `${city(trip.originCityId)} ${format.isArabic ? '←' : '→'} ${city(trip.destinationCityId)}`
-    const statusOrder = (trip: TripRecord): number => MANIFEST_STATUSES.indexOf(trip.status)
-    const monthFormat = new Intl.DateTimeFormat(format.isArabic ? 'ar-SD-u-nu-latn' : 'en-US', {
-      month: 'long',
-      year: 'numeric'
-    })
-    return {
-      storageKey: 'masarat.list.trips',
-      defaultSort: 'tripDate',
-      defaultDirection: 'desc',
-      matches: (trip, query) => {
-        const plate = plateSearchKey(query)
-        if (plate.length >= 2 && plateSearchKey(trip.plateNumber).includes(plate)) return true
-        return [
-          `#${trip.id}`,
-          cityNames(trip.originCityId),
-          cityNames(trip.destinationCityId),
-          trip.driverName ?? '',
-          trip.shipper.name,
-          trip.receiver.name,
-          ...trip.items.map((item) => item.name)
-        ].some((text) => text.toLowerCase().includes(query))
-      },
-      filters: {
-        status: (trip, value) =>
-          value === 'billed'
-            ? trip.status === 'billed' || trip.status === 'paid'
-            : trip.status === value,
-        tripKind: (trip, value) => trip.tripKind === value,
-        cargoType: (trip, value) => tripCargoTypes(trip).some((c) => c === value),
-        vehicle: (trip, value) => String(trip.vehicleId) === value,
-        driver: (trip, value) => String(trip.driverId ?? '') === value,
-        from: (trip, value) => trip.tripDate >= (parseDay(value)?.getTime() ?? 0),
-        to: (trip, value) => trip.tripDate <= (parseDay(value)?.getTime() ?? Infinity)
-      },
-      sorts: {
-        tripDate: (a, b) => a.tripDate - b.tripDate || a.id - b.id,
-        createdAt: (a, b) => a.createdAt - b.createdAt || a.id - b.id,
-        amount: (a, b) => a.taxAmount - b.taxAmount,
-        tripCost: (a, b) => a.tripCost - b.tripCost,
-        distance: (a, b) => a.distanceKm - b.distanceKm,
-        status: (a, b) => statusOrder(a) - statusOrder(b)
-      },
-      groups: {
-        status: (trip) => ({
-          key: trip.status,
-          label: t(`statuses.${trip.status}`),
-          order: statusOrder(trip)
-        }),
-        month: (trip) => {
-          const date = new Date(trip.tripDate)
-          return {
-            key: `${date.getFullYear()}-${date.getMonth()}`,
-            label: monthFormat.format(date),
-            // Newest month first
-            order: -(date.getFullYear() * 12 + date.getMonth())
-          }
-        },
-        vehicle: (trip) => ({
-          key: String(trip.vehicleId),
-          label: format.plate(trip.plateNumber),
-          order: trip.plateNumber
-        }),
-        driver: (trip) => ({
-          key: String(trip.driverId ?? ''),
-          label: trip.driverName ?? t('listView.noDriver'),
-          order: trip.driverName ?? '\uffff'
-        }),
-        route: (trip) => ({
-          key: `${trip.originCityId}-${trip.destinationCityId}`,
-          label: route(trip),
-          order: route(trip)
-        }),
-        tripKind: (trip) => ({
-          key: trip.tripKind,
-          label: t(`tripKinds.${trip.tripKind}`),
-          order: TRIP_KINDS.indexOf(trip.tripKind)
-        }),
-        cargoType: (trip) => ({
-          key: trip.cargoType,
-          label: t(`cargoTypes.${trip.cargoType}`),
-          order: CARGO_TYPES.indexOf(trip.cargoType)
-        })
+  // Search, filters, sort and grouping, applied by the API one page at a time
+  const fetchTrips = useCallback(
+    (state: ServerListState) => {
+      const f = state.filters
+      const query: TripListQuery = {
+        page: state.page,
+        pageSize: state.pageSize,
+        query: state.query.trim() || undefined,
+        status: (f.status || undefined) as TripListQuery['status'],
+        tripKind: (f.tripKind || undefined) as TripListQuery['tripKind'],
+        cargoType: (f.cargoType || undefined) as TripListQuery['cargoType'],
+        vehicleId: f.vehicle ? Number(f.vehicle) : undefined,
+        driverId: f.driver ? Number(f.driver) : undefined,
+        from: f.from || undefined,
+        to: f.to || undefined,
+        sort: state.sort as TripListQuery['sort'],
+        direction: state.direction,
+        group: (state.group || undefined) as TripGroup | undefined,
+        lang: format.isArabic ? 'ar' : 'en'
       }
+      return api.trips.list(query)
+    },
+    [format.isArabic]
+  )
+  const list = useServerList(fetchTrips, {
+    storageKey: 'masarat.list.trips',
+    defaultSort: 'tripDate',
+    defaultDirection: 'desc'
+  })
+  const page = list.data
+
+  const cityById = (id: number): TripReferenceData['cities'][number] | undefined =>
+    reference?.cities.find((c) => c.id === id)
+
+  // A group header's label, from its key (see services/tripList.ts)
+  const monthFormat = new Intl.DateTimeFormat(format.isArabic ? 'ar-SD-u-nu-latn' : 'en-US', {
+    month: 'long',
+    year: 'numeric'
+  })
+  const groupLabel = (group: TripGroup, key: string): string => {
+    switch (group) {
+      case 'status':
+        return t(`statuses.${key}`)
+      case 'month': {
+        const [year, month] = key.split('-').map(Number)
+        return monthFormat.format(new Date(year, month - 1, 1))
+      }
+      case 'vehicle': {
+        const vehicle = vehicles.find((v) => String(v.id) === key)
+        return vehicle ? format.plate(vehicle.plateNumber) : key
+      }
+      case 'driver':
+        return key
+          ? (drivers.find((d) => String(d.id) === key)?.name ?? t('listView.noDriver'))
+          : t('listView.noDriver')
+      case 'route': {
+        const [from, to] = key.split('-').map(Number)
+        return `${format.city(cityById(from))} ${format.isArabic ? '←' : '→'} ${format.city(cityById(to))}`
+      }
+      case 'tripKind':
+        return t(`tripKinds.${key}`)
+      case 'cargoType':
+        return t(`cargoTypes.${key}`)
     }
-  }, [reference, format, t])
-  const list = useListView(trips, listConfig)
-  // Filter options from the trips themselves
-  const vehicleOptions = useMemo(
-    () =>
-      [...new Map((trips ?? []).map((trip) => [trip.vehicleId, trip.plateNumber]))].map(
-        ([id, plate]) => ({ value: String(id), label: format.plate(plate) })
-      ),
-    [trips, format]
-  )
-  const driverOptions = useMemo(
-    () =>
-      [
-        ...new Map(
-          (trips ?? []).flatMap((trip) =>
-            trip.driverId && trip.driverName ? [[trip.driverId, trip.driverName] as const] : []
-          )
-        )
-      ].map(([id, name]) => ({ value: String(id), label: name })),
-    [trips]
-  )
+  }
+
   const openTrip = (tripId: number): void => {
     setDeleted(null)
     setMode({ tripId })
   }
 
-  const load = useCallback(async (): Promise<void> => {
+  const loadLists = useCallback(async (): Promise<void> => {
     try {
-      const [ref, list] = await Promise.all([api.trips.getReferenceData(), api.trips.list()])
+      const [ref, vehicleList, driverList] = await Promise.all([
+        api.trips.getReferenceData(),
+        api.fleet.listVehicles(),
+        api.fleet.listDrivers()
+      ])
       if (!ref.ok) return setError(ref.error)
-      if (!list.ok) return setError(list.error)
       setReference(ref.data)
-      setTrips(list.data)
+      if (vehicleList.ok) setVehicles(vehicleList.data)
+      if (driverList.ok) setDrivers(driverList.data)
     } catch {
       setError('unknown')
     }
@@ -177,11 +140,14 @@ function TripsPanel({
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount
-    load()
-  }, [load])
+    loadLists()
+  }, [loadLists])
 
-  const cityById = (id: number): TripReferenceData['cities'][number] | undefined =>
-    reference?.cities.find((c) => c.id === id)
+  // After a trip was saved, deleted or billed
+  const load = (): void => {
+    list.reload()
+    void loadLists()
+  }
 
   if (typeof mode === 'object' && 'tripId' in mode && reference) {
     return (
@@ -318,7 +284,7 @@ function TripsPanel({
           <h2 className="text-lg font-semibold text-stone-900">{t('trips.title')}</h2>
           <p className="text-sm text-stone-500">{t('trips.subtitle')}</p>
         </div>
-        {trips && trips.length > 0 && (
+        {page && page.overall > 0 && (
           <button type="button" className="btn btn-primary" onClick={startNew}>
             <Plus size={16} />
             {t('trips.new')}
@@ -326,7 +292,7 @@ function TripsPanel({
         )}
       </div>
 
-      {error && <FormAlert message={t(`fleet.errors.${error}`)} />}
+      {(error ?? list.error) && <FormAlert message={t(`fleet.errors.${error ?? list.error}`)} />}
       {deleted !== null && (
         <FormAlert tone="success" message={t('trips.deleted', { id: format.number(deleted) })} />
       )}
@@ -340,13 +306,14 @@ function TripsPanel({
         />
       )}
 
-      {trips === null ? (
-        !error && (
+      {page === null ? (
+        !error &&
+        !list.error && (
           <div className="flex justify-center py-16 text-stone-400">
             <LoaderCircle className="animate-spin" />
           </div>
         )
-      ) : trips.length === 0 ? (
+      ) : page.overall === 0 ? (
         <div className="card flex flex-col items-center gap-3 px-6 py-14 text-center">
           <div className="flex size-12 items-center justify-center rounded-full bg-brand-50 text-brand-700">
             <Route size={24} />
@@ -369,7 +336,7 @@ function TripsPanel({
               {
                 key: 'status',
                 label: t('trips.list.status'),
-                options: (['draft', 'billed', 'certified'] as const).map((s) => ({
+                options: TRIP_STATUS_FILTERS.map((s) => ({
                   value: s,
                   label: t(`statuses.${s}`)
                 }))
@@ -384,24 +351,34 @@ function TripsPanel({
                 label: t('trips.list.cargoType'),
                 options: CARGO_TYPES.map((c) => ({ value: c, label: t(`cargoTypes.${c}`) }))
               },
-              { key: 'vehicle', label: t('trips.list.vehicle'), options: vehicleOptions },
-              { key: 'driver', label: t('trips.fields.driver'), options: driverOptions },
+              {
+                key: 'vehicle',
+                label: t('trips.list.vehicle'),
+                options: vehicles.map((v) => ({
+                  value: String(v.id),
+                  label: format.plate(v.plateNumber)
+                }))
+              },
+              {
+                key: 'driver',
+                label: t('trips.fields.driver'),
+                options: drivers.map((d) => ({ value: String(d.id), label: d.name }))
+              },
               { key: 'from', label: t('trips.list.from'), type: 'date' },
               { key: 'to', label: t('trips.list.to'), type: 'date' }
             ]}
-            sorts={['tripDate', 'createdAt', 'amount', 'tripCost', 'distance', 'status'].map(
-              (s) => ({
-                value: s,
-                label: t(`trips.list.sorts.${s}`)
-              })
-            )}
-            groups={['status', 'month', 'vehicle', 'driver', 'route', 'tripKind', 'cargoType'].map(
-              (g) => ({ value: g, label: t(`trips.list.groups.${g}`) })
-            )}
-            shown={list.visible.length}
-            total={list.total}
+            sorts={TRIP_SORTS.map((s) => ({
+              value: s,
+              label: t(`trips.list.sorts.${s}`)
+            }))}
+            groups={TRIP_GROUPS.map((g) => ({ value: g, label: t(`trips.list.groups.${g}`) }))}
+            shown={page.total}
+            total={page.overall}
           />
-          <div className="card overflow-x-auto">
+          <div
+            className={`card overflow-x-auto transition-opacity ${list.loading ? 'opacity-60' : ''}`}
+            aria-busy={list.loading}
+          >
             <table className="data-table">
               <thead>
                 <tr>
@@ -415,30 +392,44 @@ function TripsPanel({
                 </tr>
               </thead>
               <tbody>
-                {list.groups
-                  ? list.groups.flatMap((group) => [
-                      <tr key={`group-${group.key}`} className="bg-stone-50">
-                        <th colSpan={7} className="text-start text-sm font-semibold text-stone-800">
-                          <span className="me-3">{group.label}</span>
-                          <span className="text-xs font-normal text-stone-500">
-                            {t('trips.groupSummary', {
-                              count: format.number(group.items.length),
-                              total: format.currency(
-                                group.items.reduce((sum, trip) => sum + trip.taxAmount, 0)
-                              )
-                            })}
-                          </span>
-                        </th>
-                      </tr>,
-                      ...group.items.map(row)
-                    ])
-                  : list.visible.map(row)}
+                {page.rows.flatMap((trip, index) => {
+                  // A group's header goes above its first row on this page; its count and total
+                  // are for the whole group
+                  const key = trip.groupKey
+                  const group =
+                    key === undefined ? undefined : page.groups?.find((g) => g.key === key)
+                  const first = index === 0 || page.rows[index - 1].groupKey !== key
+                  if (!group || !first || !list.state.group) return [row(trip)]
+                  return [
+                    <tr key={`group-${key}`} className="bg-stone-50">
+                      <th colSpan={7} className="text-start text-sm font-semibold text-stone-800">
+                        <span className="me-3">
+                          {groupLabel(list.state.group as TripGroup, group.key)}
+                        </span>
+                        <span className="text-xs font-normal text-stone-500">
+                          {t('trips.groupSummary', {
+                            count: format.number(group.count),
+                            total: format.currency(group.totalDue)
+                          })}
+                        </span>
+                      </th>
+                    </tr>,
+                    row(trip)
+                  ]
+                })}
               </tbody>
             </table>
-            {list.visible.length === 0 && (
+            {page.rows.length === 0 && (
               <p className="py-10 text-center text-sm text-stone-500">{t('listView.noMatches')}</p>
             )}
           </div>
+          <Pagination
+            page={page.page}
+            pageSize={page.pageSize}
+            total={page.total}
+            onPage={list.setPage}
+            onPageSize={list.setPageSize}
+          />
         </>
       )}
     </section>

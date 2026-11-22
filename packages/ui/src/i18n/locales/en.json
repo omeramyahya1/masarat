@@ -50,7 +50,8 @@
       "password": "Password",
       "passwordHint": "At least {{min}} characters.",
       "confirmPassword": "Confirm password",
-      "optional": "(optional)"
+      "optional": "(optional)",
+      "phoneHint": "A Sudanese mobile number, e.g. 0912 345 678."
     },
     "showPassword": "Show password",
     "hidePassword": "Hide password",
@@ -70,7 +71,9 @@
       "wrong_password": "The current password is incorrect.",
       "same_password": "The new password must be different from the current one.",
       "password_change_required": "Please choose your own password first.",
-      "forbidden": "You don't have access to this."
+      "forbidden": "You don't have access to this.",
+      "invalid_phone": "Enter a Sudanese mobile number, e.g. 0912 345 678 or +249 91 234 5678.",
+      "phone_taken": "Another account already uses this phone number."
     },
     "demoAccounts": {
       "title": "Demo accounts",
@@ -282,7 +285,7 @@
       "invalid_tax_rate": "Enter a percentage from 0 to 100, with up to two decimals.",
       "invalid_fee": "Enter a whole amount from 0 to 1,000,000 SDG.",
       "invalid_registration": "Enter the vehicle's registration number (up to 30 characters).",
-      "invalid_phone": "Enter a valid phone number: 7 to 15 digits, optionally starting with +.",
+      "invalid_phone": "Enter a Sudanese mobile number, e.g. 0912 345 678 or +249 91 234 5678.",
       "phone_taken": "You already have a driver with this phone number.",
       "driver_not_found": "This driver could not be found.",
       "driver_in_use": "This driver is on a draft trip. Change the trip's driver or delete the trip first.",
@@ -345,7 +348,7 @@
     "fields": {
       "name": "Driver name",
       "phone": "Phone number",
-      "phoneHint": "e.g. 0912345678. It can start with +249."
+      "phoneHint": "A Sudanese mobile number, e.g. 0912 345 678."
     },
     "list": {
       "search": "Search by name or phone",
@@ -964,7 +967,8 @@
         "username": "Username",
         "phone": "Phone number",
         "isAdmin": "Admin: can manage government accounts",
-        "submit": "Create account"
+        "submit": "Create account",
+        "phoneHint": "A Sudanese mobile number, e.g. 0912 345 678."
       },
       "issued": {
         "createdTitle": "Account created",
@@ -986,7 +990,9 @@
         "not_signed_in": "Your session has ended. Please log in again.",
         "forbidden": "Only admins can manage government accounts.",
         "password_change_required": "Please choose your own password first.",
-        "unknown": "Something went wrong. Please try again."
+        "unknown": "Something went wrong. Please try again.",
+        "invalid_phone": "Enter a Sudanese mobile number, e.g. 0912 345 678 or +249 91 234 5678.",
+        "phone_taken": "Another account already uses this phone number."
       }
     }
   },

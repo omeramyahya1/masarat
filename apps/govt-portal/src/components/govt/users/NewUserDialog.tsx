@@ -28,7 +28,7 @@ function NewUserDialog({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
-    if (!fullName.trim() || !username.trim()) {
+    if (!fullName.trim() || !username.trim() || !phone.trim()) {
       setError('missing_fields')
       return
     }
@@ -68,10 +68,10 @@ function NewUserDialog({
         />
         <TextField
           label={t('govt.users.form.phone')}
+          hint={t('govt.users.form.phoneHint')}
           type="tel"
           autoComplete="off"
           ltr
-          optional
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
         />

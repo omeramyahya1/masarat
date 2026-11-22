@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoaderCircle, Plus, ShieldCheck } from 'lucide-react'
 import type { GovtUserErrorCode, GovtUserRecord, IssuedPassword } from '@masarat/shared/govtUsers'
+import { formatSudanPhone } from '@masarat/shared/phone'
 import Menu from '@masarat/ui/components/ui/Menu'
 import { FormAlert } from '@masarat/ui/components/form/fields'
 import { useFormat } from '@masarat/ui/lib/format'
@@ -129,11 +130,9 @@ function UsersPanel({ currentUserId }: { currentUserId: number }): React.JSX.Ele
                     </bdi>
                   </td>
                   <td>
-                    {user.phone && (
-                      <bdi dir="ltr" className="tabular-nums">
-                        {user.phone}
-                      </bdi>
-                    )}
+                    <bdi dir="ltr" className="tabular-nums">
+                      {formatSudanPhone(user.phone)}
+                    </bdi>
                   </td>
                   <td>
                     {user.isAdmin ? (

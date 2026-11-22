@@ -47,7 +47,7 @@ function SignUpForm({ onAuthenticated }: SignUpFormProps): React.JSX.Element {
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
-    if (!form.fullName.trim() || !form.username.trim() || !form.password) {
+    if (!form.fullName.trim() || !form.username.trim() || !form.phone.trim() || !form.password) {
       setError('missing_fields')
       return
     }
@@ -88,10 +88,10 @@ function SignUpForm({ onAuthenticated }: SignUpFormProps): React.JSX.Element {
       <div className="grid grid-cols-2 gap-4">
         <TextField
           label={t('auth.fields.phone')}
+          hint={t('auth.fields.phoneHint')}
           type="tel"
           autoComplete="tel"
           ltr
-          optional
           {...bind('phone')}
         />
         <TextField

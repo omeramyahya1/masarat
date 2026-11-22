@@ -40,8 +40,7 @@ export async function listCharges(db: Db = getDb()): Promise<ChargeRecord[]> {
   return rows.map(toChargeRecord)
 }
 
-export async function getChargesView(): Promise<ChargesView> {
-  const db = getDb()
+export async function getChargesView(db: Db = getDb()): Promise<ChargesView> {
   const history = await db
     .select({
       chargeId: chargeChanges.chargeId,
@@ -107,7 +106,9 @@ export async function createCharge(
   if (!CHARGE_KINDS.includes(kind)) return { ok: false, error: 'invalid_charge' }
   const checked = validate(input, kind)
   if (!checked.ok) return checked
-  await getDb().transaction(async (tx) => {
+  // The answer is read inside the transaction: if reading it fails, the new charge is rolled back
+  // too, so a retry can't add it twice
+  const view = await getDb().transaction(async (tx) => {
     // Custom ones go after the built-in ones of their kind
     const [{ value: sort }] = await tx
       .select({ value: charges.sort })
@@ -136,8 +137,9 @@ export async function createCharge(
       newValue: `${created.name} / ${created.nameAr}`,
       changedBy: userId
     })
+    return getChargesView(tx)
   })
-  return { ok: true, data: await getChargesView() }
+  return { ok: true, data: view }
 }
 
 export async function updateCharge(

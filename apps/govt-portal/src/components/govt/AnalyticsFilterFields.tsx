@@ -8,7 +8,7 @@ import {
   hasFilter,
   type AnalyticsFilters,
   type DateRange,
-  type OwnerOption
+  type CompanyOption
 } from '@masarat/shared/analytics'
 import { CARGO_TYPES, TRIP_KINDS, VEHICLE_TYPES, type CityRecord } from '@masarat/shared/fleet'
 import { useFormat } from '@masarat/ui/lib/format'
@@ -82,15 +82,15 @@ function parsePlace(value: string): { cityId: number | null; state: string | nul
 function AnalyticsFilterFields({
   filters,
   cities,
-  owners,
-  showOwner = true,
+  companies,
+  showCompany = true,
   onChange
 }: {
   filters: AnalyticsFilters
   cities: readonly CityRecord[]
-  owners: readonly OwnerOption[]
-  // The export dialog leaves out the owner filter
-  showOwner?: boolean
+  companies: readonly CompanyOption[]
+  // The export dialog leaves out the company filter
+  showCompany?: boolean
   onChange: (filters: AnalyticsFilters) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
@@ -103,14 +103,13 @@ function AnalyticsFilterFields({
   const placeGroups = useMemo(() => {
     const byState = new Map<string, CityRecord[]>()
     for (const city of cities) byState.set(city.state, [...(byState.get(city.state) ?? []), city])
-    const stateName = (state: string): string => t(`states.${state}`, { defaultValue: state })
     return [...byState]
       .map(([state, list]) => ({
-        label: stateName(state),
+        label: format.state(list[0]),
         options: [
           {
             value: `state:${state}`,
-            label: t('govt.filters.wholeState', { state: stateName(state) })
+            label: t('govt.filters.wholeState', { state: format.state(list[0]) })
           },
           ...list
             .map((city) => ({ value: `city:${city.id}`, label: format.city(city) }))
@@ -226,12 +225,12 @@ function AnalyticsFilterFields({
           options={TRIP_KINDS.map((k) => ({ value: k, label: t(`tripKinds.${k}`) }))}
           onChange={(value) => set('tripKind', (value || null) as AnalyticsFilters['tripKind'])}
         />
-        {showOwner && (
+        {showCompany && (
           <FilterSelect
-            label={t('govt.filters.owner')}
-            value={filters.ownerId ? String(filters.ownerId) : ''}
-            options={owners.map((o) => ({ value: String(o.id), label: o.name }))}
-            onChange={(value) => set('ownerId', value ? Number(value) : null)}
+            label={t('govt.filters.company')}
+            value={filters.companyId ? String(filters.companyId) : ''}
+            options={companies.map((o) => ({ value: String(o.id), label: o.name }))}
+            onChange={(value) => set('companyId', value ? Number(value) : null)}
           />
         )}
       </div>

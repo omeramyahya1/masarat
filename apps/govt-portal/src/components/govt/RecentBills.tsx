@@ -6,7 +6,7 @@ import PlateBadge from '@masarat/ui/components/fleet/PlateBadge'
 import { STATUS_STYLES } from '@masarat/ui/components/trips/statusStyles'
 import { Card, Empty, RouteLabel } from './parts'
 
-// Latest bills across all owners, paid or still pending
+// Latest bills across all companies, paid or still pending
 function RecentBills({
   bills,
   cities,

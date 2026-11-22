@@ -22,7 +22,6 @@ import {
   PAYMENT_STATUSES,
   TRIP_KINDS,
   VEHICLE_TYPES,
-  type CityRecord,
   type FleetErrorCode
 } from '@masarat/shared/fleet'
 import { LINE_CODES } from '@masarat/shared/tax'
@@ -42,11 +41,9 @@ const labelsFor = (
 // status, and the file format. The files are written in Arabic.
 function DataExportFields({
   filters,
-  cities,
   onClose
 }: {
   filters: AnalyticsFilters
-  cities: readonly CityRecord[]
   onClose: () => void
 }): React.JSX.Element {
   const { t, i18n } = useTranslation()
@@ -64,7 +61,6 @@ function DataExportFields({
   // Everything the API writes into the files, in Arabic
   const labels = useMemo<ExportLabels>(() => {
     const ar = i18n.getFixedT('ar')
-    const states = [...new Set(cities.map((c) => c.state))]
     return {
       sheets: labelsFor(EXPORT_DATASETS, (d) => ar(`govt.export.datasets.${d}`)) as Record<
         ExportDataset,
@@ -83,11 +79,10 @@ function DataExportFields({
         vehicleTypes: labelsFor(VEHICLE_TYPES, (v) => ar(`vehicleTypes.${v}`)),
         tripKinds: labelsFor(TRIP_KINDS, (k) => ar(`tripKinds.${k}`)),
         units: labelsFor(ITEM_UNITS, (u) => ar(`units.name.${u}`)),
-        lines: labelsFor(LINE_CODES, (code) => ar(`taxes.${code}`)),
-        states: labelsFor(states, (s) => ar(`states.${s}`, { defaultValue: s }))
+        lines: labelsFor(LINE_CODES, (code) => ar(`taxes.${code}`))
       }
     }
-  }, [i18n, cities])
+  }, [i18n])
 
   const toggle = (dataset: ExportDataset): void =>
     setDatasets((current) => {

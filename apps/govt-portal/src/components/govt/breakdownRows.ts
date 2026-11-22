@@ -24,14 +24,14 @@ export function breakdownLabel(
       return `${city(row.originCityId)} ${format.isArabic ? '←' : '→'} ${city(row.destinationCityId)}`
     case 'originState':
     case 'destinationState':
-      return t(`states.${row.key}`, { defaultValue: row.key })
+      return format.state(cities.find((c) => c.state === row.key))
     case 'cargoType':
       return t(`cargoTypes.${row.key}`)
     case 'vehicleType':
       return t(`vehicleTypes.${row.key}`)
     case 'tripKind':
       return t(`tripKinds.${row.key}`)
-    case 'owner':
+    case 'company':
       return row.name ?? row.key
   }
 }

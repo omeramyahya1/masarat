@@ -13,7 +13,7 @@ import BarList from './BarList'
 import { arrangeBreakdown, breakdownLabel } from './breakdownRows'
 import { Card, Empty } from './parts'
 
-// Revenue grouped by a dimension the user picks (route, state, cargo type, owner, …) and sorted
+// Revenue grouped by a dimension the user picks (route, state, cargo type, company, …) and sorted
 // by revenue, trips or name
 function BreakdownCard({
   rows,

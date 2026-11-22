@@ -72,7 +72,7 @@ function LoginForm({ demoMode, onAuthenticated }: LoginFormProps): React.JSX.Ele
                       {account.companyName ?? account.fullName}
                     </bdi>
                     <span className="rounded bg-stone-100 px-1.5 text-[10px] font-semibold text-stone-600">
-                      {t(`panels.${account.role}.tab`)}
+                      {t(`roles.${account.role}`)}
                     </span>
                   </span>
                   <span dir="ltr" className="font-mono text-xs whitespace-nowrap text-stone-500">

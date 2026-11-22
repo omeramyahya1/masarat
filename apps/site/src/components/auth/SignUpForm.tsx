@@ -32,7 +32,8 @@ const EMPTY_FORM = {
 
 type FormState = typeof EMPTY_FORM
 
-// Fleet owners only: government accounts are created by a government admin
+// Signs up a transport company and its first member, the company admin. Government accounts
+// are created by a government admin.
 function SignUpForm({ onAuthenticated }: SignUpFormProps): React.JSX.Element {
   const { t } = useTranslation()
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
@@ -47,7 +48,13 @@ function SignUpForm({ onAuthenticated }: SignUpFormProps): React.JSX.Element {
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
-    if (!form.fullName.trim() || !form.username.trim() || !form.phone.trim() || !form.password) {
+    if (
+      !form.fullName.trim() ||
+      !form.username.trim() ||
+      !form.phone.trim() ||
+      !form.companyName.trim() ||
+      !form.password
+    ) {
       setError('missing_fields')
       return
     }
@@ -97,7 +104,6 @@ function SignUpForm({ onAuthenticated }: SignUpFormProps): React.JSX.Element {
         <TextField
           label={t('auth.fields.companyName')}
           autoComplete="organization"
-          optional
           {...bind('companyName')}
         />
       </div>

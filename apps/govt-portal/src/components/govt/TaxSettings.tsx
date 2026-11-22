@@ -22,7 +22,7 @@ import { api } from '@masarat/api-client'
 
 type Drafts = Record<LineCode, string>
 
-// Trip cost used for the "what the owner pays" example
+// Trip cost used for the "what the company pays" example
 const EXAMPLE_TRIP_COST = 1_000_000
 
 // Basis points <-> the percentage typed in the form ("17", "12.5")

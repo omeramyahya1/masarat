@@ -306,7 +306,9 @@
       "password_change_required": "Please choose your own password first.",
       "branch_required": "Choose the branch the trip is booked at.",
       "branch_not_found": "This branch could not be found.",
-      "branch_inactive": "This branch is closed and takes no new trips."
+      "branch_inactive": "This branch is closed and takes no new trips.",
+      "invalid_charge": "Give it a name in both languages (up to 60 characters), and a value for at least one kind of trip.",
+      "charge_not_found": "This tax or fee could not be found."
     },
     "groupSummary": "{{count}} vehicles",
     "list": {
@@ -794,17 +796,11 @@
     "taxes": {
       "tab": "Taxes and fees",
       "title": "Taxes and fees",
-      "subtitle": "The taxes charged on each trip, as a percentage of its trip cost, and the fixed fees added to every bill.",
-      "saved": "Tax rates and fees saved.",
+      "subtitle": "The taxes and fees on every bill: a tax is a percentage of the trip cost, a fee a fixed amount. Each has its own value for cargo and passenger trips.",
+      "saved": "Taxes and fees saved.",
       "feeUnit": "SDG",
-      "feeHint": "A fixed amount added to every bill. It isn't taxed.",
-      "feeWas": "Currently {{amount}}",
-      "was": "Currently {{rate}}",
-      "totalRate": "Total tax rate",
-      "example": "On a trip cost of {{cost}}, the company pays {{amount}} in taxes and fees.",
-      "appliesTo": "New rates apply to bills issued from now on. Bills already issued keep the rates they were issued with.",
-      "reset": "Discard changes",
-      "save": "Save changes",
+      "appliesTo": "Changes apply to bills issued from now on. Bills already issued keep the lines they were issued with.",
+      "save": "Save",
       "history": {
         "title": "Change history",
         "empty": "No changes yet.",
@@ -812,6 +808,47 @@
         "user": "Changed by",
         "tax": "Tax or fee",
         "change": "Change"
+      },
+      "add": "Add a tax or fee",
+      "added": "Added",
+      "edit": "Edit",
+      "editName": "Edit {{name}}",
+      "custom": "Custom",
+      "on": "On",
+      "off": "Off",
+      "notCharged": "Not charged",
+      "columns": {
+        "name": "Tax or fee",
+        "kind": "Type"
+      },
+      "kinds": {
+        "percent": "Percentage of the trip cost",
+        "fixed": "Fixed amount"
+      },
+      "appliesOn": {
+        "cargo": "Cargo trips",
+        "passenger": "Passenger trips"
+      },
+      "example": {
+        "cargo": "On a trip cost of {{cost}}, a cargo trip pays {{amount}} in taxes and fees.",
+        "passenger": "On a trip cost of {{cost}}, a passenger trip pays {{amount}} in taxes and fees."
+      },
+      "form": {
+        "title": "New tax or fee",
+        "editTitle": "Edit tax or fee",
+        "name": "Name in English",
+        "nameAr": "Name in Arabic",
+        "kind": "Type",
+        "value": "Value",
+        "active": "On: charged on new bills"
+      },
+      "fields": {
+        "created": "Added",
+        "name": "English name",
+        "nameAr": "Arabic name",
+        "cargoValue": "Cargo trips",
+        "passengerValue": "Passenger trips",
+        "active": "On or off"
       }
     },
     "filters": {
@@ -914,12 +951,6 @@
       "dataSaved": "Downloaded: {{rows}}.",
       "rowCount": "{{dataset}} {{count}} rows"
     }
-  },
-  "taxes": {
-    "vat": "Value added tax",
-    "business_profit": "Business profit tax",
-    "locality": "Locality tax",
-    "manifest_fee": "Manifest fee"
   },
   "documentTypes": {
     "commercial_invoice": "Commercial invoice",

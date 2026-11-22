@@ -24,7 +24,6 @@ import {
   VEHICLE_TYPES,
   type FleetErrorCode
 } from '@masarat/shared/fleet'
-import { LINE_CODES } from '@masarat/shared/tax'
 import { useFormat } from '@masarat/ui/lib/format'
 import { useMountedRef } from '@masarat/ui/lib/useMountedRef'
 import { FormAlert } from '@masarat/ui/components/form/fields'
@@ -78,8 +77,7 @@ function DataExportFields({
         cargoTypes: labelsFor(CARGO_TYPES, (c) => ar(`cargoTypes.${c}`)),
         vehicleTypes: labelsFor(VEHICLE_TYPES, (v) => ar(`vehicleTypes.${v}`)),
         tripKinds: labelsFor(TRIP_KINDS, (k) => ar(`tripKinds.${k}`)),
-        units: labelsFor(ITEM_UNITS, (u) => ar(`units.name.${u}`)),
-        lines: labelsFor(LINE_CODES, (code) => ar(`taxes.${code}`))
+        units: labelsFor(ITEM_UNITS, (u) => ar(`units.name.${u}`))
       }
     }
   }, [i18n])

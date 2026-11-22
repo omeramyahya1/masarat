@@ -1,19 +1,17 @@
 import { lazy, Suspense, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { Download, LoaderCircle } from 'lucide-react'
+import { LoaderCircle, Printer } from 'lucide-react'
 import { formatDay, type DashboardView, type OwnerOption } from '@masarat/shared/analytics'
 import type { DashboardData } from '@masarat/shared/dashboard'
-import type { CityRecord, FleetErrorCode } from '@masarat/shared/fleet'
+import type { CityRecord } from '@masarat/shared/fleet'
 import { createFormatters } from '@masarat/ui/lib/format'
-import { useMountedRef } from '@masarat/ui/lib/useMountedRef'
-import { FormAlert } from '@masarat/ui/components/form/fields'
+import { printDocument } from '@masarat/ui/lib/printDocument'
 import Modal from '@masarat/ui/components/ui/Modal'
 import { DocumentSheet, Field, Section } from '@masarat/ui/components/trips/documentParts'
 import BarList from './BarList'
 import { arrangeBreakdown, breakdownLabel } from './breakdownRows'
 import type { ReportSection } from './reportSections'
-import { api } from '@masarat/api-client'
 
 const RevenueChart = lazy(() => import('./RevenueChart'))
 
@@ -64,13 +62,9 @@ function ReportModal({
 }): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const titleId = useId()
-  const mounted = useMountedRef()
   const ar = useMemo(() => i18n.getFixedT('ar'), [i18n])
   const fa = useMemo(() => createFormatters(true, ar), [ar])
   const [chartReady, setChartReady] = useState(!sections.has('chart'))
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState<FleetErrorCode | null>(null)
   const f = data.filters
   const { kpis } = data
 
@@ -302,62 +296,35 @@ function ReportModal({
     footer: ar('report.footer')
   }
 
-  const savePdf = async (): Promise<void> => {
-    setSaving(true)
-    setSaved(false)
-    setError(null)
-    try {
-      const name = `masarat-report-${formatDay(new Date(data.from))}-${formatDay(new Date(data.to - 1))}`
-      const result = await api.govt.saveReportPdf(name)
-      if (!mounted.current) return
-      if (!result.ok) setError(result.error)
-      else setSaved(result.data.saved)
-    } catch {
-      if (mounted.current) setError('unknown')
-    } finally {
-      if (mounted.current) setSaving(false)
-    }
-  }
-  const close = (): void => {
-    if (!saving) onClose()
-  }
+  // The browser's print dialog: "Save as PDF" there saves the report under this name
+  const printReport = (): void =>
+    printDocument(
+      `masarat-report-${formatDay(new Date(data.from))}-${formatDay(new Date(data.to - 1))}`
+    )
 
   // Rendered into <body> so the print styles can drop the rest of the app from the PDF
   return createPortal(
-    <Modal labelledBy={titleId} onClose={close} className="print-dialog max-w-[calc(190mm+4rem)]">
+    <Modal labelledBy={titleId} onClose={onClose} className="print-dialog max-w-[calc(190mm+4rem)]">
       <div className="no-print mb-4 flex items-center justify-between gap-4">
         <h2 id={titleId} className="text-lg font-semibold">
           {t('govt.export.reportPreview')}
         </h2>
         <div className="flex gap-2">
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            disabled={saving}
-            onClick={close}
-          >
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
             {t('certificate.close')}
           </button>
+          {/* Waits for the chart, so it's on the printed page */}
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            disabled={saving || !chartReady}
-            onClick={savePdf}
+            disabled={!chartReady}
+            onClick={printReport}
           >
-            {saving ? <LoaderCircle size={16} className="animate-spin" /> : <Download size={16} />}
+            <Printer size={16} />
             {t('certificate.download')}
           </button>
         </div>
       </div>
-      {(error || saved) && (
-        <div className="no-print mb-4">
-          {error ? (
-            <FormAlert message={t(`fleet.errors.${error}`)} />
-          ) : (
-            <FormAlert tone="success" message={t('govt.export.reportSaved')} />
-          )}
-        </div>
-      )}
 
       <div className="print-sheets flex flex-col gap-6">
         {pages.map((content, index) => (

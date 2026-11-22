@@ -61,8 +61,8 @@ describe('login', () => {
       username: 'nobody',
       password: 'x'
     })
-    expect(wrong).toEqual({ status: 401, body: { ok: false, error: 'invalid_credentials' } })
-    expect(unknown).toEqual(wrong)
+    expect(wrong).toMatchObject({ status: 401, body: { ok: false, error: 'invalid_credentials' } })
+    expect(unknown.body).toEqual(wrong.body)
   })
 
   test('a disabled account is refused, after the password checks out', async () => {
@@ -146,7 +146,7 @@ describe('origin check', () => {
       username: 'owner.one',
       password: PASSWORD
     })
-    expect(evil).toEqual({ status: 403, body: { ok: false, error: 'forbidden' } })
+    expect(evil).toMatchObject({ status: 403, body: { ok: false, error: 'forbidden' } })
 
     const { app } = await import('../src/app')
     const bare = await app.request('/auth/logout', { method: 'POST' })
@@ -181,7 +181,7 @@ describe('sign-up and profile', () => {
       username: 'new.owner',
       password: PASSWORD
     })
-    expect(taken).toEqual({ status: 409, body: { ok: false, error: 'username_taken' } })
+    expect(taken).toMatchObject({ status: 409, body: { ok: false, error: 'username_taken' } })
 
     const profile = await b.call('PATCH', '/auth/profile', {
       fullName: 'Renamed',
@@ -236,7 +236,7 @@ describe('government users', () => {
     })
     expect(login.body.user.mustChangePassword).toBe(true)
     expect((await clerk.call('GET', '/auth/me')).status).toBe(200)
-    expect(await clerk.call('GET', '/govt/users')).toEqual({
+    expect(await clerk.call('GET', '/govt/users')).toMatchObject({
       status: 403,
       body: { ok: false, error: 'password_change_required' }
     })

@@ -375,6 +375,7 @@ interface BuiltTrip {
 // Attachments from the browser: at most one per type, each type applying to the trip's kind,
 // kept ones belonging to this trip and new ones still in staging
 async function parseDocuments(
+  ownerId: number,
   value: unknown,
   tripKind: TripKind,
   manifestId: number | null
@@ -399,7 +400,7 @@ async function parseDocuments(
       if (!saved.some((d) => d.id === raw.id && d.docType === raw.docType)) return null
       changes.keep.push(raw.id)
     } else {
-      const file = findStaged(raw.token)
+      const file = findStaged(ownerId, raw.token)
       if (!file || file.docType !== raw.docType) return null
       changes.add.push(file)
     }
@@ -455,7 +456,7 @@ async function buildTrip(
   const driverId = input.driverId ?? null
   const driver = driverId === null ? null : await findOwnedDriver(ownerId, driverId)
   if (driverId !== null && !driver) return { ok: false, error: 'driver_not_found' }
-  const documents = await parseDocuments(input.documents, input.tripKind, manifestId)
+  const documents = await parseDocuments(ownerId, input.documents, input.tripKind, manifestId)
   if (!documents) return { ok: false, error: 'invalid_document' }
 
   const distanceKm = estimateRoadKm(origin, destination)

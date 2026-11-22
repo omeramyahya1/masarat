@@ -2,8 +2,8 @@
 // a password. Sessions themselves live in services/sessions.ts.
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'crypto'
 import { promisify } from 'util'
-import { and, count, eq, gte } from 'drizzle-orm'
-import { getDb, loginAttempts, users, type User } from '../db'
+import { and, count, eq, gte, ne } from 'drizzle-orm'
+import { getDb, isUniqueViolation, loginAttempts, users, type User } from '../db'
 import {
   MAX_ADDRESS_LENGTH,
   MAX_TIN_LENGTH,
@@ -17,6 +17,7 @@ import {
   type ProfileInput,
   type SignUpInput
 } from '@masarat/shared/auth'
+import { normalizeSudanPhone } from '@masarat/shared/phone'
 import { createSession, deleteUserSessions, type ClientInfo } from './sessions'
 
 // Argon2id with Bun's defaults (OWASP's first choice for password storage)
@@ -75,6 +76,23 @@ function checkCarrierDetails(address: string, tin: string): AuthErrorCode | null
   if (tin.length > MAX_TIN_LENGTH) return 'invalid_tin'
   return null
 }
+
+// Every account has its own Sudanese mobile number: null when the input isn't one
+export const accountPhone = (value: unknown): string | null =>
+  normalizeSudanPhone(typeof value === 'string' ? value : '')
+
+// Whether another account already has this number (the unique index still decides on a race)
+export async function phoneTaken(phone: string, exceptUserId?: number): Promise<boolean> {
+  const condition = and(
+    eq(users.phone, phone),
+    exceptUserId === undefined ? undefined : ne(users.id, exceptUserId)
+  )
+  const [taken] = await getDb().select({ id: users.id }).from(users).where(condition).limit(1)
+  return Boolean(taken)
+}
+
+export const isPhoneConflict = (error: unknown): boolean =>
+  isUniqueViolation(error, 'users_phone_unique')
 
 // A signed-in user and the token for their session cookie
 export type LoginResult =
@@ -141,29 +159,40 @@ export async function signUp(input: SignUpInput, client: ClientInfo): Promise<Lo
   const username = asText(input?.username).toLowerCase()
   const password = asPassword(input?.password)
 
-  if (!fullName || !username || !password) return { ok: false, error: 'missing_fields' }
+  if (!fullName || !username || !password || !asText(input?.phone)) {
+    return { ok: false, error: 'missing_fields' }
+  }
   if (!USERNAME_PATTERN.test(username)) return { ok: false, error: 'invalid_username' }
   if (password.length < PASSWORD_MIN_LENGTH) return { ok: false, error: 'weak_password' }
+  const phone = accountPhone(input.phone)
+  if (!phone) return { ok: false, error: 'invalid_phone' }
   const address = asText(input.address)
   const tin = asText(input.tin)
   const carrierError = checkCarrierDetails(address, tin)
   if (carrierError) return { ok: false, error: carrierError }
+  if (await phoneTaken(phone)) return { ok: false, error: 'phone_taken' }
 
-  const [created] = await getDb()
-    .insert(users)
-    .values({
-      role: 'owner',
-      fullName,
-      username,
-      passwordHash: await hashPassword(password),
-      phone: asText(input.phone) || null,
-      companyName: asText(input.companyName) || null,
-      address: address || null,
-      tin: tin || null
-    })
-    // The unique index decides, so two sign-ups with one username can't both succeed
-    .onConflictDoNothing({ target: users.username })
-    .returning()
+  let created: User | undefined
+  try {
+    ;[created] = await getDb()
+      .insert(users)
+      .values({
+        role: 'owner',
+        fullName,
+        username,
+        passwordHash: await hashPassword(password),
+        phone,
+        companyName: asText(input.companyName) || null,
+        address: address || null,
+        tin: tin || null
+      })
+      // The unique index decides, so two sign-ups with one username can't both succeed
+      .onConflictDoNothing({ target: users.username })
+      .returning()
+  } catch (error) {
+    if (isPhoneConflict(error)) return { ok: false, error: 'phone_taken' }
+    throw error
+  }
   if (!created) return { ok: false, error: 'username_taken' }
   const token = await createSession(created.id, client)
   return { ok: true, user: toAuthUser(created), token }
@@ -172,23 +201,32 @@ export async function signUp(input: SignUpInput, client: ClientInfo): Promise<Lo
 // The signed-in fleet owner edits their own details
 export async function updateProfile(ownerId: number, input: ProfileInput): Promise<AuthResult> {
   const fullName = asText(input?.fullName)
-  if (!fullName) return { ok: false, error: 'missing_fields' }
+  if (!fullName || !asText(input?.phone)) return { ok: false, error: 'missing_fields' }
+  const phone = accountPhone(input.phone)
+  if (!phone) return { ok: false, error: 'invalid_phone' }
   const address = asText(input?.address)
   const tin = asText(input?.tin)
   const carrierError = checkCarrierDetails(address, tin)
   if (carrierError) return { ok: false, error: carrierError }
+  if (await phoneTaken(phone, ownerId)) return { ok: false, error: 'phone_taken' }
 
-  const [updated] = await getDb()
-    .update(users)
-    .set({
-      fullName,
-      phone: asText(input.phone) || null,
-      companyName: asText(input.companyName) || null,
-      address: address || null,
-      tin: tin || null
-    })
-    .where(and(eq(users.id, ownerId), eq(users.role, 'owner')))
-    .returning()
+  let updated: User | undefined
+  try {
+    ;[updated] = await getDb()
+      .update(users)
+      .set({
+        fullName,
+        phone,
+        companyName: asText(input.companyName) || null,
+        address: address || null,
+        tin: tin || null
+      })
+      .where(and(eq(users.id, ownerId), eq(users.role, 'owner')))
+      .returning()
+  } catch (error) {
+    if (isPhoneConflict(error)) return { ok: false, error: 'phone_taken' }
+    throw error
+  }
   if (!updated) return { ok: false, error: 'not_signed_in' }
   return { ok: true, user: toAuthUser(updated) }
 }

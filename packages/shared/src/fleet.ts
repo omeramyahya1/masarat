@@ -117,7 +117,8 @@ export interface VehicleRecord extends Omit<VehicleInput, 'registrationNo'> {
   createdAt: number
 }
 
-// Phone numbers are stored without spaces or dashes: an optional "+" and 7 to 15 digits
+// Senders' and receivers' phones (they may be abroad on imports and exports): stored without
+// spaces or dashes, an optional "+" and 7 to 15 digits. Accounts and drivers use phone.ts.
 const PHONE_PATTERN = /^\+?[0-9]{7,15}$/
 export function normalizePhone(value: string): string | null {
   const phone = value.replace(/[\s-]/g, '')

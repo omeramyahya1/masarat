@@ -7,6 +7,8 @@ export interface DemoAccount {
   username: string
   password: string
   fullName: string
+  // Sudanese mobile number, as stored
+  phone: string
   companyName: string | null
   // Fleet owners' carrier details
   address: string | null
@@ -19,6 +21,7 @@ export const DEMO_OWNER_ACCOUNTS: readonly DemoAccount[] = [
     username: 'nile.transport',
     password: 'nile2026',
     fullName: 'Ahmed Osman',
+    phone: '+249912301001',
     companyName: 'Nile Transport Co.',
     address: 'الخرطوم بحري، المنطقة الصناعية، شارع المعونة',
     tin: '300145872'
@@ -28,6 +31,7 @@ export const DEMO_OWNER_ACCOUNTS: readonly DemoAccount[] = [
     username: 'redsea.logistics',
     password: 'redsea2026',
     fullName: 'Fatima Hassan',
+    phone: '+249912301002',
     companyName: 'Red Sea Logistics',
     address: 'بورتسودان، حي الميناء، مربع 4',
     tin: '300267419'
@@ -37,6 +41,7 @@ export const DEMO_OWNER_ACCOUNTS: readonly DemoAccount[] = [
     username: 'kordofan.haulage',
     password: 'kordofan2026',
     fullName: 'Mohamed Ali',
+    phone: '+249912301003',
     companyName: 'Kordofan Haulage',
     address: 'الأبيض، السوق الكبير، شارع النيل',
     tin: '300389036'
@@ -46,6 +51,7 @@ export const DEMO_OWNER_ACCOUNTS: readonly DemoAccount[] = [
     username: 'gezira.freight',
     password: 'gezira2026',
     fullName: 'Amna Ibrahim',
+    phone: '+249912301004',
     companyName: 'Gezira Freight',
     address: 'ود مدني، المنطقة الصناعية، شارع الجمهورية',
     tin: '300412658'
@@ -58,6 +64,7 @@ export const DEMO_GOVT_ACCOUNT: DemoAccount = {
   username: 'ministry.demo',
   password: 'govt2026',
   fullName: 'Tax Collection Officer',
+  phone: '+249912301000',
   companyName: null,
   address: null,
   tin: null

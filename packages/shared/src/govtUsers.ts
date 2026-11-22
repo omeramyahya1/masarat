@@ -3,7 +3,7 @@ export interface GovtUserRecord {
   id: number
   username: string
   fullName: string
-  phone: string | null
+  phone: string
   isAdmin: boolean
   // Disabled accounts can't log in; their history stays
   disabled: boolean
@@ -14,7 +14,8 @@ export interface GovtUserRecord {
 export interface NewGovtUserInput {
   username: string
   fullName: string
-  phone?: string
+  // A Sudanese mobile number, required
+  phone: string
   isAdmin?: boolean
 }
 
@@ -29,6 +30,8 @@ export type GovtUserErrorCode =
   | 'missing_fields'
   | 'invalid_username'
   | 'username_taken'
+  | 'invalid_phone'
+  | 'phone_taken'
   | 'user_not_found'
   // The action would leave no active admin
   | 'last_admin'

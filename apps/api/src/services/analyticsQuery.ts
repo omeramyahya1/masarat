@@ -2,24 +2,28 @@
 // dashboard, the report, the raw data export and the government search
 import { and, eq, exists, inArray, or, type SQL, type SQLWrapper } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
-import { cities, getDb, manifestCargoItems, manifests, users, vehicles } from '../db'
+import { cities, companies, getDb, manifestCargoItems, manifests, states, vehicles } from '../db'
 import type { AnalyticsFilters } from '@masarat/shared/analytics'
-import type { OwnerOption } from '@masarat/shared/analytics'
+import type { CompanyOption } from '@masarat/shared/analytics'
 
 const originCity = alias(cities, 'filter_origin')
 const destinationCity = alias(cities, 'filter_destination')
 
-// Conditions on the trip itself (route, cargo, vehicle, owner); the date range is applied by each
+// A city's state, by the state's name
+const inState = (stateId: SQLWrapper, name: string): SQL =>
+  inArray(stateId, getDb().select({ id: states.id }).from(states).where(eq(states.name, name)))
+
+// Conditions on the trip itself (route, cargo, vehicle, company); the date range is applied by each
 // query to the date it is about. Undefined when no such filter is set.
 export function tripConditions(f: AnalyticsFilters): SQL | undefined {
   const conditions: (SQL | undefined)[] = [
     f.originCityId ? eq(manifests.originCityId, f.originCityId) : undefined,
     f.destinationCityId ? eq(manifests.destinationCityId, f.destinationCityId) : undefined,
-    f.originState ? eq(originCity.state, f.originState) : undefined,
-    f.destinationState ? eq(destinationCity.state, f.destinationState) : undefined,
+    f.originState ? inState(originCity.stateId, f.originState) : undefined,
+    f.destinationState ? inState(destinationCity.stateId, f.destinationState) : undefined,
     f.tripKind ? eq(manifests.tripKind, f.tripKind) : undefined,
     f.vehicleType ? eq(vehicles.vehicleType, f.vehicleType) : undefined,
-    f.ownerId ? eq(vehicles.ownerId, f.ownerId) : undefined,
+    f.companyId ? eq(vehicles.companyId, f.companyId) : undefined,
     // Any item of that type (a trip can mix them), or the trip's own type for trips from before
     // cargo items existed
     f.cargoType
@@ -59,13 +63,8 @@ export function inFilteredTrips(column: SQLWrapper, f: AnalyticsFilters): SQL | 
   )
 }
 
-// Fleet owners, for the owner filter
-export async function listOwners(): Promise<OwnerOption[]> {
-  const owners = await getDb()
-    .select({ id: users.id, companyName: users.companyName, fullName: users.fullName })
-    .from(users)
-    .where(eq(users.role, 'owner'))
-  return owners
-    .map((u) => ({ id: u.id, name: u.companyName || u.fullName }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+// Transport companies, for the company filter
+export async function listCompanies(): Promise<CompanyOption[]> {
+  const rows = await getDb().select({ id: companies.id, name: companies.name }).from(companies)
+  return rows.sort((a, b) => a.name.localeCompare(b.name))
 }

@@ -3,12 +3,13 @@ import { Hono } from 'hono'
 import { findOwnedDocumentFile, stageDocument } from '../services/documents'
 import { fail, idParam, send, type AppEnv } from '../http/context'
 import { sendFile } from '../http/files'
-import { ownerId, requireOwner } from '../http/owner'
+import { companyScope, requireCompany, userId } from '../http/company'
+import { requirePermission } from '../http/middleware'
 
 export const documentRoutes = new Hono<AppEnv>()
-  .use(...requireOwner)
+  .use(...requireCompany)
   // multipart/form-data: docType, file
-  .post('/', async (c) => {
+  .post('/', requirePermission('trips.edit'), async (c) => {
     let body: Record<string, unknown>
     try {
       body = await c.req.parseBody()
@@ -18,9 +19,9 @@ export const documentRoutes = new Hono<AppEnv>()
     const file = body.file
     if (!(file instanceof File)) return fail(c, 'invalid_document')
     const bytes = new Uint8Array(await file.arrayBuffer())
-    return send(c, stageDocument(ownerId(c), body.docType, file.name, bytes))
+    return send(c, stageDocument(userId(c), body.docType, file.name, bytes))
   })
-  .get('/:id/file', async (c) => {
+  .get('/:id/file', requirePermission('trips.view'), async (c) => {
     const id = idParam(c)
-    return sendFile(c, id === null ? undefined : await findOwnedDocumentFile(ownerId(c), id))
+    return sendFile(c, id === null ? undefined : await findOwnedDocumentFile(companyScope(c), id))
   })

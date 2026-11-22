@@ -1,4 +1,4 @@
-// A fleet owner's drivers. Trips pick one; the manifest keeps its own copy of the name and phone,
+// A company's drivers. Trips pick one; the manifest keeps its own copy of the name and phone,
 // so editing a driver later doesn't change manifests already issued.
 import { and, asc, count, eq, ne } from 'drizzle-orm'
 import { drivers, getDb, manifests, type Driver } from '../db'
@@ -30,10 +30,10 @@ function validate(input: DriverInput): FleetResult<DriverInput> {
   return { ok: true, data: { name, phone } }
 }
 
-// Phone numbers are unique within an owner's drivers
-async function phoneTaken(ownerId: number, phone: string, exceptId?: number): Promise<boolean> {
+// Phone numbers are unique within a company's drivers
+async function phoneTaken(companyId: number, phone: string, exceptId?: number): Promise<boolean> {
   const condition = and(
-    eq(drivers.ownerId, ownerId),
+    eq(drivers.companyId, companyId),
     eq(drivers.phone, phone),
     exceptId === undefined ? undefined : ne(drivers.id, exceptId)
   )
@@ -42,54 +42,54 @@ async function phoneTaken(ownerId: number, phone: string, exceptId?: number): Pr
 }
 
 export async function findOwnedDriver(
-  ownerId: number,
+  companyId: number,
   driverId: unknown
 ): Promise<Driver | undefined> {
   if (typeof driverId !== 'number') return undefined
   const [driver] = await getDb()
     .select()
     .from(drivers)
-    .where(and(eq(drivers.id, driverId), eq(drivers.ownerId, ownerId)))
+    .where(and(eq(drivers.id, driverId), eq(drivers.companyId, companyId)))
     .limit(1)
   return driver
 }
 
-export async function listDrivers(ownerId: number): Promise<DriverRecord[]> {
+export async function listDrivers(companyId: number): Promise<DriverRecord[]> {
   const rows = await getDb()
     .select({ driver: drivers, tripCount: count(manifests.id) })
     .from(drivers)
     .leftJoin(manifests, eq(manifests.driverId, drivers.id))
-    .where(eq(drivers.ownerId, ownerId))
+    .where(eq(drivers.companyId, companyId))
     .groupBy(drivers.id)
     .orderBy(asc(drivers.name), asc(drivers.id))
   return rows.map((row) => toRecord(row.driver, row.tripCount))
 }
 
 export async function addDriver(
-  ownerId: number,
+  companyId: number,
   input: DriverInput
 ): Promise<FleetResult<DriverRecord>> {
   const checked = validate(input)
   if (!checked.ok) return checked
-  if (await phoneTaken(ownerId, checked.data.phone)) return { ok: false, error: 'phone_taken' }
+  if (await phoneTaken(companyId, checked.data.phone)) return { ok: false, error: 'phone_taken' }
 
   const [created] = await getDb()
     .insert(drivers)
-    .values({ ownerId, ...checked.data })
+    .values({ companyId, ...checked.data })
     .returning()
   return { ok: true, data: toRecord(created) }
 }
 
 export async function updateDriver(
-  ownerId: number,
+  companyId: number,
   driverId: number,
   input: DriverInput
 ): Promise<FleetResult<DriverRecord>> {
-  const existing = await findOwnedDriver(ownerId, driverId)
+  const existing = await findOwnedDriver(companyId, driverId)
   if (!existing) return { ok: false, error: 'driver_not_found' }
   const checked = validate(input)
   if (!checked.ok) return checked
-  if (await phoneTaken(ownerId, checked.data.phone, existing.id)) {
+  if (await phoneTaken(companyId, checked.data.phone, existing.id)) {
     return { ok: false, error: 'phone_taken' }
   }
 
@@ -101,8 +101,11 @@ export async function updateDriver(
   return { ok: true, data: toRecord(updated) }
 }
 
-export async function deleteDriver(ownerId: number, driverId: number): Promise<FleetResult<null>> {
-  const existing = await findOwnedDriver(ownerId, driverId)
+export async function deleteDriver(
+  companyId: number,
+  driverId: number
+): Promise<FleetResult<null>> {
+  const existing = await findOwnedDriver(companyId, driverId)
   if (!existing) return { ok: false, error: 'driver_not_found' }
   // A draft still needs its driver; billed manifests keep their own copy of the name and phone
   const [draft] = await getDb()

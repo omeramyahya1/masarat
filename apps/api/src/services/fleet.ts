@@ -79,29 +79,29 @@ async function plateTaken(plateNumber: string, exceptId?: number): Promise<boole
   return Boolean(taken)
 }
 
-async function findOwned(ownerId: number, vehicleId: unknown): Promise<Vehicle | undefined> {
+async function findOwned(companyId: number, vehicleId: unknown): Promise<Vehicle | undefined> {
   if (typeof vehicleId !== 'number') return undefined
   const [vehicle] = await getDb()
     .select()
     .from(vehicles)
-    .where(and(eq(vehicles.id, vehicleId), eq(vehicles.ownerId, ownerId)))
+    .where(and(eq(vehicles.id, vehicleId), eq(vehicles.companyId, companyId)))
     .limit(1)
   return vehicle
 }
 
-export async function listVehicles(ownerId: number): Promise<VehicleRecord[]> {
+export async function listVehicles(companyId: number): Promise<VehicleRecord[]> {
   const rows = await getDb()
     .select({ vehicle: vehicles, tripCount: count(manifests.id) })
     .from(vehicles)
     .leftJoin(manifests, eq(manifests.vehicleId, vehicles.id))
-    .where(eq(vehicles.ownerId, ownerId))
+    .where(eq(vehicles.companyId, companyId))
     .groupBy(vehicles.id)
     .orderBy(vehicles.createdAt, vehicles.id)
   return rows.map((row) => toRecord(row.vehicle, row.tripCount))
 }
 
 export async function addVehicle(
-  ownerId: number,
+  companyId: number,
   input: VehicleInput
 ): Promise<FleetResult<VehicleRecord>> {
   const checked = validate(input)
@@ -110,17 +110,17 @@ export async function addVehicle(
 
   const [created] = await getDb()
     .insert(vehicles)
-    .values({ ownerId, ...checked.data })
+    .values({ companyId, ...checked.data })
     .returning()
   return { ok: true, data: toRecord(created, 0) }
 }
 
 export async function updateVehicle(
-  ownerId: number,
+  companyId: number,
   vehicleId: number,
   input: VehicleInput
 ): Promise<FleetResult<VehicleRecord>> {
-  const existing = await findOwned(ownerId, vehicleId)
+  const existing = await findOwned(companyId, vehicleId)
   if (!existing) return { ok: false, error: 'vehicle_not_found' }
   const checked = validate(input)
   if (!checked.ok) return checked
@@ -146,10 +146,10 @@ export async function updateVehicle(
 }
 
 export async function deleteVehicle(
-  ownerId: number,
+  companyId: number,
   vehicleId: number
 ): Promise<FleetResult<null>> {
-  const existing = await findOwned(ownerId, vehicleId)
+  const existing = await findOwned(companyId, vehicleId)
   if (!existing) return { ok: false, error: 'vehicle_not_found' }
   // manifests.vehicle_id is ON DELETE RESTRICT; report it instead of surfacing a constraint error
   if ((await tripCountOf(existing.id)) > 0) return { ok: false, error: 'vehicle_in_use' }

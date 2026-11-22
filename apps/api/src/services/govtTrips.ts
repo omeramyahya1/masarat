@@ -2,7 +2,7 @@
 // plate, company or city name, and by route
 import { and, count, desc, eq, or, sql, type SQL } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
-import { certificates, cities, getDb, manifests, payments, users, vehicles } from '../db'
+import { certificates, cities, companies, getDb, manifests, payments, vehicles } from '../db'
 import type { GovtSearchInput, GovtSearchResult } from '@masarat/shared/billing'
 import { DEFAULT_PAGE_SIZE, isPageSize, type Page } from '@masarat/shared/paging'
 import type { FleetResult } from '@masarat/shared/fleet'
@@ -53,8 +53,7 @@ function textConditions(raw: string): SQL | undefined {
   return or(
     plate,
     contains(vehicles.registrationNo, text),
-    contains(users.companyName, text),
-    contains(users.fullName, text),
+    contains(companies.name, text),
     contains(origin.name, text),
     contains(origin.nameAr, text),
     contains(destination.name, text),
@@ -88,7 +87,7 @@ export async function searchTrips(
     .select({ total: count() })
     .from(manifests)
     .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-    .innerJoin(users, eq(vehicles.ownerId, users.id))
+    .innerJoin(companies, eq(vehicles.companyId, companies.id))
     .innerJoin(origin, eq(manifests.originCityId, origin.id))
     .innerJoin(destination, eq(manifests.destinationCityId, destination.id))
     .leftJoin(payments, eq(payments.manifestId, manifests.id))
@@ -105,8 +104,7 @@ export async function searchTrips(
       manifestId: manifests.id,
       manifestNo: certificates.manifestNo,
       billId: payments.billId,
-      companyName: users.companyName,
-      fullName: users.fullName,
+      companyName: companies.name,
       plateNumber: vehicles.plateNumber,
       originCityId: manifests.originCityId,
       destinationCityId: manifests.destinationCityId,
@@ -116,7 +114,7 @@ export async function searchTrips(
     })
     .from(manifests)
     .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-    .innerJoin(users, eq(vehicles.ownerId, users.id))
+    .innerJoin(companies, eq(vehicles.companyId, companies.id))
     .innerJoin(origin, eq(manifests.originCityId, origin.id))
     .innerJoin(destination, eq(manifests.destinationCityId, destination.id))
     .leftJoin(payments, eq(payments.manifestId, manifests.id))
@@ -129,9 +127,8 @@ export async function searchTrips(
   return {
     ok: true,
     data: {
-      rows: rows.map(({ companyName, fullName, tripDate, ...row }) => ({
+      rows: rows.map(({ tripDate, ...row }) => ({
         ...row,
-        companyName: companyName || fullName,
         tripDate: tripDate.getTime()
       })),
       total,

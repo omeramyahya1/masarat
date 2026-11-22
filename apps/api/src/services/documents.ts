@@ -8,6 +8,7 @@ import { basename, extname, join } from 'path'
 import { and, eq } from 'drizzle-orm'
 import { config } from '../config'
 import { getDb, manifests, tripDocuments, vehicles, type TripDocument } from '../db'
+import { tripScopeCondition, type TripScope } from './access'
 import {
   DOCUMENT_EXTENSIONS,
   DOCUMENT_TYPES,
@@ -27,9 +28,9 @@ export const isDocumentType = (value: unknown): value is DocumentType =>
   (DOCUMENT_TYPES as readonly unknown[]).includes(value)
 
 // What we know about a staged file; kept in memory, since staging doesn't outlive the API process.
-// It belongs to the owner who uploaded it: nobody else can attach it.
+// It belongs to the member who uploaded it: nobody else can attach it.
 interface Staged extends StagedDocument {
-  ownerId: number
+  userId: number
   storedName: string
 }
 const staged = new Map<string, Staged>()
@@ -66,7 +67,7 @@ const hasSignature = (bytes: Uint8Array, extension: string): boolean =>
 
 // Writes an uploaded file into staging, for the trip form to attach when the trip is saved
 export function stageDocument(
-  ownerId: number,
+  userId: number,
   docType: unknown,
   fileName: string,
   bytes: Uint8Array
@@ -85,15 +86,15 @@ export function stageDocument(
   mkdirSync(stagingDir(), { recursive: true })
   writeFileSync(join(stagingDir(), storedName), bytes)
   const document: StagedDocument = { token, docType, fileName: basename(fileName), size }
-  staged.set(token, { ...document, ownerId, storedName })
+  staged.set(token, { ...document, userId, storedName })
   return { ok: true, data: document }
 }
 
-// A staged file, if the token is one we handed this owner and the file is still there
-export function findStaged(ownerId: number, token: unknown): Staged | undefined {
+// A staged file, if the token is one we handed this member and the file is still there
+export function findStaged(userId: number, token: unknown): Staged | undefined {
   if (typeof token !== 'string' || !TOKEN_PATTERN.test(token)) return undefined
   const document = staged.get(token)
-  if (!document || document.ownerId !== ownerId) return undefined
+  if (!document || document.userId !== userId) return undefined
   return existsSync(join(stagingDir(), document.storedName)) ? document : undefined
 }
 
@@ -119,10 +120,10 @@ export function removeTripFolder(manifestId: number): void {
   rmSync(manifestDir(manifestId), { recursive: true, force: true })
 }
 
-// The owner's own attachment, by id
-// A null owner is the government, which may open any trip's attachments
+// An attachment of a trip the scope may see, by id. A null scope is the government, which may open
+// any trip's attachments.
 async function findOwnedDocument(
-  ownerId: number | null,
+  scope: TripScope,
   documentId: unknown
 ): Promise<TripDocument | undefined> {
   if (typeof documentId !== 'number') return undefined
@@ -131,22 +132,17 @@ async function findOwnedDocument(
     .from(tripDocuments)
     .innerJoin(manifests, eq(tripDocuments.manifestId, manifests.id))
     .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-    .where(
-      and(
-        eq(tripDocuments.id, documentId),
-        ownerId === null ? undefined : eq(vehicles.ownerId, ownerId)
-      )
-    )
+    .where(and(eq(tripDocuments.id, documentId), tripScopeCondition(scope)))
     .limit(1)
   return row?.document
 }
 
 // A saved attachment's file and original name, for the viewer
 export async function findOwnedDocumentFile(
-  ownerId: number | null,
+  scope: TripScope,
   documentId: unknown
 ): Promise<{ path: string; fileName: string } | undefined> {
-  const document = await findOwnedDocument(ownerId, documentId)
+  const document = await findOwnedDocument(scope, documentId)
   return document
     ? { path: storedPath(document.manifestId, document.storedName), fileName: document.fileName }
     : undefined

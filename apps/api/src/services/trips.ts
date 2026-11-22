@@ -1,12 +1,14 @@
-import { and, asc, desc, eq, inArray, isNotNull } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import { log } from '../log'
 import {
+  branches,
   cities,
   getDb,
   manifestCargoItems,
   manifests,
   manifestTaxes,
   manifestTrailers,
+  states,
   tripDocuments,
   taxRates,
   taxSettings,
@@ -61,6 +63,7 @@ import {
   removeStoredFiles,
   removeTripFolder
 } from './documents'
+import { tripScopeCondition, type CompanyScope } from './access'
 import { findOwnedDriver } from './drivers'
 import { findOwnedVehicle } from './fleet'
 
@@ -108,11 +111,13 @@ export async function getReferenceData(): Promise<TripReferenceData> {
         id: cities.id,
         name: cities.name,
         nameAr: cities.nameAr,
-        state: cities.state,
+        state: states.name,
+        stateAr: states.nameAr,
         lat: cities.lat,
         lng: cities.lng
       })
       .from(cities)
+      .innerJoin(states, eq(cities.stateId, states.id))
       .orderBy(cities.name),
     taxRates: await db
       .select({
@@ -131,6 +136,8 @@ export async function getReferenceData(): Promise<TripReferenceData> {
 export const tripColumns = {
   id: manifests.id,
   vehicleId: manifests.vehicleId,
+  branchId: manifests.branchId,
+  branchName: sql<string>`(select ${branches.name} from ${branches} where ${branches.id} = ${manifests.branchId})`,
   plateNumber: vehicles.plateNumber,
   vehicleType: vehicles.vehicleType,
   registrationNo: vehicles.registrationNo,
@@ -287,13 +294,13 @@ export async function toTripRecords(rows: readonly TripRow[]): Promise<TripRecor
 export const toTripRecord = async (row: TripRow): Promise<TripRecord> =>
   (await toTripRecords([row]))[0]
 
-export async function listTrips(ownerId: number): Promise<TripRecord[]> {
+export async function listTrips(scope: CompanyScope): Promise<TripRecord[]> {
   return toTripRecords(
     await getDb()
       .select(tripColumns)
       .from(manifests)
       .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-      .where(eq(vehicles.ownerId, ownerId))
+      .where(tripScopeCondition(scope))
       .orderBy(desc(manifests.createdAt), desc(manifests.id))
   )
 }
@@ -375,7 +382,7 @@ interface BuiltTrip {
 // Attachments from the browser: at most one per type, each type applying to the trip's kind,
 // kept ones belonging to this trip and new ones still in staging
 async function parseDocuments(
-  ownerId: number,
+  userId: number,
   value: unknown,
   tripKind: TripKind,
   manifestId: number | null
@@ -400,7 +407,7 @@ async function parseDocuments(
       if (!saved.some((d) => d.id === raw.id && d.docType === raw.docType)) return null
       changes.keep.push(raw.id)
     } else {
-      const file = findStaged(ownerId, raw.token)
+      const file = findStaged(userId, raw.token)
       if (!file || file.docType !== raw.docType) return null
       changes.add.push(file)
     }
@@ -411,13 +418,25 @@ async function parseDocuments(
 // Validates a trip and computes its cost and taxes from the DB; the portal's preview is never
 // trusted
 async function buildTrip(
-  ownerId: number,
+  scope: CompanyScope,
+  userId: number,
   input: TripInput,
   manifestId: number | null = null
 ): Promise<FleetResult<BuiltTrip>> {
   if (!input) return { ok: false, error: 'missing_fields' }
 
-  const vehicle = await findOwnedVehicle(ownerId, input.vehicleId)
+  // A branch member books at their own branch; anyone else picks one of the company's
+  const branchId = scope.branchId ?? (typeof input.branchId === 'number' ? input.branchId : null)
+  if (branchId === null) return { ok: false, error: 'branch_required' }
+  const [branch] = await getDb()
+    .select({ active: branches.active })
+    .from(branches)
+    .where(and(eq(branches.id, branchId), eq(branches.companyId, scope.companyId)))
+    .limit(1)
+  if (!branch) return { ok: false, error: 'branch_not_found' }
+  if (!branch.active) return { ok: false, error: 'branch_inactive' }
+
+  const vehicle = await findOwnedVehicle(scope.companyId, input.vehicleId)
   if (!vehicle) return { ok: false, error: 'vehicle_not_found' }
 
   if (input.originCityId === input.destinationCityId) return { ok: false, error: 'same_route' }
@@ -454,9 +473,9 @@ async function buildTrip(
   if (!shipper || !receiver) return { ok: false, error: 'invalid_party' }
   // The manifest keeps a copy of the driver's name and phone
   const driverId = input.driverId ?? null
-  const driver = driverId === null ? null : await findOwnedDriver(ownerId, driverId)
+  const driver = driverId === null ? null : await findOwnedDriver(scope.companyId, driverId)
   if (driverId !== null && !driver) return { ok: false, error: 'driver_not_found' }
-  const documents = await parseDocuments(ownerId, input.documents, input.tripKind, manifestId)
+  const documents = await parseDocuments(userId, input.documents, input.tripKind, manifestId)
   if (!documents) return { ok: false, error: 'invalid_document' }
 
   const distanceKm = estimateRoadKm(origin, destination)
@@ -471,6 +490,7 @@ async function buildTrip(
     data: {
       manifest: {
         vehicleId: vehicle.id,
+        branchId,
         originCityId: origin.id,
         destinationCityId: destination.id,
         cargoType: priced.mainType,
@@ -559,7 +579,7 @@ export async function writeTaxes(
 }
 
 async function findOwnedTripRow(
-  ownerId: number,
+  scope: CompanyScope,
   manifestId: unknown
 ): Promise<TripRow | undefined> {
   if (typeof manifestId !== 'number') return undefined
@@ -567,7 +587,7 @@ async function findOwnedTripRow(
     .select(tripColumns)
     .from(manifests)
     .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-    .where(and(eq(manifests.id, manifestId), eq(vehicles.ownerId, ownerId)))
+    .where(and(eq(manifests.id, manifestId), tripScopeCondition(scope)))
     .limit(1)
   return row
 }
@@ -586,17 +606,18 @@ const failure = (error: FleetErrorCode): FleetResult<never> => ({ ok: false, err
 
 // Saves a new trip as a draft
 export async function createTrip(
-  ownerId: number,
+  scope: CompanyScope,
+  userId: number,
   input: TripInput
 ): Promise<FleetResult<TripRecord>> {
-  const built = await buildTrip(ownerId, input)
+  const built = await buildTrip(scope, userId, input)
   if (!built.ok) return built
   const { manifest, items, taxes, trailers, documents } = built.data
 
   const id = await getDb().transaction(async (tx) => {
     const [{ id }] = await tx
       .insert(manifests)
-      .values({ ...manifest, status: 'draft' })
+      .values({ ...manifest, createdBy: userId, status: 'draft' })
       .returning({ id: manifests.id })
     await writeItems(tx, id, items)
     await writeTaxes(tx, id, taxes)
@@ -605,21 +626,22 @@ export async function createTrip(
     return id
   })
   moveStaged(id, documents.add)
-  const row = await findOwnedTripRow(ownerId, id)
+  const row = await findOwnedTripRow(scope, id)
   return row ? { ok: true, data: await toTripRecord(row) } : failure('unknown')
 }
 
 // Edits a draft trip; once its bill is issued the trip is fixed
 export async function updateTrip(
-  ownerId: number,
+  scope: CompanyScope,
+  userId: number,
   manifestId: number,
   input: TripInput
 ): Promise<FleetResult<TripRecord>> {
-  const existing = await findOwnedTripRow(ownerId, manifestId)
+  const existing = await findOwnedTripRow(scope, manifestId)
   if (!existing) return failure('manifest_not_found')
   if (existing.status !== 'draft') return failure('not_draft')
 
-  const built = await buildTrip(ownerId, input, existing.id)
+  const built = await buildTrip(scope, userId, input, existing.id)
   if (!built.ok) return built
   const { manifest, items, taxes, trailers, documents } = built.data
 
@@ -652,15 +674,18 @@ export async function updateTrip(
     removeStoredFiles(existing.id, removed)
     moveStaged(existing.id, documents.add)
   }
-  const row = await findOwnedTripRow(ownerId, existing.id)
+  const row = await findOwnedTripRow(scope, existing.id)
   if (!row) return failure('manifest_not_found')
   if (row.status !== 'draft') return failure('not_draft')
   return { ok: true, data: await toTripRecord(row) }
 }
 
 // Deletes a draft trip for good; once its bill is issued the trip is part of the record
-export async function deleteTrip(ownerId: number, manifestId: number): Promise<FleetResult<null>> {
-  const existing = await findOwnedTripRow(ownerId, manifestId)
+export async function deleteTrip(
+  scope: CompanyScope,
+  manifestId: number
+): Promise<FleetResult<null>> {
+  const existing = await findOwnedTripRow(scope, manifestId)
   if (!existing) return failure('manifest_not_found')
   if (existing.status !== 'draft') return failure('not_draft')
 
@@ -686,9 +711,9 @@ export async function deleteTrip(ownerId: number, manifestId: number): Promise<F
 
 const MAX_SUGGESTED_PARTIES = 50
 
-// Senders and receivers from the owner's earlier trips (newest first, each once), and the packing
-// types they used, for the trip form's suggestions
-export async function listSuggestions(ownerId: number): Promise<TripSuggestions> {
+// Senders and receivers from the trips the member can see (newest first, each once), and the
+// packing types they used, for the trip form's suggestions
+export async function listSuggestions(scope: CompanyScope): Promise<TripSuggestions> {
   const db = getDb()
   const rows = await db
     .select({
@@ -701,7 +726,7 @@ export async function listSuggestions(ownerId: number): Promise<TripSuggestions>
     })
     .from(manifests)
     .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-    .where(eq(vehicles.ownerId, ownerId))
+    .where(tripScopeCondition(scope))
     .orderBy(desc(manifests.createdAt), desc(manifests.id))
   const parties = new Map<string, Party>()
   for (const row of rows) {
@@ -721,7 +746,7 @@ export async function listSuggestions(ownerId: number): Promise<TripSuggestions>
       .from(manifestCargoItems)
       .innerJoin(manifests, eq(manifestCargoItems.manifestId, manifests.id))
       .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-      .where(and(eq(vehicles.ownerId, ownerId), isNotNull(manifestCargoItems.packingType)))
+      .where(and(tripScopeCondition(scope), isNotNull(manifestCargoItems.packingType)))
   ).flatMap((row) => (row.packingType ? [row.packingType] : []))
   return { parties: [...parties.values()].slice(0, MAX_SUGGESTED_PARTIES), packingTypes }
 }

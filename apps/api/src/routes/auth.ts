@@ -1,4 +1,4 @@
-// Logging in and out, fleet owner sign-up, the signed-in user, the owner's profile and changing a
+// Logging in and out, company sign-up, the signed-in user, one's own profile and changing a
 // password
 import { Hono } from 'hono'
 import type {
@@ -7,11 +7,11 @@ import type {
   ProfileInput,
   SignUpInput
 } from '@masarat/shared/auth'
-import { changePassword, logIn, signUp, toAuthUser, updateProfile } from '../services/auth'
+import { changePassword, logIn, signUp, updateProfile } from '../services/auth'
 import { deleteSession } from '../services/sessions'
 import { clientInfo, readJson, send, type AppEnv } from '../http/context'
 import { clearSessionCookie, setSessionCookie } from '../http/cookie'
-import { requireRole, requireUser } from '../http/middleware'
+import { requireUser } from '../http/middleware'
 
 export const authRoutes = new Hono<AppEnv>()
   .post('/login', async (c) => {
@@ -35,13 +35,13 @@ export const authRoutes = new Hono<AppEnv>()
     return send(c, { ok: true })
   })
   .get('/me', requireUser({ duringPasswordChange: true }), (c) =>
-    send(c, { ok: true, user: toAuthUser(c.get('user')!) })
+    send(c, { ok: true, user: c.get('user')! })
   )
   .post('/change-password', requireUser({ duringPasswordChange: true }), async (c) => {
     const input = (await readJson(c)) as unknown as ChangePasswordInput
     return send(c, await changePassword(c.get('user')!.id, input, c.get('token')))
   })
-  .patch('/profile', requireUser(), requireRole('owner'), async (c) => {
+  .patch('/profile', requireUser(), async (c) => {
     const input = (await readJson(c)) as unknown as ProfileInput
     return send(c, await updateProfile(c.get('user')!.id, input))
   })

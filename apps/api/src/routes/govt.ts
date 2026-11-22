@@ -1,4 +1,4 @@
-// The government portal: reference data, the dashboard, the search across every owner, any trip
+// The government portal: reference data, the dashboard, the search across every company, any trip
 // read-only with its attachments, the tax settings, the data export, and the demo regenerate
 import { Hono } from 'hono'
 import { zipSync, strToU8 } from 'fflate'
@@ -7,7 +7,7 @@ import { isExportOptions, type ExportInput } from '@masarat/shared/exports'
 import type { GovtSearchInput } from '@masarat/shared/billing'
 import type { TaxRatesInput } from '@masarat/shared/tax'
 import { config } from '../config'
-import { listOwners } from '../services/analyticsQuery'
+import { listCompanies } from '../services/analyticsQuery'
 import { getTripDetails } from '../services/billing'
 import { getDashboard } from '../services/dashboard'
 import { regenerateDemoData } from '../services/demoData'
@@ -18,7 +18,7 @@ import { getTaxSettingsView, updateTaxRates } from '../services/taxes'
 import { getReferenceData } from '../services/trips'
 import { fail, idParam, readJson, send, type AppEnv } from '../http/context'
 import { contentDisposition, sendFile } from '../http/files'
-import { requireRole, requireUser } from '../http/middleware'
+import { requireKind, requirePermission, requireUser } from '../http/middleware'
 
 const EXPORT_TYPES: Record<string, string> = {
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -43,16 +43,18 @@ const positiveInt = (value: string | undefined): number | undefined => {
 }
 
 export const govtRoutes = new Hono<AppEnv>()
-  .use(requireUser(), requireRole('govt'))
+  .use(requireUser(), requireKind('govt'))
   .get('/reference', async (c) => send(c, { ok: true, data: await getReferenceData() }))
-  .get('/owners', async (c) => send(c, { ok: true, data: await listOwners() }))
+  .get('/companies', requirePermission('govt.dashboard', 'govt.exports'), async (c) =>
+    send(c, { ok: true, data: await listCompanies() })
+  )
   // The filters and view are nested objects, so they come as a JSON body
-  .post('/dashboard', async (c) => {
+  .post('/dashboard', requirePermission('govt.dashboard'), async (c) => {
     const { filters, view } = await readJson(c)
     if (!isAnalyticsFilters(filters) || !isDashboardView(view)) return fail(c, 'missing_fields')
     return send(c, { ok: true, data: await getDashboard(filters, view) })
   })
-  .get('/search', async (c) => {
+  .get('/search', requirePermission('govt.search'), async (c) => {
     const q = c.req.query()
     const input: GovtSearchInput = {
       query: q.query ?? '',
@@ -63,23 +65,26 @@ export const govtRoutes = new Hono<AppEnv>()
     }
     return send(c, await searchTrips(input))
   })
-  .get('/trips/:id', async (c) => {
+  // Opened from the search and from the dashboard's latest bills
+  .get('/trips/:id', requirePermission('govt.search', 'govt.dashboard'), async (c) => {
     const id = idParam(c)
     return id === null ? fail(c, 'manifest_not_found') : send(c, await getTripDetails(null, id))
   })
-  .get('/documents/:id/file', async (c) => {
+  .get('/documents/:id/file', requirePermission('govt.search', 'govt.dashboard'), async (c) => {
     const id = idParam(c)
     return sendFile(c, id === null ? undefined : await findOwnedDocumentFile(null, id))
   })
-  .get('/tax-settings', async (c) => send(c, { ok: true, data: await getTaxSettingsView() }))
-  .put('/tax-settings', async (c) =>
+  .get('/tax-settings', requirePermission('govt.charges'), async (c) =>
+    send(c, { ok: true, data: await getTaxSettingsView() })
+  )
+  .put('/tax-settings', requirePermission('govt.charges'), async (c) =>
     send(
       c,
       await updateTaxRates(c.get('user')!.id, (await readJson(c)) as unknown as TaxRatesInput)
     )
   )
   // One file as is; several as one ZIP
-  .post('/exports', async (c) => {
+  .post('/exports', requirePermission('govt.exports'), async (c) => {
     const input = (await readJson(c)) as unknown as ExportInput
     if (!isAnalyticsFilters(input?.filters) || !isExportOptions(input)) {
       return fail(c, 'missing_fields')

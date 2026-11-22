@@ -1,16 +1,14 @@
-// Accounts: logging in (with a rate limit), fleet owner sign-up, the owner's profile and changing
-// a password. Sessions themselves live in services/sessions.ts.
+// Accounts: logging in (with a rate limit), company sign-up, one's own profile and changing a
+// password. Sessions themselves live in services/sessions.ts.
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'crypto'
 import { promisify } from 'util'
 import { and, count, eq, gte, ne } from 'drizzle-orm'
 import { getDb, isUniqueViolation, loginAttempts, users, type User } from '../db'
 import {
-  MAX_ADDRESS_LENGTH,
-  MAX_TIN_LENGTH,
   PASSWORD_MIN_LENGTH,
   USERNAME_PATTERN,
-  type AuthErrorCode,
   type AuthResult,
+  type AuthErrorCode,
   type AuthUser,
   type ChangePasswordInput,
   type LogInInput,
@@ -18,6 +16,8 @@ import {
   type SignUpInput
 } from '@masarat/shared/auth'
 import { normalizeSudanPhone } from '@masarat/shared/phone'
+import { accountOf } from './access'
+import { checkCarrierDetails, createCompany } from './companies'
 import { createSession, deleteUserSessions, type ClientInfo } from './sessions'
 
 // Argon2id with Bun's defaults (OWASP's first choice for password storage)
@@ -51,31 +51,9 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
 // Checked against when the username doesn't exist, so the answer takes as long either way
 const DUMMY_HASH = await hashPassword(randomBytes(16).toString('hex'))
 
-export function toAuthUser(user: User): AuthUser {
-  return {
-    id: user.id,
-    username: user.username,
-    role: user.role,
-    fullName: user.fullName,
-    phone: user.phone,
-    companyName: user.companyName,
-    address: user.address,
-    tin: user.tin,
-    isAdmin: user.isAdmin,
-    mustChangePassword: user.mustChangePassword
-  }
-}
-
 // Input comes from the browser, so treat every field as untrusted
 const asText = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 const asPassword = (value: unknown): string => (typeof value === 'string' ? value : '')
-
-// A fleet owner's carrier details: both optional, but limited in length
-function checkCarrierDetails(address: string, tin: string): AuthErrorCode | null {
-  if (address.length > MAX_ADDRESS_LENGTH) return 'address_too_long'
-  if (tin.length > MAX_TIN_LENGTH) return 'invalid_tin'
-  return null
-}
 
 // Every account has its own Sudanese mobile number: null when the input isn't one
 export const accountPhone = (value: unknown): string | null =>
@@ -150,16 +128,25 @@ export async function logIn(
       .where(eq(users.id, found.id))
   }
   const token = await createSession(found.id, client, now)
-  return { ok: true, user: toAuthUser(found), token }
+  return { ok: true, user: await accountOf(found), token }
 }
 
-// Fleet owners only; government accounts are created by a government admin
+// Thrown inside a transaction to undo it and answer with an error
+class Refused extends Error {
+  constructor(readonly code: 'username_taken' | 'phone_taken') {
+    super(code)
+  }
+}
+
+// Creates a transport company with its built-in roles, and its first member as the company admin.
+// Government accounts are created by a government admin.
 export async function signUp(input: SignUpInput, client: ClientInfo): Promise<LoginResult> {
   const fullName = asText(input?.fullName)
   const username = asText(input?.username).toLowerCase()
   const password = asPassword(input?.password)
+  const companyName = asText(input?.companyName)
 
-  if (!fullName || !username || !password || !asText(input?.phone)) {
+  if (!fullName || !username || !password || !companyName || !asText(input?.phone)) {
     return { ok: false, error: 'missing_fields' }
   }
   if (!USERNAME_PATTERN.test(username)) return { ok: false, error: 'invalid_username' }
@@ -172,63 +159,62 @@ export async function signUp(input: SignUpInput, client: ClientInfo): Promise<Lo
   if (carrierError) return { ok: false, error: carrierError }
   if (await phoneTaken(phone)) return { ok: false, error: 'phone_taken' }
 
-  let created: User | undefined
+  const passwordHash = await hashPassword(password)
+  let created: User
   try {
-    ;[created] = await getDb()
-      .insert(users)
-      .values({
-        role: 'owner',
-        fullName,
-        username,
-        passwordHash: await hashPassword(password),
-        phone,
-        companyName: asText(input.companyName) || null,
+    created = await getDb().transaction(async (tx) => {
+      const { company, adminRoleId } = await createCompany(tx, {
+        name: companyName,
         address: address || null,
         tin: tin || null
       })
-      // The unique index decides, so two sign-ups with one username can't both succeed
-      .onConflictDoNothing({ target: users.username })
-      .returning()
+      const [user] = await tx
+        .insert(users)
+        .values({
+          kind: 'company',
+          fullName,
+          username,
+          passwordHash,
+          phone,
+          companyId: company.id,
+          roleId: adminRoleId
+        })
+        // The unique index decides, so two sign-ups with one username can't both succeed
+        .onConflictDoNothing({ target: users.username })
+        .returning()
+      if (!user) throw new Refused('username_taken')
+      return user
+    })
   } catch (error) {
+    if (error instanceof Refused) return { ok: false, error: error.code }
     if (isPhoneConflict(error)) return { ok: false, error: 'phone_taken' }
     throw error
   }
-  if (!created) return { ok: false, error: 'username_taken' }
   const token = await createSession(created.id, client)
-  return { ok: true, user: toAuthUser(created), token }
+  return { ok: true, user: await accountOf(created), token }
 }
 
-// The signed-in fleet owner edits their own details
-export async function updateProfile(ownerId: number, input: ProfileInput): Promise<AuthResult> {
+// Anyone's own name and phone
+export async function updateProfile(userId: number, input: ProfileInput): Promise<AuthResult> {
   const fullName = asText(input?.fullName)
   if (!fullName || !asText(input?.phone)) return { ok: false, error: 'missing_fields' }
   const phone = accountPhone(input.phone)
   if (!phone) return { ok: false, error: 'invalid_phone' }
-  const address = asText(input?.address)
-  const tin = asText(input?.tin)
-  const carrierError = checkCarrierDetails(address, tin)
-  if (carrierError) return { ok: false, error: carrierError }
-  if (await phoneTaken(phone, ownerId)) return { ok: false, error: 'phone_taken' }
+  if (await phoneTaken(phone, userId)) return { ok: false, error: 'phone_taken' }
 
   let updated: User | undefined
   try {
     ;[updated] = await getDb()
       .update(users)
-      .set({
-        fullName,
-        phone,
-        companyName: asText(input.companyName) || null,
-        address: address || null,
-        tin: tin || null
-      })
-      .where(and(eq(users.id, ownerId), eq(users.role, 'owner')))
+      .set({ fullName, phone })
+      .where(eq(users.id, userId))
       .returning()
   } catch (error) {
     if (isPhoneConflict(error)) return { ok: false, error: 'phone_taken' }
     throw error
   }
   if (!updated) return { ok: false, error: 'not_signed_in' }
-  return { ok: true, user: toAuthUser(updated) }
+  return { ok: true, user: await accountOf(updated) }
 }
 
 // Replaces the user's password (also a temporary one) and signs out their other sessions
@@ -255,5 +241,5 @@ export async function changePassword(
     .where(eq(users.id, userId))
     .returning()
   await deleteUserSessions(userId, currentToken)
-  return { ok: true, user: toAuthUser(updated) }
+  return { ok: true, user: await accountOf(updated) }
 }

@@ -1,12 +1,15 @@
-// Demo data for the government dashboard: a few fleet companies with a year of trips, bills,
-// payments and certificates, written to the real tables so live trips mix in with them.
-// Demo owners are flagged with users.is_demo; regenerating deletes only their rows.
+// Demo data for the government dashboard: a few transport companies, each with its branches and
+// members, and a year of trips, bills, payments and certificates, written to the real tables so
+// live trips mix in with them. Demo companies are flagged with companies.is_demo; regenerating
+// deletes only them and what hangs off them.
 import { randomBytes } from 'crypto'
 import { log } from '../log'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
 import {
+  branches,
   certificates,
   cities,
+  companies,
   drivers,
   esaliSimBills,
   getDb,
@@ -16,6 +19,7 @@ import {
   manifestTrailers,
   tripDocuments,
   payments,
+  roles,
   taxRates,
   users,
   vehicles
@@ -27,7 +31,7 @@ import {
   type QuantityUnit,
   type VehicleType
 } from '@masarat/shared/fleet'
-import { DEMO_GOVT_ACCOUNT, DEMO_OWNER_ACCOUNTS, type DemoAccount } from '@masarat/shared/demo'
+import { DEMO_COMPANIES, DEMO_GOVT_ACCOUNTS, type DemoCompany } from '@masarat/shared/demo'
 import { PLATE_CODES, formatPlate } from '@masarat/shared/plate'
 import {
   DEFAULT_FEES,
@@ -39,6 +43,7 @@ import {
   estimateRoadKm
 } from '@masarat/shared/tax'
 import { hashPassword } from './auth'
+import { createCompany } from './companies'
 import { config } from '../config'
 import { certificateNoFor, manifestNoFor, validUntilFor } from './billing'
 import { removeTripFolder } from './documents'
@@ -227,18 +232,18 @@ const CORRIDORS: readonly [string, string, number][] = [
   ['Port Sudan', 'Khartoum', 18],
   ['Port Sudan', 'Atbara', 6],
   ['Port Sudan', 'Kassala', 5],
-  ['Khartoum', 'Wad Medani', 9],
+  ['Khartoum', 'Wad Madani', 9],
   ['Khartoum', 'El Obeid', 7],
   ['Khartoum', 'Kassala', 5],
   ['Khartoum', 'Gedaref', 5],
   ['Khartoum', 'Atbara', 5],
-  ['Khartoum', 'Kūstī', 4],
+  ['Khartoum', 'Kosti', 4],
   ['Omdurman', 'Dongola', 4],
-  ['Khartoum North', 'Shendi', 3],
-  ['Wad Medani', 'Gedaref', 3],
+  ['Bahri', 'Shendi', 3],
+  ['Wad Madani', 'Gedaref', 3],
   ['El Obeid', 'Nyala', 3],
-  ['Kūstī', 'El Obeid', 2],
-  ['Sannār', 'Ed Damazin', 2]
+  ['Kosti', 'El Obeid', 2],
+  ['Sennar', 'Ed Damazin', 2]
 ]
 const RANDOM_ROUTE_WEIGHT = 12
 
@@ -250,9 +255,19 @@ interface CityPoint {
   lng: number
 }
 
+// A demo company as the trips need it: its carrier details, and its branches with the clerk who
+// books there
+interface SeedCompany {
+  id: number
+  name: string
+  address: string
+  tin: string
+  branches: { id: number; cityId: number; clerkId: number }[]
+}
+
 interface SeedVehicle {
   id: number
-  ownerId: number
+  companyId: number
   vehicleType: VehicleType
   capacity: number
 }
@@ -341,47 +356,113 @@ function tripsOn(rand: Random, day: Date, ageDays: number): number {
   return Math.floor(expected + rand())
 }
 
-async function createAccount(account: DemoAccount): Promise<number | null> {
+// A demo company with its roles, branches and members; null when one of its usernames or phones
+// is already someone else's (their account is left alone)
+async function createDemoCompany(def: DemoCompany): Promise<SeedCompany | null> {
   const db = getDb()
+  const members = [def.admin, def.accountant, ...def.branches.map((b) => b.clerk)]
   const [taken] = await db
     .select({ id: users.id })
     .from(users)
-    .where(eq(users.username, account.username))
+    .where(
+      inArray(
+        users.username,
+        members.map((m) => m.username)
+      )
+    )
     .limit(1)
-  // Someone already signed up with this username; leave their account alone
   if (taken) return null
-  const [created] = await db
-    .insert(users)
-    .values({
-      role: account.role,
+  // Everyone in a demo company has the company's password: hashed once
+  const passwordHash = await hashPassword(def.admin.password)
+  return db.transaction(async (tx) => {
+    const { company, adminRoleId } = await createCompany(tx, {
+      name: def.name,
+      address: def.address,
+      tin: def.tin,
+      isDemo: true
+    })
+    const roleIds = new Map(
+      (await tx.select().from(roles).where(eq(roles.companyId, company.id))).map((role) => [
+        role.key,
+        role.id
+      ])
+    )
+    const cityRows = await tx.select({ id: cities.id, name: cities.name }).from(cities)
+    const cityId = (name: string): number => {
+      const found = cityRows.find((c) => c.name === name)
+      if (!found) throw new Error(`Demo branch city not found: ${name}`)
+      return found.id
+    }
+    type NewMember = Omit<typeof users.$inferInsert, 'roleId'>
+    const account = (m: (typeof members)[number]): NewMember => ({
+      kind: 'company',
+      companyId: company.id,
+      username: m.username,
+      passwordHash,
+      fullName: m.fullName,
+      phone: m.phone,
+      isDemo: true
+    })
+    await tx.insert(users).values([
+      { ...account(def.admin), roleId: adminRoleId },
+      { ...account(def.accountant), roleId: roleIds.get('accountant')! }
+    ])
+    const seeded: SeedCompany['branches'] = []
+    for (const branch of def.branches) {
+      const [{ id }] = await tx
+        .insert(branches)
+        .values({ companyId: company.id, name: branch.name, cityId: cityId(branch.city) })
+        .returning({ id: branches.id })
+      const [clerk] = await tx
+        .insert(users)
+        .values({ ...account(branch.clerk), roleId: roleIds.get('clerk')!, branchId: id })
+        .returning({ id: users.id })
+      seeded.push({ id, cityId: cityId(branch.city), clerkId: clerk.id })
+    }
+    return { id: company.id, name: def.name, address: def.address, tin: def.tin, branches: seeded }
+  })
+}
+
+// The demo government accounts, unless their usernames are taken
+async function createGovtAccounts(): Promise<void> {
+  const db = getDb()
+  for (const account of DEMO_GOVT_ACCOUNTS) {
+    const [taken] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.username, account.username))
+      .limit(1)
+    if (taken) continue
+    const [role] = await db
+      .select({ id: roles.id })
+      .from(roles)
+      .where(and(isNull(roles.companyId), eq(roles.key, account.role)))
+      .limit(1)
+    await db.insert(users).values({
+      kind: 'govt',
+      roleId: role.id,
       username: account.username,
       passwordHash: await hashPassword(account.password),
       fullName: account.fullName,
       phone: account.phone,
-      companyName: account.companyName,
-      address: account.address,
-      tin: account.tin,
-      isDemo: true,
-      // The demo government account can show the Users section
-      isAdmin: account.role === 'govt'
+      isDemo: true
     })
-    .returning({ id: users.id })
-  return created.id
+  }
 }
 
-async function seedOwners(): Promise<void> {
+async function seedCompanies(): Promise<void> {
   try {
-    // Accounts first, outside the trips' transaction: hashing the passwords takes a while
-    const ownerIds: number[] = []
-    for (const account of DEMO_OWNER_ACCOUNTS) {
-      const id = await createAccount(account)
-      if (id !== null) ownerIds.push(id)
+    // Companies first, outside the trips' transaction: hashing the passwords takes a while
+    const seeded: SeedCompany[] = []
+    for (const def of DEMO_COMPANIES) {
+      const company = await createDemoCompany(def)
+      if (company) seeded.push(company)
     }
-    if (ownerIds.length > 0) await seedTrips(ownerIds)
+    if (seeded.length > 0) await seedTrips(seeded)
   } catch (err) {
-    // Don't leave empty demo accounts behind, or the next startup would skip seeding. Only this
-    // attempt's accounts exist here: seedOwners runs when there are no demo owners left.
-    await deleteDemoOwners()
+    // Don't leave empty demo companies behind, or the next startup would skip seeding. Only this
+    // attempt's companies exist here: seedCompanies runs when there are no demo companies left.
+    await deleteDemoCompanies()
     throw err
   }
 }
@@ -396,7 +477,7 @@ async function insertInBatches<T>(
   for (let i = 0; i < rows.length; i += BATCH_ROWS) await insert(rows.slice(i, i + BATCH_ROWS))
 }
 
-async function seedTrips(ownerIds: number[]): Promise<void> {
+async function seedTrips(seeded: SeedCompany[]): Promise<void> {
   const db = getDb()
   const rand = mulberry32(20261117)
   const cityRows = await db
@@ -490,10 +571,7 @@ async function seedTrips(ownerIds: number[]): Promise<void> {
     address: `${city.nameAr ?? city.name}، ${pick(extra, DISTRICTS)}`,
     phone: `+2499${digits(extra, 8)}`
   })
-  // The carrier details billed trips were issued with
-  const owners = new Map(
-    (await db.select().from(users).where(inArray(users.id, ownerIds))).map((u) => [u.id, u])
-  )
+  const companyById = new Map(seeded.map((c) => [c.id, c]))
 
   await db.transaction(async (tx) => {
     // A trip's own rows, written in batches once every manifest has its id
@@ -506,17 +584,17 @@ async function seedTrips(ownerIds: number[]): Promise<void> {
 
     const fleet: SeedVehicle[] = []
     const driversOf = new Map<number, { id: number; name: string; phone: string }[]>()
-    for (const ownerId of ownerIds) {
+    for (const { id: companyId } of seeded) {
       const driverCount = between(extra, 5, 8)
       const phones = new Set<string>()
       while (phones.size < driverCount) phones.add(`+2499${digits(extra, 8)}`)
       driversOf.set(
-        ownerId,
+        companyId,
         await tx
           .insert(drivers)
           .values(
             [...phones].map((phone) => ({
-              ownerId,
+              companyId,
               name: `${pick(extra, DRIVER_FIRST_NAMES)} ${pick(extra, DRIVER_LAST_NAMES)}`,
               phone
             }))
@@ -533,7 +611,7 @@ async function seedTrips(ownerIds: number[]): Promise<void> {
         const [{ id }] = await tx
           .insert(vehicles)
           .values({
-            ownerId,
+            companyId,
             plateNumber: uniquePlate(),
             registrationNo: digits(extra, 7),
             vehicleType,
@@ -543,7 +621,7 @@ async function seedTrips(ownerIds: number[]): Promise<void> {
             updatedAt: createdAt
           })
           .returning({ id: vehicles.id })
-        fleet.push({ id, ownerId, vehicleType, capacity })
+        fleet.push({ id, companyId, vehicleType, capacity })
       }
     }
 
@@ -614,17 +692,22 @@ async function seedTrips(ownerIds: number[]): Promise<void> {
             : 'domestic'
         const trailerRoll = extra()
         const trailerCount = bigTruck ? (trailerRoll < 0.1 ? 2 : trailerRoll < 0.4 ? 1 : 0) : 0
-        const driver = pick(extra, driversOf.get(vehicle.ownerId) ?? [])
+        const driver = pick(extra, driversOf.get(vehicle.companyId) ?? [])
         const shipper = partyIn(origin)
         let receiver = partyIn(destination)
         while (receiver.name === shipper.name) receiver = partyIn(destination)
-        const owner = owners.get(vehicle.ownerId)
+        const company = companyById.get(vehicle.companyId)!
+        // Booked at the company's branch in the origin city, or else any of its branches
+        const branch =
+          company.branches.find((b) => b.cityId === origin.id) ?? pick(extra, company.branches)
         const billed = status !== 'draft'
 
         const [{ id: manifestId }] = await tx
           .insert(manifests)
           .values({
             vehicleId: vehicle.id,
+            branchId: branch.id,
+            createdBy: branch.clerkId,
             originCityId: origin.id,
             destinationCityId: destination.id,
             cargoType: mainRate.cargoType,
@@ -646,9 +729,9 @@ async function seedTrips(ownerIds: number[]): Promise<void> {
             receiverName: receiver.name,
             receiverAddress: receiver.address,
             receiverPhone: receiver.phone,
-            carrierName: billed && owner ? owner.companyName || owner.fullName : null,
-            carrierAddress: billed ? (owner?.address ?? null) : null,
-            carrierTin: billed ? (owner?.tin ?? null) : null,
+            carrierName: billed ? company.name : null,
+            carrierAddress: billed ? company.address : null,
+            carrierTin: billed ? company.tin : null,
             createdAt,
             updatedAt: status === 'draft' ? createdAt : status === 'billed' ? billedAt : paidAt
           })
@@ -726,26 +809,28 @@ async function seedTrips(ownerIds: number[]): Promise<void> {
   })
 }
 
-async function demoOwnerIds(): Promise<number[]> {
+async function demoCompanyIds(): Promise<number[]> {
   const rows = await getDb()
-    .select({ id: users.id })
-    .from(users)
-    .where(and(eq(users.isDemo, true), eq(users.role, 'owner')))
-  return rows.map((u) => u.id)
+    .select({ id: companies.id })
+    .from(companies)
+    .where(eq(companies.isDemo, true))
+  return rows.map((c) => c.id)
 }
 
-// Deletes the demo owners and everything that hangs off them, children first
-async function deleteDemoOwners(): Promise<void> {
-  const ownerIds = await demoOwnerIds()
-  if (ownerIds.length === 0) return
-  // Their sessions go with the accounts (sessions.user_id cascades)
+// Deletes the demo companies and everything that hangs off them (also what was added to one by
+// hand: its trips, members, roles and branches), children first
+async function deleteDemoCompanies(): Promise<void> {
+  const companyIds = await demoCompanyIds()
+  if (companyIds.length === 0) return
+  // Members' sessions go with the accounts (sessions.user_id cascades), roles' permissions with
+  // the roles
 
   // Folders of demo trips that had attachments, removed once the rows are gone for good
   const folders = await getDb().transaction(async (tx) => {
     const demoVehicles = tx
       .select({ id: vehicles.id })
       .from(vehicles)
-      .where(inArray(vehicles.ownerId, ownerIds))
+      .where(inArray(vehicles.companyId, companyIds))
     const demoManifests = tx
       .select({ id: manifests.id })
       .from(manifests)
@@ -768,9 +853,12 @@ async function deleteDemoOwners(): Promise<void> {
     await tx.delete(tripDocuments).where(inArray(tripDocuments.manifestId, demoManifests))
     await tx.delete(payments).where(inArray(payments.manifestId, demoManifests))
     await tx.delete(manifests).where(inArray(manifests.vehicleId, demoVehicles))
-    await tx.delete(vehicles).where(inArray(vehicles.ownerId, ownerIds))
-    await tx.delete(drivers).where(inArray(drivers.ownerId, ownerIds))
-    await tx.delete(users).where(inArray(users.id, ownerIds))
+    await tx.delete(vehicles).where(inArray(vehicles.companyId, companyIds))
+    await tx.delete(drivers).where(inArray(drivers.companyId, companyIds))
+    await tx.delete(users).where(inArray(users.companyId, companyIds))
+    await tx.delete(roles).where(inArray(roles.companyId, companyIds))
+    await tx.delete(branches).where(inArray(branches.companyId, companyIds))
+    await tx.delete(companies).where(inArray(companies.id, companyIds))
     return attached.map((a) => a.manifestId)
   })
   // A folder that can't be removed now is picked up by removeOrphanFolders on the next startup
@@ -783,17 +871,18 @@ async function deleteDemoOwners(): Promise<void> {
   }
 }
 
-// On startup: seed once if there are no demo owners yet, and make sure the demo government
-// account exists
+// On startup: seed once if there are no demo companies yet, and make sure the demo government
+// accounts exist
 export async function ensureDemoData(): Promise<void> {
-  if ((await demoOwnerIds()).length === 0) await seedOwners()
-  await createAccount(DEMO_GOVT_ACCOUNT)
+  if ((await demoCompanyIds()).length === 0) await seedCompanies()
+  await createGovtAccounts()
 }
 
-// Government panel "Regenerate demo data": rebuilds the demo owners' data; hand-made data stays
+// Government panel "Regenerate demo data": rebuilds the demo companies; other companies' data
+// stays
 export async function regenerateDemoData(): Promise<void> {
   if (!config.demoMode) throw new Error('Demo data can only be regenerated in demo mode')
-  await deleteDemoOwners()
-  await seedOwners()
-  await createAccount(DEMO_GOVT_ACCOUNT)
+  await deleteDemoCompanies()
+  await seedCompanies()
+  await createGovtAccounts()
 }

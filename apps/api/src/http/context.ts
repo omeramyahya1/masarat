@@ -3,13 +3,13 @@ import type { Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { getConnInfo } from 'hono/bun'
 import { config } from '../config'
-import type { User } from '../db'
+import type { AuthUser } from '@masarat/shared/auth'
 import type { ClientInfo } from '../services/sessions'
 
 export interface AppEnv {
   Variables: {
-    // The signed-in user, or null (set by the session middleware)
-    user: User | null
+    // The signed-in account with its role and permissions, or null (set by the session middleware)
+    user: AuthUser | null
     // The session cookie's token, '' when there is none
     token: string
   }
@@ -28,12 +28,19 @@ const STATUS: Record<string, ContentfulStatusCode> = {
   manifest_not_found: 404,
   vehicle_not_found: 404,
   driver_not_found: 404,
+  role_not_found: 404,
+  branch_not_found: 404,
   too_large: 413,
   document_too_large: 413,
   not_found: 404,
   username_taken: 409,
   phone_taken: 409,
   last_admin: 409,
+  role_in_use: 409,
+  role_name_taken: 409,
+  branch_name_taken: 409,
+  role_locked: 403,
+  cannot_change_self: 403,
   too_many_attempts: 429,
   unknown: 500
 }

@@ -1,9 +1,19 @@
 import { randomBytes } from 'crypto'
 import { and, eq } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
 // The Node build: the package's root export has no condition TypeScript's bundler resolution picks
 import bwipjs from 'bwip-js/node'
 import QRCode from 'qrcode'
-import { certificates, getDb, manifests, payments, users, vehicles, type Payment } from '../db'
+import {
+  certificates,
+  companies,
+  getDb,
+  manifests,
+  payments,
+  users,
+  vehicles,
+  type Payment
+} from '../db'
 import { missingForBilling, type FleetResult } from '@masarat/shared/fleet'
 import { calculateTaxes } from '@masarat/shared/tax'
 import {
@@ -14,6 +24,7 @@ import {
   type TripDetails
 } from '@masarat/shared/billing'
 import { config } from '../config'
+import { tripScopeCondition, type CompanyScope, type TripScope } from './access'
 import { findOwnedDriver } from './drivers'
 import { esali } from './esali'
 import {
@@ -25,24 +36,27 @@ import {
   type TripRow
 } from './trips'
 
+// Who booked the trip
+const booker = alias(users, 'booker')
+
 const ownedTripColumns = {
   ...tripColumns,
   vehicleCapacity: vehicles.capacity,
-  ownerCompany: users.companyName,
-  ownerName: users.fullName,
-  ownerPhone: users.phone
+  company: companies,
+  bookerName: booker.fullName,
+  bookerPhone: booker.phone
 }
 type OwnedTrip = TripRow & {
   vehicleCapacity: number
-  ownerCompany: string | null
-  ownerName: string
-  ownerPhone: string | null
+  company: typeof companies.$inferSelect
+  bookerName: string | null
+  bookerPhone: string | null
 }
 
-// The manifest with its vehicle and owner, if it belongs to this owner. A null owner is the
+// The manifest with its vehicle and company, if the scope may see it. A null scope is the
 // government, which may open any trip.
 async function findOwnedTrip(
-  ownerId: number | null,
+  scope: TripScope,
   manifestId: unknown
 ): Promise<OwnedTrip | undefined> {
   if (typeof manifestId !== 'number') return undefined
@@ -50,13 +64,9 @@ async function findOwnedTrip(
     .select(ownedTripColumns)
     .from(manifests)
     .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-    .innerJoin(users, eq(vehicles.ownerId, users.id))
-    .where(
-      and(
-        eq(manifests.id, manifestId),
-        ownerId === null ? undefined : eq(vehicles.ownerId, ownerId)
-      )
-    )
+    .innerJoin(companies, eq(vehicles.companyId, companies.id))
+    .leftJoin(booker, eq(manifests.createdBy, booker.id))
+    .where(and(eq(manifests.id, manifestId), tripScopeCondition(scope)))
     .limit(1)
   return trip
 }
@@ -102,14 +112,14 @@ export function validUntilFor(tripDate: Date): Date {
   return end
 }
 
-// A trip with its bill and documents; the government passes a null owner
+// A trip with its bill and documents; the government passes a null scope
 export async function getTripDetails(
-  ownerId: number | null,
+  scope: TripScope,
   manifestId: number
 ): Promise<FleetResult<TripDetails>> {
-  const row = await findOwnedTrip(ownerId, manifestId)
+  const row = await findOwnedTrip(scope, manifestId)
   if (!row) return { ok: false, error: 'manifest_not_found' }
-  const { vehicleCapacity, ownerCompany, ownerName, ownerPhone, ...trip } = row
+  const { vehicleCapacity, company, bookerName, bookerPhone, ...trip } = row
 
   const payment = await paymentOf(trip.id)
   const [certificate] = await getDb()
@@ -152,7 +162,11 @@ export async function getTripDetails(
     ok: true,
     data: {
       trip: await toTripRecord(trip),
-      owner: { companyName: ownerCompany || ownerName, fullName: ownerName, phone: ownerPhone },
+      company: { id: company.id, name: company.name },
+      bookedBy:
+        bookerName !== null && bookerPhone !== null
+          ? { fullName: bookerName, phone: bookerPhone }
+          : null,
       vehicleCapacity,
       payment: paymentRecord,
       certificate: certificateRecord
@@ -162,20 +176,21 @@ export async function getTripDetails(
 
 // Asks E-Sali for a bill ID for the trip's taxes and fees, and moves the manifest to `billed`
 export async function generateBill(
-  ownerId: number,
+  scope: CompanyScope,
   manifestId: number
 ): Promise<FleetResult<TripDetails>> {
-  const trip = await findOwnedTrip(ownerId, manifestId)
+  const trip = await findOwnedTrip(scope, manifestId)
   if (!trip) return { ok: false, error: 'manifest_not_found' }
   // Asking twice returns the bill already issued instead of creating a second one
-  if (await paymentOf(trip.id)) return getTripDetails(ownerId, trip.id)
+  if (await paymentOf(trip.id)) return getTripDetails(scope, trip.id)
   if (trip.status !== 'draft') return { ok: false, error: 'already_billed' }
 
-  // The manifest has to be complete, including the owner's carrier details
+  // The manifest has to be complete, including the company's carrier details
   const db = getDb()
-  const [owner] = await db.select().from(users).where(eq(users.id, ownerId)).limit(1)
-  const driver = trip.driverId === null ? undefined : await findOwnedDriver(ownerId, trip.driverId)
-  if (!owner || !driver || missingForBilling(await toTripRecord(trip), owner).length > 0) {
+  const { company } = trip
+  const driver =
+    trip.driverId === null ? undefined : await findOwnedDriver(scope.companyId, trip.driverId)
+  if (!driver || missingForBilling(await toTripRecord(trip), company).length > 0) {
     return { ok: false, error: 'incomplete_manifest' }
   }
 
@@ -194,24 +209,24 @@ export async function generateBill(
       .set({
         status: 'billed',
         taxAmount: taxes.total,
-        carrierName: owner.companyName || owner.fullName,
-        carrierAddress: owner.address,
-        carrierTin: owner.tin,
+        carrierName: company.name,
+        carrierAddress: company.address,
+        carrierTin: company.tin,
         driverName: driver.name,
         driverPhone: driver.phone
       })
       .where(eq(manifests.id, trip.id))
   })
-  return getTripDetails(ownerId, trip.id)
+  return getTripDetails(scope, trip.id)
 }
 
 // Checks the bill with E-Sali; once paid, records the payment and issues the receipt and the
 // authorized manifest
 export async function refreshBillStatus(
-  ownerId: number,
+  scope: CompanyScope,
   manifestId: number
 ): Promise<FleetResult<TripDetails>> {
-  const trip = await findOwnedTrip(ownerId, manifestId)
+  const trip = await findOwnedTrip(scope, manifestId)
   if (!trip) return { ok: false, error: 'manifest_not_found' }
   const payment = await paymentOf(trip.id)
   if (!payment) return { ok: false, error: 'not_billed' }
@@ -246,16 +261,16 @@ export async function refreshBillStatus(
       })
     }
   }
-  return getTripDetails(ownerId, trip.id)
+  return getTripDetails(scope, trip.id)
 }
 
 // Demo only: pays the trip's bill at the simulated E-Sali. Our records change on the next refresh.
 export async function simulatePayment(
-  ownerId: number,
+  scope: CompanyScope,
   manifestId: number
 ): Promise<FleetResult<null>> {
   if (!config.demoMode) return { ok: false, error: 'forbidden' }
-  const trip = await findOwnedTrip(ownerId, manifestId)
+  const trip = await findOwnedTrip(scope, manifestId)
   if (!trip) return { ok: false, error: 'manifest_not_found' }
   const payment = await paymentOf(trip.id)
   if (!payment) return { ok: false, error: 'not_billed' }

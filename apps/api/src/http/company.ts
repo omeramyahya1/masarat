@@ -1,8 +1,11 @@
-// What every fleet owner route shares: the guards and the signed-in owner's id
+// What every company route shares: the guards and the signed-in member's company scope
 import type { AppContext } from './context'
-import { requireRole, requireUser } from './middleware'
+import { requireKind, requireUser } from './middleware'
+import { scopeOf, type CompanyScope } from '../services/access'
 
-export const requireOwner = [requireUser(), requireRole('owner')] as const
+export const requireCompany = [requireUser(), requireKind('company')] as const
 
-// Only called behind requireOwner, so the user is there
-export const ownerId = (c: AppContext): number => c.get('user')!.id
+// Only called behind requireCompany, so the user and their company are there
+export const companyScope = (c: AppContext): CompanyScope => scopeOf(c.get('user')!)
+export const companyId = (c: AppContext): number => c.get('user')!.company!.id
+export const userId = (c: AppContext): number => c.get('user')!.id

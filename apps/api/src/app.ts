@@ -9,6 +9,7 @@ import { fail, type AppEnv } from './http/context'
 import { originCheck, session } from './http/middleware'
 import { MAX_DOCUMENT_BYTES } from '@masarat/shared/fleet'
 import { authRoutes } from './routes/auth'
+import { branchRoutes, companyMemberRoutes, companyRoutes, roleRoutes } from './routes/company'
 import { documentRoutes } from './routes/documents'
 import { driverRoutes, vehicleRoutes } from './routes/fleet'
 import { govtRoutes } from './routes/govt'
@@ -44,6 +45,10 @@ export const app = new Hono<AppEnv>()
   // What the web apps need to know before signing in
   .get('/config', (c) => c.json({ ok: true, data: { demoMode: config.demoMode } }))
   .route('/auth', authRoutes)
+  .route('/company', companyRoutes)
+  .route('/branches', branchRoutes)
+  .route('/roles', roleRoutes)
+  .route('/members', companyMemberRoutes)
   .route('/govt/users', govtUserRoutes)
   .route('/govt', govtRoutes)
   .route('/vehicles', vehicleRoutes)

@@ -1,23 +1,27 @@
-// Masarat API: one Hono app serving both portals (owner.masarat.com and govt.masarat.com).
-// Only the health check exists so far; ROUTES.md lists the endpoints still to wire up.
-import { Hono } from 'hono'
+// Masarat API: one Hono app (app.ts) serving masarat.com, owner.masarat.com and govt.masarat.com.
+// ROUTES.md lists the endpoints still to wire up.
+import { app } from './app'
 import { config } from './config'
 import { log } from './log'
 import { clearStaging, removeOrphanFolders } from './services/documents'
 import { ensureDemoData } from './services/demoData'
+import { purgeExpired } from './services/sessions'
+
+const HOUR_MS = 60 * 60 * 1000
 
 // Uploads staged for trips that were never saved, and folders of deleted trips, don't outlive a
 // restart. The demo companies are seeded only in demo mode.
 clearStaging()
 await removeOrphanFolders()
+await purgeExpired()
+setInterval(
+  () => purgeExpired().catch((err) => log.error('Purging sessions failed:', err)),
+  HOUR_MS
+)
 if (config.demoMode) {
   await ensureDemoData()
   log.info('Demo mode: demo accounts and data are seeded')
 }
-
-const app = new Hono()
-
-app.get('/health', (c) => c.json({ ok: true }))
 
 export default {
   port: config.port,

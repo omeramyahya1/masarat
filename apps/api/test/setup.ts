@@ -12,7 +12,7 @@ if (!exists) await admin.unsafe(`create database "${testDb}"`)
 await admin.end()
 
 process.env.DATABASE_URL = testUrl
-process.env.DEMO_MODE = 'false'
+process.env.DEMO_MODE = 'true'
 process.env.STORAGE_DIR = `${import.meta.dir}/.storage`
 
 const { migrate } = await import('drizzle-orm/postgres-js/migrator')

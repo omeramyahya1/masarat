@@ -24,6 +24,8 @@ import {
   VEHICLE_TYPES,
   type FleetErrorCode
 } from '@masarat/shared/fleet'
+import { ID_TYPES } from '@masarat/shared/passengers'
+import { TRIP_CATEGORIES } from '@masarat/shared/tax'
 import { useFormat } from '@masarat/ui/lib/format'
 import { useMountedRef } from '@masarat/ui/lib/useMountedRef'
 import { FormAlert } from '@masarat/ui/components/form/fields'
@@ -52,6 +54,8 @@ function DataExportFields({
   const [dateBasis, setDateBasis] = useState<DateBasis>('trip')
   const [status, setStatus] = useState<ExportStatus>('all')
   const [formats, setFormats] = useState<ReadonlySet<ExportFormat>>(() => new Set(['xlsx']))
+  // Passengers' ID numbers are personal data: left out of the files unless asked for
+  const [includeIdNumbers, setIncludeIdNumbers] = useState(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<FleetErrorCode | null>(null)
   // Rows per dataset of the last file downloaded
@@ -77,7 +81,10 @@ function DataExportFields({
         cargoTypes: labelsFor(CARGO_TYPES, (c) => ar(`cargoTypes.${c}`)),
         vehicleTypes: labelsFor(VEHICLE_TYPES, (v) => ar(`vehicleTypes.${v}`)),
         tripKinds: labelsFor(TRIP_KINDS, (k) => ar(`tripKinds.${k}`)),
-        units: labelsFor(ITEM_UNITS, (u) => ar(`units.name.${u}`))
+        units: labelsFor([...ITEM_UNITS, 'seat'], (u) => ar(`units.name.${u}`)),
+        categories: labelsFor(TRIP_CATEGORIES, (c) => ar(`tripCategories.${c}`)),
+        idTypes: labelsFor(ID_TYPES, (type) => ar(`idTypes.${type}`)),
+        yesNo: { true: ar('common.yes'), false: ar('common.no') }
       }
     }
   }, [i18n])
@@ -102,6 +109,7 @@ function DataExportFields({
         // In the dialog's order, whatever order they were ticked in
         datasets: EXPORT_DATASETS.filter((d) => datasets.has(d)),
         formats: EXPORT_FORMATS.filter((f) => formats.has(f)),
+        includeIdNumbers: datasets.has('passengers') && includeIdNumbers,
         labels
       })
       if (!response.ok) {
@@ -141,6 +149,22 @@ function DataExportFields({
               </label>
             ))}
           </div>
+          {datasets.has('passengers') && (
+            <label className="flex items-start gap-2 text-sm text-stone-700">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 accent-brand-700"
+                checked={includeIdNumbers}
+                onChange={(e) => setIncludeIdNumbers(e.target.checked)}
+              />
+              <span>
+                {t('govt.export.includeIdNumbers')}
+                <span className="block text-xs text-stone-500">
+                  {t('govt.export.includeIdNumbersHint')}
+                </span>
+              </span>
+            </label>
+          )}
         </div>
         <div className="grid grid-cols-3 gap-3">
           <label className="flex flex-col gap-1">

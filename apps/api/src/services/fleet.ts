@@ -58,6 +58,13 @@ function validate(input: VehicleInput): FleetResult<VehicleInput> {
   ) {
     return { ok: false, error: 'invalid_capacity' }
   }
+  // A bus is counted in whole seats, and only a bus is
+  if ((input.vehicleType === 'bus') !== (input.capacityUnit === 'seat')) {
+    return { ok: false, error: 'unit_mismatch' }
+  }
+  if (input.capacityUnit === 'seat' && !Number.isInteger(input.capacity)) {
+    return { ok: false, error: 'invalid_capacity' }
+  }
   return {
     ok: true,
     data: {

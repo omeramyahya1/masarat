@@ -15,9 +15,8 @@ import {
   type Payment
 } from '../db'
 import { missingForBilling, type FleetResult } from '@masarat/shared/fleet'
-import { calculateCharges } from '@masarat/shared/tax'
+import { calculateCharges, type TripCategory } from '@masarat/shared/tax'
 import {
-  CERTIFICATE_VALID_DAYS,
   verifyUrl,
   type CertificateRecord,
   type PaymentRecord,
@@ -26,6 +25,8 @@ import {
 import { config } from '../config'
 import { tripScopeCondition, type CompanyScope, type TripScope } from './access'
 import { listCharges } from './charges'
+import { pricing } from './pricing'
+import { getSettings } from './settings'
 import { findOwnedDriver } from './drivers'
 import { esali } from './esali'
 import { toTripRecord, tripColumns, writeCharges, type TripRow } from './trips'
@@ -81,9 +82,13 @@ const documentNo = (prefix: string, manifestId: number, issuedAt: Date): string 
 export const certificateNoFor = (manifestId: number, issuedAt: Date): string =>
   documentNo('MSR', manifestId, issuedAt)
 
-// The authorized manifest's number, e.g. MNF-2026-000042
-export const manifestNoFor = (manifestId: number, issuedAt: Date): string =>
-  documentNo('MNF', manifestId, issuedAt)
+// The authorized manifest's number: MNF-2026-000042 for cargo, PSG-2026-000042 for a passenger
+// manifest (كشف ركاب), so an officer tells which it is from the number
+export const manifestNoFor = (
+  manifestId: number,
+  issuedAt: Date,
+  category: TripCategory = 'cargo'
+): string => documentNo(category === 'passenger' ? 'PSG' : 'MNF', manifestId, issuedAt)
 
 // A Code 128 barcode of a document number, with the number printed under it, as an SVG data URL
 function barcodeDataUrl(text: string): string {
@@ -98,13 +103,10 @@ function barcodeDataUrl(text: string): string {
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
 }
 
-// End of the day CERTIFICATE_VALID_DAYS after the trip date
-export function validUntilFor(tripDate: Date): Date {
-  const end = new Date(tripDate)
-  end.setDate(end.getDate() + CERTIFICATE_VALID_DAYS)
-  end.setHours(23, 59, 59, 0)
-  return end
-}
+// The documents stay valid until the estimated arrival plus the government's margin for the kind
+// of trip (Settings), so a manifest can't serve a later trip
+export const validUntilFor = (arrivalAt: Date, marginHours: number): Date =>
+  new Date(arrivalAt.getTime() + marginHours * 3_600_000)
 
 // A trip with its bill and documents; the government passes a null scope
 export async function getTripDetails(
@@ -188,9 +190,12 @@ export async function generateBill(
     return { ok: false, error: 'incomplete_manifest' }
   }
 
-  // Billed at today's tax percentages and fees (they may have changed since the draft was
+  // Billed at today's ticket price and taxes and fees (they may have changed since the draft was
   // saved); the lines are frozen from here on, and so are the carrier and driver details
-  const taxes = calculateCharges(trip.tripCost, await listCharges(db), 'cargo')
+  const passenger = trip.category === 'passenger'
+  const ticketPrice = passenger ? await pricing.ticketPrice(trip.distanceKm, db) : null
+  const tripCost = ticketPrice === null ? trip.tripCost : ticketPrice * trip.cargoQuantity
+  const taxes = calculateCharges(tripCost, await listCharges(db), trip.category)
   // With every rate and fee at 0 there is nothing to pay; E-Sali isn't asked for a bill
   if (taxes.total <= 0) return { ok: false, error: 'zero_bill' }
   const { billId } = await esali.createBill({ amount: taxes.total })
@@ -202,6 +207,8 @@ export async function generateBill(
       .update(manifests)
       .set({
         status: 'billed',
+        tripCost,
+        ...(passenger ? { ticketPrice, ratePerKm: await pricing.ticketRatePerKm(db) } : {}),
         taxAmount: taxes.total,
         carrierName: company.name,
         carrierAddress: company.address,
@@ -245,10 +252,13 @@ export async function refreshBillStatus(
           .values({
             manifestId: trip.id,
             certificateNo: certificateNoFor(trip.id, issuedAt),
-            manifestNo: manifestNoFor(trip.id, issuedAt),
+            manifestNo: manifestNoFor(trip.id, issuedAt, trip.category),
             qrToken: randomBytes(16).toString('hex'),
             issuedAt,
-            validUntil: validUntilFor(trip.tripDate)
+            validUntil: validUntilFor(
+              trip.arrivalAt,
+              (await getSettings()).validityMarginHours[trip.category]
+            )
           })
           .onConflictDoNothing()
         await tx.update(manifests).set({ status: 'certified' }).where(eq(manifests.id, trip.id))

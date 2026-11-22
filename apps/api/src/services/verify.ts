@@ -1,8 +1,9 @@
 // The public verify page's lookup: a certificate by its QR token, with only what an officer needs
-// to match the printed copy. Nothing personal (sender, receiver, driver) leaves here.
-import { and, eq } from 'drizzle-orm'
+// to match the printed copy. Nothing personal (sender, receiver, driver, passengers' names or IDs)
+// leaves here: a passenger trip only gives its head count.
+import { and, count, eq } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
-import { certificates, cities, getDb, manifests, payments, vehicles } from '../db'
+import { certificates, cities, getDb, manifests, payments, tripPassengers, vehicles } from '../db'
 import { QR_TOKEN_PATTERN, type ManifestVerification } from '@masarat/shared/billing'
 import type { FleetResult } from '@masarat/shared/fleet'
 
@@ -22,7 +23,10 @@ export async function verifyManifest(
       validUntil: certificates.validUntil,
       plateNumber: vehicles.plateNumber,
       tripKind: manifests.tripKind,
-      tripDate: manifests.tripDate,
+      manifestId: manifests.id,
+      category: manifests.category,
+      departureAt: manifests.departureAt,
+      arrivalAt: manifests.arrivalAt,
       carrierName: manifests.carrierName,
       originName: origin.name,
       originNameAr: origin.nameAr,
@@ -41,6 +45,19 @@ export async function verifyManifest(
     .limit(1)
   if (!row) return { ok: false, error: 'manifest_not_found' }
 
+  let passengers: ManifestVerification['passengers'] = null
+  if (row.category === 'passenger') {
+    const counts = await getDb()
+      .select({ isInfant: tripPassengers.isInfant, value: count() })
+      .from(tripPassengers)
+      .where(eq(tripPassengers.manifestId, row.manifestId))
+      .groupBy(tripPassengers.isInfant)
+    passengers = {
+      seated: counts.find((c) => !c.isInfant)?.value ?? 0,
+      infants: counts.find((c) => c.isInfant)?.value ?? 0
+    }
+  }
+
   return {
     ok: true,
     data: {
@@ -51,7 +68,9 @@ export async function verifyManifest(
       tripKind: row.tripKind,
       origin: { name: row.originName, nameAr: row.originNameAr },
       destination: { name: row.destinationName, nameAr: row.destinationNameAr },
-      tripDate: row.tripDate.getTime(),
+      departureAt: row.departureAt.getTime(),
+      arrivalAt: row.arrivalAt.getTime(),
+      passengers,
       issuedAt: row.issuedAt.getTime(),
       validUntil: row.validUntil.getTime(),
       carrierName: row.carrierName ?? '',

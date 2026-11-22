@@ -9,6 +9,7 @@ import {
   type TripKind,
   type VehicleType
 } from './fleet'
+import { TRIP_CATEGORIES, type TripCategory } from './tax'
 
 export const RANGE_PRESETS = ['7d', '30d', '90d', '12m', 'ytd'] as const
 export type RangePreset = (typeof RANGE_PRESETS)[number]
@@ -23,6 +24,8 @@ export interface AnalyticsFilters {
   // A state name as stored in cities.state (e.g. "Khartoum")
   originState?: string | null
   destinationState?: string | null
+  // Cargo or passenger trips
+  category?: TripCategory | null
   // Matches a trip that carries this type in any of its items
   cargoType?: CargoType | null
   vehicleType?: VehicleType | null
@@ -39,6 +42,7 @@ export const FILTER_KEYS = [
   'originState',
   'destinationCityId',
   'destinationState',
+  'category',
   'cargoType',
   'vehicleType',
   'tripKind',
@@ -57,6 +61,7 @@ export const BREAKDOWNS = [
   'route',
   'originState',
   'destinationState',
+  'category',
   'cargoType',
   'vehicleType',
   'tripKind',
@@ -200,6 +205,7 @@ export function isAnalyticsFilters(value: unknown): value is AnalyticsFilters {
     optional(f.destinationCityId, isId) &&
     optional(f.originState, isText) &&
     optional(f.destinationState, isText) &&
+    optional(f.category, (v) => isOneOf(TRIP_CATEGORIES, v)) &&
     optional(f.cargoType, (v) => isOneOf(CARGO_TYPES, v)) &&
     optional(f.vehicleType, (v) => isOneOf(VEHICLE_TYPES, v)) &&
     optional(f.tripKind, (v) => isOneOf(TRIP_KINDS, v)) &&

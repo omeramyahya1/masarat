@@ -53,7 +53,12 @@ function VehicleDialog({ vehicle, onClose, onSaved }: VehicleDialogProps): React
   // Trips record cargo in the vehicle's unit, so it can't change once the vehicle has trips
   const unitLocked = Boolean(vehicle && vehicle.tripCount > 0)
 
-  // Picking a type suggests its usual unit; the owner can still change it afterwards
+  // A bus is counted in seats, and only a bus is
+  const bus = vehicleType === 'bus'
+  const units = QUANTITY_UNITS.filter((u) => (u === 'seat') === bus)
+
+  // Picking a type suggests its usual unit; the owner can still change it afterwards (except a
+  // bus's seats)
   const handleTypeChange = (type: VehicleType): void => {
     setVehicleType(type)
     if (!unitLocked) setUnit(defaultUnitFor(type))
@@ -137,17 +142,17 @@ function VehicleDialog({ vehicle, onClose, onSaved }: VehicleDialogProps): React
           <NumberField
             label={t('fleet.fields.capacity')}
             value={capacity}
-            allowDecimal
-            maxDigits={7}
+            allowDecimal={!bus}
+            maxDigits={bus ? 3 : 7}
             placeholder={t(`fleet.fields.capacityPlaceholder.${unit}`)}
             onValueChange={setCapacity}
           />
           <SelectField
             label={t('fleet.fields.capacityUnit')}
             value={unit}
-            disabled={unitLocked}
+            disabled={unitLocked || bus}
             title={unitLocked ? t('fleet.errors.unit_in_use') : undefined}
-            options={QUANTITY_UNITS.map((u) => ({ value: u, label: t(`units.name.${u}`) }))}
+            options={units.map((u) => ({ value: u, label: t(`units.name.${u}`) }))}
             onChange={(e) => setUnit(e.target.value as QuantityUnit)}
           />
         </div>

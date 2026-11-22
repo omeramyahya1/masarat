@@ -9,6 +9,7 @@ import {
   manifestCharges,
   manifestTrailers,
   states,
+  tripPassengers,
   tripDocuments,
   vehicles
 } from '../db'
@@ -25,6 +26,7 @@ import {
   MAX_TRAILERS,
   TRIP_KINDS,
   documentTypesFor,
+  tripCategoryFor,
   itemUnitsFor,
   normalizePhone,
   totalInVehicleUnit,
@@ -44,7 +46,14 @@ import {
   type TripSuggestions
 } from '@masarat/shared/fleet'
 import { normalizePlate } from '@masarat/shared/plate'
-import { calculateCharges, estimateRoadKm, type TaxLine } from '@masarat/shared/tax'
+import { checkPassengers, ticketCount, type PassengerRecord } from '@masarat/shared/passengers'
+import { parseLocalDateTime } from '@masarat/shared/settings'
+import {
+  calculateCharges,
+  estimateRoadKm,
+  type TaxLine,
+  type TripCategory
+} from '@masarat/shared/tax'
 import {
   findStaged,
   isDocumentType,
@@ -57,6 +66,7 @@ import { listCharges } from './charges'
 import { findOwnedDriver } from './drivers'
 import { findOwnedVehicle } from './fleet'
 import { pricing } from './pricing'
+import { getSettings } from './settings'
 
 const isCargoType = (value: unknown): value is CargoType =>
   (CARGO_TYPES as readonly unknown[]).includes(value)
@@ -65,16 +75,6 @@ const isItemUnit = (value: unknown): value is ItemUnit =>
 const isTripKind = (value: unknown): value is TripKind =>
   (TRIP_KINDS as readonly unknown[]).includes(value)
 const asText = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
-
-// "YYYY-MM-DD" as local midnight, or null if it isn't a real calendar date
-function parseTripDate(value: unknown): Date | null {
-  if (typeof value !== 'string') return null
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
-  if (!match) return null
-  const [year, month, day] = match.slice(1).map(Number)
-  const date = new Date(year, month - 1, day)
-  return date.getMonth() === month - 1 && date.getDate() === day ? date : null
-}
 
 type Db = ReturnType<typeof getDb>
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0]
@@ -99,7 +99,8 @@ export async function getReferenceData(): Promise<TripReferenceData> {
       .orderBy(cities.name),
     cargoRates: await pricing.cargoRates(db),
     ticketRatePerKm: await pricing.ticketRatePerKm(db),
-    charges: await listCharges(db)
+    charges: await listCharges(db),
+    averageSpeedKmh: (await getSettings(db)).averageSpeedKmh
   }
 }
 
@@ -117,9 +118,12 @@ export const tripColumns = {
   cargoType: manifests.cargoType,
   cargoQuantity: manifests.cargoQuantity,
   cargoUnit: manifests.cargoUnit,
-  tripDate: manifests.tripDate,
+  category: manifests.category,
+  departureAt: manifests.departureAt,
+  arrivalAt: manifests.arrivalAt,
   distanceKm: manifests.distanceKm,
   ratePerKm: manifests.ratePerKm,
+  ticketPrice: manifests.ticketPrice,
   tripCost: manifests.tripCost,
   taxAmount: manifests.taxAmount,
   status: manifests.status,
@@ -140,9 +144,10 @@ export const tripColumns = {
 }
 
 type NestedFields =
-  'items' | 'taxes' | 'trailers' | 'shipper' | 'receiver' | 'carrier' | 'documents'
-export type TripRow = Omit<TripRecord, 'tripDate' | 'createdAt' | NestedFields> & {
-  tripDate: Date
+  'items' | 'passengers' | 'taxes' | 'trailers' | 'shipper' | 'receiver' | 'carrier' | 'documents'
+export type TripRow = Omit<TripRecord, 'departureAt' | 'arrivalAt' | 'createdAt' | NestedFields> & {
+  departureAt: Date
+  arrivalAt: Date
   createdAt: Date
   shipperName: string | null
   shipperAddress: string | null
@@ -166,12 +171,17 @@ export async function toTripRecords(rows: readonly TripRow[]): Promise<TripRecor
   if (rows.length === 0) return []
   const db = getDb()
   const ids = rows.map((r) => r.id)
-  const [itemRows, lineRows, trailerRows, documentRows] = await Promise.all([
+  const [itemRows, passengerRows, lineRows, trailerRows, documentRows] = await Promise.all([
     db
       .select()
       .from(manifestCargoItems)
       .where(inArray(manifestCargoItems.manifestId, ids))
       .orderBy(asc(manifestCargoItems.position)),
+    db
+      .select()
+      .from(tripPassengers)
+      .where(inArray(tripPassengers.manifestId, ids))
+      .orderBy(asc(tripPassengers.position)),
     db
       .select()
       .from(manifestCharges)
@@ -204,6 +214,20 @@ export async function toTripRecords(rows: readonly TripRow[]): Promise<TripRecor
       notes: item.notes
     })
     items.set(item.manifestId, list)
+  }
+  const passengers = new Map<number, PassengerRecord[]>()
+  for (const p of passengerRows) {
+    passengers.set(p.manifestId, [
+      ...(passengers.get(p.manifestId) ?? []),
+      {
+        fullName: p.fullName,
+        idType: p.idType,
+        idNumber: p.idNumber,
+        seatNo: p.seatNo,
+        isInfant: p.isInfant,
+        notes: p.notes
+      }
+    ])
   }
   const taxes = new Map<number, TaxLine[]>()
   for (const line of lineRows) {
@@ -252,9 +276,11 @@ export async function toTripRecords(rows: readonly TripRow[]): Promise<TripRecor
     } = row
     return {
       ...rest,
-      tripDate: row.tripDate.getTime(),
+      departureAt: row.departureAt.getTime(),
+      arrivalAt: row.arrivalAt.getTime(),
       createdAt: row.createdAt.getTime(),
       items: items.get(row.id) ?? [],
+      passengers: passengers.get(row.id) ?? [],
       taxes: taxes.get(row.id) ?? [],
       trailers: trailers.get(row.id) ?? [],
       documents: documents.get(row.id) ?? [],
@@ -351,9 +377,22 @@ interface DocumentChanges {
 interface BuiltTrip {
   manifest: Omit<typeof manifests.$inferInsert, 'status'>
   items: CargoItemRecord[]
+  passengers: PassengerRecord[]
   taxes: TaxLine[]
   trailers: string[]
   documents: DocumentChanges
+}
+
+// What a trip carries, priced: a cargo trip's items, or a passenger trip's passengers and tickets
+interface Load {
+  cargoType: CargoType | null
+  // Cargo: in the vehicle's unit; passengers: the tickets
+  quantity: number
+  ratePerKm: number
+  ticketPrice: number | null
+  tripCost: number
+  items: CargoItemRecord[]
+  passengers: PassengerRecord[]
 }
 
 // Attachments from the browser: at most one per type, each type applying to the trip's kind,
@@ -362,11 +401,12 @@ async function parseDocuments(
   userId: number,
   value: unknown,
   tripKind: TripKind,
+  category: TripCategory,
   manifestId: number | null
 ): Promise<DocumentChanges | null> {
   if (value === undefined) return { keep: [], add: [] }
   if (!Array.isArray(value)) return null
-  const allowed = documentTypesFor(tripKind)
+  const allowed = documentTypesFor(tripKind, category)
   const saved =
     manifestId === null
       ? []
@@ -426,42 +466,92 @@ async function buildTrip(
   const destination = route.find((c) => c.id === input.destinationCityId)
   if (!origin || !destination) return { ok: false, error: 'city_not_found' }
 
-  const items = parseItems(input.items, vehicle.capacityUnit)
-  if (!items) return { ok: false, error: 'invalid_items' }
+  const category = tripCategoryFor(vehicle.vehicleType)
+  const distanceKm = estimateRoadKm(origin, destination)
+
+  // When it leaves, and when it's expected to arrive (the documents' validity follows the arrival)
+  const departureAt = parseLocalDateTime(input.departureAt)
+  const arrivalAt = parseLocalDateTime(input.arrivalAt)
+  if (!departureAt || !arrivalAt) return { ok: false, error: 'invalid_date' }
+  if (arrivalAt <= departureAt) return { ok: false, error: 'invalid_arrival' }
+
+  // What it carries, and what that costs before taxes and fees
   const rates = await pricing.cargoRates(db)
-  // Each item is measured in its rate's unit, which has to match what the vehicle carries
-  for (const item of items) {
-    const rate = rates.find((r) => r.cargoType === item.cargoType)
-    if (!rate) return { ok: false, error: 'invalid_items' }
-    if (rate.unit !== vehicle.capacityUnit) return { ok: false, error: 'unit_mismatch' }
+  let load: Load
+  if (category === 'passenger') {
+    const checked = checkPassengers(input.passengers, Math.floor(vehicle.capacity))
+    if (!checked.ok) return checked
+    const ticketRate = await pricing.ticketRatePerKm(db)
+    const ticketPrice = await pricing.ticketPrice(distanceKm, db)
+    const tickets = ticketCount(checked.passengers)
+    load = {
+      cargoType: null,
+      quantity: tickets,
+      ratePerKm: ticketRate,
+      ticketPrice,
+      tripCost: ticketPrice * tickets,
+      items: [],
+      passengers: checked.passengers
+    }
+  } else {
+    const items = parseItems(input.items, vehicle.capacityUnit)
+    if (!items) return { ok: false, error: 'invalid_items' }
+    // Each item is measured in its rate's unit, which has to match what the vehicle carries
+    for (const item of items) {
+      const rate = rates.find((r) => r.cargoType === item.cargoType)
+      if (!rate) return { ok: false, error: 'invalid_items' }
+      if (rate.unit !== vehicle.capacityUnit) return { ok: false, error: 'unit_mismatch' }
+    }
+    const quantity = totalInVehicleUnit(items)
+    if (!(quantity > 0)) return { ok: false, error: 'invalid_quantity' }
+    if (quantity > vehicle.capacity) return { ok: false, error: 'over_capacity' }
+    const priced = await pricing.cargoCost(items, distanceKm, db)
+    if (!priced || !priced.mainType) return { ok: false, error: 'unknown' }
+    const mainRate = rates.find((r) => r.cargoType === priced.mainType)
+    if (!mainRate) return { ok: false, error: 'unknown' }
+    load = {
+      cargoType: priced.mainType,
+      quantity,
+      ratePerKm: mainRate.ratePerKm,
+      ticketPrice: null,
+      tripCost: priced.total,
+      items: items.map((item, index) => {
+        const rate = rates.find((r) => r.cargoType === item.cargoType)
+        return {
+          ...item,
+          ratePerKm: rate?.ratePerKm ?? 0,
+          perQuantity: rate?.perQuantity ?? 1,
+          cost: priced.costs[index]
+        }
+      }),
+      passengers: []
+    }
   }
-  const quantity = totalInVehicleUnit(items)
-  if (!(quantity > 0)) return { ok: false, error: 'invalid_quantity' }
-  if (quantity > vehicle.capacity) return { ok: false, error: 'over_capacity' }
 
-  const tripDate = parseTripDate(input.tripDate)
-  if (!tripDate) return { ok: false, error: 'invalid_date' }
-
-  if (!isTripKind(input.tripKind)) return { ok: false, error: 'missing_fields' }
-  const trailers = parseTrailers(input.trailers, vehicle.plateNumber)
+  // Passenger trips are domestic and have no sender, receiver, trailers or documents
+  const cargo = category === 'cargo'
+  const tripKind = cargo ? input.tripKind : 'domestic'
+  if (!isTripKind(tripKind)) return { ok: false, error: 'missing_fields' }
+  const trailers = cargo ? parseTrailers(input.trailers, vehicle.plateNumber) : []
   if (!trailers) return { ok: false, error: 'invalid_trailer' }
-  const shipper = parseParty(input.shipper)
-  const receiver = parseParty(input.receiver)
+  const shipper = cargo ? parseParty(input.shipper) : party(null, null, null)
+  const receiver = cargo ? parseParty(input.receiver) : party(null, null, null)
   if (!shipper || !receiver) return { ok: false, error: 'invalid_party' }
   // The manifest keeps a copy of the driver's name and phone
   const driverId = input.driverId ?? null
   const driver = driverId === null ? null : await findOwnedDriver(scope.companyId, driverId)
   if (driverId !== null && !driver) return { ok: false, error: 'driver_not_found' }
-  const documents = await parseDocuments(userId, input.documents, input.tripKind, manifestId)
+  const documents = await parseDocuments(
+    userId,
+    cargo ? input.documents : [],
+    tripKind,
+    category,
+    manifestId
+  )
   if (!documents) return { ok: false, error: 'invalid_document' }
 
-  const distanceKm = estimateRoadKm(origin, destination)
-  const priced = await pricing.cargoCost(items, distanceKm, db)
-  if (!priced || !priced.mainType) return { ok: false, error: 'unknown' }
-  const mainRate = rates.find((r) => r.cargoType === priced.mainType)
-  if (!mainRate) return { ok: false, error: 'unknown' }
-  const tripCost = priced.total
-  const taxes = calculateCharges(tripCost, await listCharges(db), 'cargo')
+  const tripCost = load.tripCost
+  const taxes = calculateCharges(tripCost, await listCharges(db), category)
   return {
     ok: true,
     data: {
@@ -470,15 +560,18 @@ async function buildTrip(
         branchId,
         originCityId: origin.id,
         destinationCityId: destination.id,
-        cargoType: priced.mainType,
-        cargoQuantity: quantity,
+        category,
+        cargoType: load.cargoType,
+        cargoQuantity: load.quantity,
         cargoUnit: vehicle.capacityUnit,
-        tripDate,
+        departureAt,
+        arrivalAt,
         distanceKm,
-        ratePerKm: mainRate.ratePerKm,
+        ratePerKm: load.ratePerKm,
+        ticketPrice: load.ticketPrice,
         tripCost,
         taxAmount: taxes.total,
-        tripKind: input.tripKind,
+        tripKind,
         driverId: driver?.id ?? null,
         driverName: driver?.name ?? null,
         driverPhone: driver?.phone ?? null,
@@ -489,15 +582,8 @@ async function buildTrip(
         receiverAddress: receiver.address || null,
         receiverPhone: receiver.phone || null
       },
-      items: items.map((item, index) => {
-        const rate = rates.find((r) => r.cargoType === item.cargoType)
-        return {
-          ...item,
-          ratePerKm: rate?.ratePerKm ?? 0,
-          perQuantity: rate?.perQuantity ?? 1,
-          cost: priced.costs[index]
-        }
-      }),
+      items: load.items,
+      passengers: load.passengers,
       taxes: taxes.lines,
       trailers,
       documents
@@ -511,9 +597,22 @@ async function writeItems(
   items: readonly CargoItemRecord[]
 ): Promise<void> {
   await tx.delete(manifestCargoItems).where(eq(manifestCargoItems.manifestId, manifestId))
+  if (items.length === 0) return
   await tx
     .insert(manifestCargoItems)
     .values(items.map((item, position) => ({ manifestId, position, ...item })))
+}
+
+async function writePassengers(
+  tx: Tx,
+  manifestId: number,
+  passengers: readonly PassengerRecord[]
+): Promise<void> {
+  await tx.delete(tripPassengers).where(eq(tripPassengers.manifestId, manifestId))
+  if (passengers.length === 0) return
+  await tx
+    .insert(tripPassengers)
+    .values(passengers.map((p, position) => ({ manifestId, position, ...p })))
 }
 
 async function writeTrailers(
@@ -592,7 +691,7 @@ export async function createTrip(
 ): Promise<FleetResult<TripRecord>> {
   const built = await buildTrip(scope, userId, input)
   if (!built.ok) return built
-  const { manifest, items, taxes, trailers, documents } = built.data
+  const { manifest, items, passengers, taxes, trailers, documents } = built.data
 
   const id = await getDb().transaction(async (tx) => {
     const [{ id }] = await tx
@@ -600,6 +699,7 @@ export async function createTrip(
       .values({ ...manifest, createdBy: userId, status: 'draft' })
       .returning({ id: manifests.id })
     await writeItems(tx, id, items)
+    await writePassengers(tx, id, passengers)
     await writeCharges(tx, id, taxes)
     await writeTrailers(tx, id, trailers)
     await insertDocuments(tx, id, documents.add)
@@ -623,7 +723,7 @@ export async function updateTrip(
 
   const built = await buildTrip(scope, userId, input, existing.id)
   if (!built.ok) return built
-  const { manifest, items, taxes, trailers, documents } = built.data
+  const { manifest, items, passengers, taxes, trailers, documents } = built.data
 
   // Attachments the trip no longer has; their files are removed once the rows are gone
   const removed = await getDb().transaction(async (tx) => {
@@ -631,6 +731,7 @@ export async function updateTrip(
     if ((await lockedStatus(tx, existing.id)) !== 'draft') return null
     await tx.update(manifests).set(manifest).where(eq(manifests.id, existing.id))
     await writeItems(tx, existing.id, items)
+    await writePassengers(tx, existing.id, passengers)
     await writeCharges(tx, existing.id, taxes)
     await writeTrailers(tx, existing.id, trailers)
     const dropped = (
@@ -673,6 +774,7 @@ export async function deleteTrip(
     // Re-checked inside the transaction so a bill issued meanwhile isn't lost
     if ((await lockedStatus(tx, existing.id)) !== 'draft') return false
     await tx.delete(manifestCargoItems).where(eq(manifestCargoItems.manifestId, existing.id))
+    await tx.delete(tripPassengers).where(eq(tripPassengers.manifestId, existing.id))
     await tx.delete(manifestCharges).where(eq(manifestCharges.manifestId, existing.id))
     await tx.delete(manifestTrailers).where(eq(manifestTrailers.manifestId, existing.id))
     await tx.delete(tripDocuments).where(eq(tripDocuments.manifestId, existing.id))

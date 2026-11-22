@@ -79,7 +79,7 @@ function VerifyPage({ token }: { token: string }): React.JSX.Element {
           </h1>
           <p className="text-sm">
             {t(valid ? 'site.verify.validUntil' : 'site.verify.expiredOn', {
-              date: format.date(result.validUntil)
+              date: format.dateTime(result.validUntil)
             })}
           </p>
         </div>
@@ -97,12 +97,26 @@ function VerifyPage({ token }: { token: string }): React.JSX.Element {
           <Row label={t('site.verify.fields.plate')}>
             <PlateBadge plate={result.plateNumber} />
           </Row>
-          <Row label={t('site.verify.fields.tripKind')}>{t(`tripKinds.${result.tripKind}`)}</Row>
+          {result.passengers ? (
+            <Row label={t('site.verify.fields.passengers')}>
+              <span className="tabular-nums">
+                {t('site.verify.passengerCount', {
+                  seated: format.number(result.passengers.seated),
+                  infants: format.number(result.passengers.infants)
+                })}
+              </span>
+            </Row>
+          ) : (
+            <Row label={t('site.verify.fields.tripKind')}>{t(`tripKinds.${result.tripKind}`)}</Row>
+          )}
           <Row label={t('site.verify.fields.route')}>
             {format.city(result.origin)} {format.isArabic ? '←' : '→'}{' '}
             {format.city(result.destination)}
           </Row>
-          <Row label={t('site.verify.fields.tripDate')}>{format.date(result.tripDate)}</Row>
+          <Row label={t('site.verify.fields.departureAt')}>
+            {format.dateTime(result.departureAt)}
+          </Row>
+          <Row label={t('site.verify.fields.arrivalAt')}>{format.dateTime(result.arrivalAt)}</Row>
           <Row label={t('site.verify.fields.carrier')}>
             <bdi>{result.carrierName}</bdi>
           </Row>

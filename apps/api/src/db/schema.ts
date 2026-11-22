@@ -29,8 +29,10 @@ import {
   MAX_FEE,
   MAX_TAX_BPS,
   PRICING_CODES,
-  RATE_UNITS
+  RATE_UNITS,
+  TRIP_CATEGORIES
 } from '@masarat/shared/tax'
+import { ID_TYPES } from '@masarat/shared/passengers'
 import {
   BUILTIN_ROLE_KEYS,
   PERMISSIONS,
@@ -267,7 +269,9 @@ export const vehicles = pgTable(
     index('vehicles_company_id_idx').on(t.companyId),
     check('vehicles_type_check', sql`${t.vehicleType} IN (${inList(VEHICLE_TYPES)})`),
     check('vehicles_unit_check', sql`${t.capacityUnit} IN (${inList(QUANTITY_UNITS)})`),
-    check('vehicles_capacity_check', sql`${t.capacity} > 0`)
+    check('vehicles_capacity_check', sql`${t.capacity} > 0`),
+    // A bus is counted in seats, and only a bus
+    check('vehicles_bus_seat_check', sql`(${t.vehicleType} = 'bus') = (${t.capacityUnit} = 'seat')`)
   ]
 )
 
@@ -358,15 +362,23 @@ export const manifests = pgTable(
     destinationCityId: integer('destination_city_id')
       .notNull()
       .references(() => cities.id, { onDelete: 'restrict' }),
-    // The main cargo type (the item type with the largest cost) and its rate; each item keeps its own
-    cargoType: text('cargo_type', { enum: CARGO_TYPES }).notNull(),
-    // Total of the cargo items, in the vehicle's unit
+    // cargo, or passenger (a bus), from the vehicle
+    category: text('category', { enum: TRIP_CATEGORIES }).notNull().default('cargo'),
+    // A cargo trip's main type (the item type with the largest cost) and its rate; each item keeps
+    // its own. Null for a passenger trip.
+    cargoType: text('cargo_type', { enum: CARGO_TYPES }),
+    // Cargo: the items' total in the vehicle's unit. Passengers: the tickets (seats sold), in seats.
     cargoQuantity: doublePrecision('cargo_quantity').notNull(),
     cargoUnit: text('cargo_unit', { enum: QUANTITY_UNITS }).notNull(),
-    tripDate: timestamp('trip_date', { withTimezone: true }).notNull(),
+    // When it leaves, and when it's expected to arrive (the documents' validity follows it)
+    departureAt: timestamp('departure_at', { withTimezone: true }).notNull(),
+    arrivalAt: timestamp('arrival_at', { withTimezone: true }).notNull(),
     // Snapshot of the calculation, so later rate changes don't rewrite history
     distanceKm: doublePrecision('distance_km').notNull(),
+    // Cargo: the main type's rate. Passengers: the ticket rate per km.
     ratePerKm: integer('rate_per_km').notNull(),
+    // A passenger trip's ticket price (rate × distance); null for cargo
+    ticketPrice: integer('ticket_price'),
     tripCost: integer('trip_cost').notNull(),
     // Sum of the trip's manifest_taxes lines: the amount billed
     taxAmount: integer('tax_amount').notNull(),
@@ -396,10 +408,21 @@ export const manifests = pgTable(
     check('manifests_trip_kind_check', sql`${t.tripKind} IN (${inList(TRIP_KINDS)})`),
     index('manifests_status_idx').on(t.status),
     check('manifests_route_check', sql`${t.originCityId} <> ${t.destinationCityId}`),
-    check('manifests_cargo_type_check', sql`${t.cargoType} IN (${inList(CARGO_TYPES)})`),
+    index('manifests_departure_at_idx').on(t.departureAt),
+    check('manifests_category_check', sql`${t.category} IN (${inList(TRIP_CATEGORIES)})`),
+    check(
+      'manifests_cargo_type_check',
+      sql`${t.category} = 'cargo' AND ${t.cargoType} IN (${inList(CARGO_TYPES)})
+        OR ${t.category} = 'passenger' AND ${t.cargoType} IS NULL AND ${t.cargoUnit} = 'seat'`
+    ),
     check('manifests_unit_check', sql`${t.cargoUnit} IN (${inList(QUANTITY_UNITS)})`),
     check('manifests_status_check', sql`${t.status} IN (${inList(MANIFEST_STATUSES)})`),
-    check('manifests_quantity_check', sql`${t.cargoQuantity} > 0`)
+    // A passenger draft may have no passengers yet
+    check(
+      'manifests_quantity_check',
+      sql`${t.cargoQuantity} > 0 OR ${t.category} = 'passenger' AND ${t.cargoQuantity} >= 0`
+    ),
+    check('manifests_arrival_check', sql`${t.arrivalAt} > ${t.departureAt}`)
   ]
 )
 
@@ -455,6 +478,82 @@ export const manifestTrailers = pgTable(
   },
   (t) => [index('manifest_trailers_manifest_id_idx').on(t.manifestId)]
 )
+
+// A passenger trip's passengers. Everyone with a seat has a ticket; an infant shares a passenger's
+// seat. The ID number is normalized (packages/shared/src/passengers.ts) and indexed, so the
+// government search finds a passenger's trips by it with one lookup.
+export const tripPassengers = pgTable(
+  'trip_passengers',
+  {
+    id,
+    manifestId: integer('manifest_id')
+      .notNull()
+      .references(() => manifests.id, { onDelete: 'restrict' }),
+    position: integer('position').notNull(),
+    fullName: text('full_name').notNull(),
+    idType: text('id_type', { enum: ID_TYPES }),
+    idNumber: text('id_number'),
+    seatNo: integer('seat_no').notNull(),
+    isInfant: boolean('is_infant').notNull().default(false),
+    notes: text('notes'),
+    ...timestamps
+  },
+  (t) => [
+    index('trip_passengers_manifest_id_idx').on(t.manifestId),
+    index('trip_passengers_id_number_idx').on(t.idNumber),
+    // One ticket per seat
+    uniqueIndex('trip_passengers_seat_idx')
+      .on(t.manifestId, t.seatNo)
+      .where(sql`NOT ${t.isInfant}`),
+    check(
+      'trip_passengers_id_type_check',
+      sql`${t.idType} IS NULL OR ${t.idType} IN (${inList(ID_TYPES)})`
+    ),
+    check('trip_passengers_id_check', sql`(${t.idType} IS NULL) = (${t.idNumber} IS NULL)`),
+    check('trip_passengers_seat_check', sql`${t.seatNo} > 0`)
+  ]
+)
+
+// A company's saved passenger trips (packages/shared/src/templates.ts)
+export const tripTemplates = pgTable(
+  'trip_templates',
+  {
+    id,
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'restrict' }),
+    branchId: integer('branch_id')
+      .notNull()
+      .references(() => branches.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    originCityId: integer('origin_city_id')
+      .notNull()
+      .references(() => cities.id, { onDelete: 'restrict' }),
+    destinationCityId: integer('destination_city_id')
+      .notNull()
+      .references(() => cities.id, { onDelete: 'restrict' }),
+    vehicleId: integer('vehicle_id')
+      .notNull()
+      .references(() => vehicles.id, { onDelete: 'restrict' }),
+    driverId: integer('driver_id').references(() => drivers.id, { onDelete: 'set null' }),
+    // HH:MM, Sudan time
+    departureTime: text('departure_time').notNull(),
+    durationMinutes: integer('duration_minutes').notNull(),
+    ...timestamps
+  },
+  (t) => [
+    index('trip_templates_company_id_idx').on(t.companyId),
+    check('trip_templates_route_check', sql`${t.originCityId} <> ${t.destinationCityId}`),
+    check('trip_templates_duration_check', sql`${t.durationMinutes} > 0`)
+  ]
+)
+
+// The government's settings (packages/shared/src/settings.ts), one row per value
+export const systemSettings = pgTable('system_settings', {
+  key: text('key').primaryKey(),
+  value: integer('value').notNull(),
+  ...timestamps
+})
 
 // Supporting documents attached to a trip (invoice, packing list, …). The files live in the app's
 // data folder under documents/<manifest id>/<stored name>.
@@ -569,6 +668,8 @@ export type City = typeof cities.$inferSelect
 export type Vehicle = typeof vehicles.$inferSelect
 export type NewVehicle = typeof vehicles.$inferInsert
 export type Driver = typeof drivers.$inferSelect
+export type TripPassenger = typeof tripPassengers.$inferSelect
+export type TripTemplate = typeof tripTemplates.$inferSelect
 export type Charge = typeof charges.$inferSelect
 export type TripDocument = typeof tripDocuments.$inferSelect
 export type Manifest = typeof manifests.$inferSelect

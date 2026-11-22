@@ -14,6 +14,7 @@ import { documentRoutes } from './routes/documents'
 import { driverRoutes, vehicleRoutes } from './routes/fleet'
 import { govtRoutes } from './routes/govt'
 import { govtUserRoutes } from './routes/govtUsers'
+import { templateRoutes } from './routes/templates'
 import { tripRoutes } from './routes/trips'
 import { verifyRoutes } from './routes/verify'
 
@@ -54,6 +55,7 @@ export const app = new Hono<AppEnv>()
   .route('/vehicles', vehicleRoutes)
   .route('/drivers', driverRoutes)
   .route('/trips', tripRoutes)
+  .route('/templates', templateRoutes)
   .route('/documents', documentRoutes)
   .route('/verify', verifyRoutes)
 

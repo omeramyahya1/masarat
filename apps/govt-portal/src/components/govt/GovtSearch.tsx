@@ -104,7 +104,7 @@ function GovtSearch({
                       }}
                     >
                       <div className="font-medium text-stone-900">
-                        #{format.number(trip.manifestId)} · {format.date(trip.tripDate)}
+                        #{format.number(trip.manifestId)} · {format.date(trip.departureAt)}
                       </div>
                       {trip.manifestNo && (
                         <div dir="ltr" className="font-mono text-[11px] text-stone-400">

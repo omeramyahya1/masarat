@@ -14,6 +14,9 @@ export const COMPANY_PERMISSIONS = [
   'trips.edit',
   // Generate the bill ID and refresh its payment
   'trips.bill',
+  // Book a passenger trip from a saved template, and keep the templates
+  'templates.use',
+  'templates.manage',
   'fleet.view',
   'fleet.manage',
   'drivers.view',
@@ -32,6 +35,8 @@ export const GOVT_PERMISSIONS = [
   'govt.exports',
   // The taxes and fees
   'govt.charges',
+  // The validity margin and average speeds (Settings)
+  'govt.settings',
   'govt.users'
 ] as const
 export type GovtPermission = (typeof GOVT_PERMISSIONS)[number]
@@ -48,6 +53,8 @@ export const isCompanyPermission = (value: unknown): value is CompanyPermission 
 const IMPLIES: Partial<Record<Permission, readonly Permission[]>> = {
   'trips.edit': ['trips.view'],
   'trips.bill': ['trips.view'],
+  'templates.use': ['trips.edit'],
+  'templates.manage': ['templates.use'],
   'fleet.manage': ['fleet.view'],
   'drivers.manage': ['drivers.view']
 }
@@ -55,14 +62,22 @@ const IMPLIES: Partial<Record<Permission, readonly Permission[]>> = {
 // The permissions with everything they imply, in the lists' order
 export function withImplied<P extends Permission>(permissions: Iterable<P>): P[] {
   const set = new Set<Permission>(permissions)
-  for (const permission of [...set])
-    for (const implied of IMPLIES[permission] ?? []) set.add(implied)
+  // Follows the chain: managing templates implies using them, which implies booking trips, …
+  const queue = [...set]
+  for (let permission = queue.pop(); permission; permission = queue.pop()) {
+    for (const implied of IMPLIES[permission] ?? []) {
+      if (!set.has(implied)) {
+        set.add(implied)
+        queue.push(implied)
+      }
+    }
+  }
   return PERMISSIONS.filter((p) => set.has(p)) as P[]
 }
 
 // The company permissions grouped as the role editor shows them
 export const COMPANY_PERMISSION_GROUPS: Record<string, readonly CompanyPermission[]> = {
-  trips: ['trips.view', 'trips.edit', 'trips.bill'],
+  trips: ['trips.view', 'trips.edit', 'trips.bill', 'templates.use', 'templates.manage'],
   fleet: ['fleet.view', 'fleet.manage', 'drivers.view', 'drivers.manage'],
   company: ['company.profile', 'branches.manage', 'members.manage', 'roles.manage']
 }
@@ -100,7 +115,7 @@ export const BUILTIN_ROLES: Record<
   clerk: {
     kind: 'company',
     scope: 'branch',
-    permissions: ['trips.view', 'trips.edit', 'trips.bill']
+    permissions: ['trips.view', 'trips.edit', 'trips.bill', 'templates.use']
   },
   // Follows every branch's trips and bills
   accountant: {

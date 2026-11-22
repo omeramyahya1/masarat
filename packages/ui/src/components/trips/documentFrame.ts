@@ -18,9 +18,10 @@ export interface SheetFrame {
   footer: string
 }
 
-// The receipt's or the manifest's frame; documents are always in Arabic (ar, fa)
+// The receipt's, the manifest's or the passenger manifest's frame; documents are always in Arabic
+// (ar, fa)
 export function documentFrame(
-  document: 'receipt' | 'manifest',
+  document: 'receipt' | 'manifest' | 'passengers',
   certificate: CertificateRecord,
   ar: TFunction,
   fa: Formatters
@@ -36,7 +37,11 @@ export function documentFrame(
     barcode: receipt ? certificate.receiptBarcode : certificate.manifestBarcode,
     barcodeAlt: receipt ? certificate.certificateNo : certificate.manifestNo,
     date: { label: ar('certificate.fields.issuedAt'), value: fa.date(certificate.issuedAt) },
-    title: receipt ? ar('certificate.header.title') : ar('certificate.manifest.title'),
+    title: receipt
+      ? ar('certificate.header.title')
+      : document === 'passengers'
+        ? ar('certificate.passengers.title')
+        : ar('certificate.manifest.title'),
     qr: certificate.qrDataUrl,
     qrLabel: ar('certificate.scanToVerify'),
     footer: receipt

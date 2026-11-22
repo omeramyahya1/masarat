@@ -36,7 +36,7 @@ export function estimateRoadKm(origin: Point, destination: Point): number {
 
 // What pricing_rates holds a rate for: each cargo type, and a passenger seat
 export const PRICING_CODES = [...CARGO_TYPES, 'passenger'] as const
-export const RATE_UNITS = [...QUANTITY_UNITS, 'seat'] as const
+export const RATE_UNITS = QUANTITY_UNITS
 
 // A passenger ticket: ratePerKm per seat × distance, in whole SDG
 export const calculateTicketPrice = (ratePerKm: number, distanceKm: number): number =>

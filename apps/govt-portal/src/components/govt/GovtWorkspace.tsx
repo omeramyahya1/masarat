@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { LayoutDashboard, Percent, UsersRound } from 'lucide-react'
+import { LayoutDashboard, Percent, SlidersHorizontal, UsersRound } from 'lucide-react'
 import type { Permission } from '@masarat/shared/permissions'
 import type { GovtSearchInput } from '@masarat/shared/billing'
 import type { TripReferenceData } from '@masarat/shared/fleet'
@@ -11,17 +11,26 @@ import TripDetails from '@masarat/ui/components/trips/TripDetails'
 import GovtDashboard from './GovtDashboard'
 import GovtSearch from './GovtSearch'
 import GovtSearchBar from './GovtSearchBar'
+import SettingsPanel from './SettingsPanel'
 import TaxSettings from './TaxSettings'
 import { api } from '@masarat/api-client'
 
-type Section = 'overview' | 'taxes' | 'users'
+type Section = 'overview' | 'taxes' | 'settings' | 'users'
 
 // Each section, and what the user's role needs to see it
 const SECTIONS: { id: Section; needs: Permission; icon: typeof LayoutDashboard }[] = [
   { id: 'overview', needs: 'govt.dashboard', icon: LayoutDashboard },
   { id: 'taxes', needs: 'govt.charges', icon: Percent },
+  { id: 'settings', needs: 'govt.settings', icon: SlidersHorizontal },
   { id: 'users', needs: 'govt.users', icon: UsersRound }
 ]
+
+const SECTION_LABELS: Record<Section, string> = {
+  overview: 'govt.overview',
+  taxes: 'govt.taxes.tab',
+  settings: 'govt.settings.tab',
+  users: 'members.tab'
+}
 
 // Government home: the collection overview, and for admins the taxes and fees and the government
 // accounts; a search across every company's trips, and a read-only view of any trip
@@ -47,9 +56,7 @@ function GovtWorkspace(): React.JSX.Element {
         label={t('govt.sections')}
         sections={sections.map(({ id, icon }) => ({
           id,
-          label: t(
-            id === 'overview' ? 'govt.overview' : id === 'taxes' ? 'govt.taxes.tab' : 'members.tab'
-          ),
+          label: t(SECTION_LABELS[id]),
           icon
         }))}
         value={section}
@@ -101,6 +108,8 @@ function GovtWorkspace(): React.JSX.Element {
             <GovtDashboard onOpenTrip={setOpenTrip} />
           ) : section === 'taxes' ? (
             <TaxSettings />
+          ) : section === 'settings' ? (
+            <SettingsPanel />
           ) : (
             <TeamPanel side="govt" members={api.govt.users} />
           )}

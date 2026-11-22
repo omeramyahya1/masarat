@@ -29,6 +29,7 @@ const STATUS: Record<string, ContentfulStatusCode> = {
   vehicle_not_found: 404,
   driver_not_found: 404,
   charge_not_found: 404,
+  template_not_found: 404,
   role_not_found: 404,
   branch_not_found: 404,
   too_large: 413,

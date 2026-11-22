@@ -82,7 +82,7 @@ describe('search', () => {
     const last = Math.ceil(total / 25)
     const end = await govt.call('GET', `/govt/search?query=nile&pageSize=25&page=${last}`)
     expect(end.body.data.rows).toHaveLength(total - (last - 1) * 25)
-    const dates = rows.map((r: { tripDate: number }) => r.tripDate)
+    const dates = rows.map((r: { departureAt: number }) => r.departureAt)
     expect(dates).toEqual([...dates].sort((a, b) => b - a))
   })
 

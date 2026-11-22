@@ -117,20 +117,24 @@
     "currency": "{{amount}} SDG",
     "cancel": "Cancel",
     "back": "Back",
-    "actions": "Actions"
+    "actions": "Actions",
+    "yes": "Yes",
+    "no": "No"
   },
   "units": {
     "short": {
       "ton": "{{value}} t",
       "liter": "{{value}} L",
       "kg": "{{value}} kg",
-      "m3": "{{value}} m³"
+      "m3": "{{value}} m³",
+      "seat": "{{value}} seats"
     },
     "name": {
       "ton": "Tons",
       "liter": "Liters",
       "kg": "Kilograms",
-      "m3": "Cubic meters"
+      "m3": "Cubic meters",
+      "seat": "Seats"
     },
     "km": "{{value}} km",
     "kb": "{{value}} KB",
@@ -142,7 +146,8 @@
     "light_duty_truck": "Light-duty truck",
     "jumbo_truck": "Jumbo truck",
     "tanker": "Tanker",
-    "container_truck": "Container truck"
+    "container_truck": "Container truck",
+    "bus": "Bus"
   },
   "tripKinds": {
     "domestic": "Domestic",
@@ -163,7 +168,8 @@
     "fuel": "Fuel",
     "containers": "Containers",
     "general_cargo": "General cargo",
-    "liquids": "Liquids (non-fuel)"
+    "liquids": "Liquids (non-fuel)",
+    "passengers": "Passengers"
   },
   "statuses": {
     "draft": "Draft",
@@ -201,7 +207,8 @@
     "profile": "Profile",
     "team": "Team",
     "branches": "Branches",
-    "roles": "Roles"
+    "roles": "Roles",
+    "templates": "Templates"
   },
   "profile": {
     "title": "Profile",
@@ -264,7 +271,8 @@
       "capacity": "Carrying capacity",
       "capacityPlaceholder": {
         "ton": "e.g. 30",
-        "liter": "e.g. 36000"
+        "liter": "e.g. 36000",
+        "seat": "e.g. 49"
       },
       "capacityUnit": "Unit"
     },
@@ -282,7 +290,7 @@
       "invalid_quantity": "Cargo quantity must be greater than zero.",
       "unit_mismatch": "This vehicle can't carry the selected cargo type.",
       "over_capacity": "Cargo quantity exceeds the vehicle's capacity.",
-      "invalid_date": "Choose a valid trip date.",
+      "invalid_date": "Enter a valid date and time.",
       "manifest_not_found": "This trip could not be found.",
       "already_billed": "A bill has already been issued for this trip.",
       "not_billed": "Generate a bill ID for this trip first.",
@@ -308,7 +316,13 @@
       "branch_not_found": "This branch could not be found.",
       "branch_inactive": "This branch is closed and takes no new trips.",
       "invalid_charge": "Give it a name in both languages (up to 60 characters), and a value for at least one kind of trip.",
-      "charge_not_found": "This tax or fee could not be found."
+      "charge_not_found": "This tax or fee could not be found.",
+      "seat_taken": "Two passengers have the same seat. Each seat is sold once (an infant shares their parent's seat).",
+      "invalid_passengers": "Check the passengers: a name for each, a seat on the bus, and a valid ID (11 digits for a national ID, 6 to 20 letters and digits for a passport). An infant goes on a passenger's seat.",
+      "invalid_arrival": "The estimated arrival has to be after the departure.",
+      "template_not_found": "This template could not be found.",
+      "invalid_template": "A template needs a bus, a departure time (HH:MM) and a duration.",
+      "invalid_settings": "Enter a margin from 0 to 720 hours and a speed from 10 to 150 km/h."
     },
     "groupSummary": "{{count}} vehicles",
     "list": {
@@ -407,7 +421,11 @@
       "editSubtitle": "Drafts can be changed until their bill ID is generated.",
       "save": "Save changes",
       "documentsSection": "Supporting documents",
-      "bookedAt": "Booked at {{branch}}"
+      "bookedAt": "Booked at {{branch}}",
+      "suggestedHint": "Suggested from the distance at {{speed}} km/h. You can change it.",
+      "useSuggested": "Use the suggested time ({{time}})",
+      "domesticOnly": "Passenger trips are within Sudan only.",
+      "passengersSection": "Passengers"
     },
     "party": {
       "shipper": "Sender (shipper)",
@@ -435,10 +453,11 @@
       "origin": "Origin",
       "destination": "Destination",
       "cityPlaceholder": "Select a city",
-      "tripDate": "Trip date",
+      "departureAt": "Departure",
       "cargoTypePlaceholder": "Select cargo",
       "branch": "Branch",
-      "branchPlaceholder": "Choose the branch it's booked at"
+      "branchPlaceholder": "Choose the branch it's booked at",
+      "arrivalAt": "Estimated arrival"
     },
     "tax": {
       "title": "Trip cost, taxes and fees",
@@ -456,7 +475,9 @@
       "total": "Total due",
       "distanceNote": "Distance is estimated from city coordinates (straight line × {{factor}} road factor). Trip cost = rate × distance × quantity; the taxes are percentages of it, and the fees are fixed amounts.",
       "tripCost": "Trip cost",
-      "line": "{{name}} ({{rate}})"
+      "line": "{{name}} ({{rate}})",
+      "ticketPrice": "Ticket price",
+      "tickets": "Tickets"
     },
     "open": "Open trip details",
     "details": {
@@ -467,7 +488,7 @@
       "vehicleType": "Vehicle type",
       "route": "Route",
       "cargo": "Cargo",
-      "tripDate": "Trip date",
+      "departureAt": "Departure",
       "distance": "Estimated distance",
       "moreActions": "More actions",
       "edit": "Edit trip",
@@ -477,7 +498,10 @@
       "carrierTin": "TIN: {{tin}}",
       "company": "Transport company",
       "branch": "Branch",
-      "bookedBy": "Booked by"
+      "bookedBy": "Booked by",
+      "arrivalAt": "Estimated arrival",
+      "category": "Trip type",
+      "passengers": "Passengers"
     },
     "backToTrip": "Back to trip",
     "items": {
@@ -542,7 +566,7 @@
       "from": "Trip date from",
       "to": "Trip date to",
       "sorts": {
-        "tripDate": "Trip date",
+        "departureAt": "Departure",
         "createdAt": "Registered",
         "amount": "Amount due",
         "tripCost": "Trip cost",
@@ -557,9 +581,35 @@
         "route": "Route",
         "tripKind": "Trip type",
         "cargoType": "Cargo type",
-        "branch": "Branch"
+        "branch": "Branch",
+        "category": "Trip type"
       },
-      "branch": "Branch"
+      "branch": "Branch",
+      "category": "Trip type"
+    },
+    "fromTemplate": "From a template",
+    "passengers": {
+      "add": "Add a passenger",
+      "empty": "No passengers yet.",
+      "name": "Name",
+      "nameOf": "Name of passenger {{n}}",
+      "idType": "ID",
+      "idNumber": "ID number",
+      "seat": "Seat",
+      "seatOf": "Seat of passenger {{n}}",
+      "optional": "Optional",
+      "remove": "Remove",
+      "removeOf": "Remove passenger {{n}}",
+      "infant": "Infant on a passenger's lap",
+      "infantNote": "Infant",
+      "notes": "Notes",
+      "notesOf": "Notes on passenger {{n}}",
+      "notesPlaceholder": "Notes: nationality, …",
+      "total": "{{seated}} of {{seats}} seats sold · {{infants}} infants",
+      "counts": "{{seated}} of {{seats}} seats · {{infants}} infants",
+      "fare": "{{tickets}} tickets at {{price}} each",
+      "tickets": "{{n}} tickets",
+      "infantSeat": "An infant has to be on the seat of a passenger with a ticket."
     }
   },
   "billing": {
@@ -579,7 +629,9 @@
       "carrier_address": "Your company address (Profile)",
       "carrier_tin": "Your company TIN (Profile)",
       "editTrip": "Edit trip",
-      "openProfile": "Open profile"
+      "openProfile": "Open profile",
+      "passengers": "At least one passenger with a seat",
+      "passenger_ids": "An ID number for every passenger with a seat"
     },
     "pending": {
       "label": "E-Sali bill ID",
@@ -631,7 +683,7 @@
       "distance": "Estimated distance",
       "cargoType": "Cargo type",
       "quantity": "Quantity",
-      "tripDate": "Trip date",
+      "departureAt": "Departure",
       "taxAmount": "Total paid",
       "billId": "E-Sali bill ID",
       "paymentStatus": "Payment status",
@@ -640,7 +692,8 @@
       "certificateNo": "Receipt no.",
       "issuedAt": "Issued on",
       "validUntil": "Valid until",
-      "tripCost": "Trip cost"
+      "tripCost": "Trip cost",
+      "arrivalAt": "Estimated arrival"
     },
     "paid": "Paid",
     "scanToVerify": "Scan the code to verify",
@@ -688,7 +741,24 @@
       "parties": "Carrier, driver, sender and receiver",
       "continued": "(continued)"
     },
-    "page": "Page {{page}} of {{count}}"
+    "page": "Page {{page}} of {{count}}",
+    "passengers": {
+      "title": "Passenger manifest",
+      "busAndTrip": "The bus and the trip",
+      "from": "From",
+      "to": "To",
+      "list": "Passengers",
+      "name": "Name",
+      "id": "ID",
+      "seat": "Seat",
+      "total": "Total: {{seated}} passengers, {{infants}} infants",
+      "ticketPrice": "Ticket price",
+      "fares": "Total fares",
+      "signatures": {
+        "carrier": "Carrier",
+        "driver": "Driver"
+      }
+    }
   },
   "govt": {
     "dashboard": {
@@ -753,7 +823,8 @@
           "cargoType": "Revenue by cargo type",
           "vehicleType": "Revenue by vehicle type",
           "tripKind": "Revenue by trip type",
-          "company": "Revenue by transport company"
+          "company": "Revenue by transport company",
+          "category": "Revenue by trip type"
         },
         "groupBy": "Group by",
         "sortBy": "Sort by",
@@ -764,7 +835,8 @@
           "cargoType": "Cargo type",
           "vehicleType": "Vehicle type",
           "tripKind": "Trip type",
-          "company": "Transport company"
+          "company": "Transport company",
+          "category": "Trip type"
         },
         "sort": {
           "revenue": "Revenue",
@@ -873,7 +945,8 @@
       "active": "Filters applied: {{count}}",
       "clear": "Clear filters",
       "rangeLabel": "{{from}} – {{to}}",
-      "company": "Transport company"
+      "company": "Transport company",
+      "category": "Trip type"
     },
     "search": {
       "label": "Search trips",
@@ -925,11 +998,12 @@
         "trips": "Trips",
         "bills": "Bills and payments",
         "items": "Cargo items",
-        "taxLines": "Tax and fee lines"
+        "taxLines": "Tax and fee lines",
+        "passengers": "Passengers"
       },
       "dateBasis": "Period applies to",
       "dateBases": {
-        "trip": "Trip date",
+        "trip": "Departure date",
         "billed": "Bill issued",
         "paid": "Paid on"
       },
@@ -949,7 +1023,22 @@
       "csvFolder": "Several files (CSV for several datasets, or Excel and CSV together) download as one ZIP file.",
       "exportData": "Export data",
       "dataSaved": "Downloaded: {{rows}}.",
-      "rowCount": "{{dataset}} {{count}} rows"
+      "rowCount": "{{dataset}} {{count}} rows",
+      "includeIdNumbers": "Include passengers' ID numbers",
+      "includeIdNumbersHint": "Personal data: only when the file needs them, and handle it with care."
+    },
+    "settings": {
+      "tab": "Settings",
+      "title": "Settings",
+      "subtitle": "How long documents stay valid after a trip's estimated arrival, and the average speed the trip form suggests the arrival from.",
+      "margin": "Valid after arrival",
+      "marginHint": "Hours after the estimated arrival, 0 to 720.",
+      "speed": "Average speed",
+      "speedHint": "For the suggested arrival, 10 to 150 km/h.",
+      "hours": "hours",
+      "kmh": "km/h",
+      "saved": "Settings saved.",
+      "appliesTo": "A new margin applies to documents issued from now on; documents already issued keep their validity."
     }
   },
   "documentTypes": {
@@ -970,7 +1059,7 @@
       "trips": {
         "tripId": "Trip #",
         "manifestNo": "Manifest no.",
-        "tripDate": "Trip date",
+        "departureAt": "Departure",
         "createdAt": "Registered on",
         "status": "Status",
         "plate": "Plate",
@@ -994,7 +1083,10 @@
         "amountDue": "Taxes and fees (SDG)",
         "billId": "E-Sali bill ID",
         "paidAt": "Paid on",
-        "company": "Transport company"
+        "company": "Transport company",
+        "arrivalAt": "Estimated arrival",
+        "category": "Trip type",
+        "ticketPrice": "Ticket price"
       },
       "bills": {
         "billId": "E-Sali bill ID",
@@ -1029,6 +1121,17 @@
         "rate": "Rate (%)",
         "amount": "Amount (SDG)",
         "paidAt": "Paid on"
+      },
+      "passengers": {
+        "tripId": "Trip number",
+        "manifestNo": "Manifest number",
+        "departureAt": "Departure",
+        "seatNo": "Seat",
+        "fullName": "Name",
+        "isInfant": "Infant",
+        "idType": "ID type",
+        "idNumber": "ID number",
+        "notes": "Notes"
       }
     },
     "paymentStatuses": {
@@ -1120,10 +1223,12 @@
         "plate": "Plate number",
         "tripKind": "Trip type",
         "route": "Route",
-        "tripDate": "Trip date",
+        "departureAt": "Departure",
         "carrier": "Carrier",
         "amountPaid": "Taxes and fees paid",
-        "issuedAt": "Issued on"
+        "issuedAt": "Issued on",
+        "arrivalAt": "Estimated arrival",
+        "passengers": "Passengers"
       },
       "note": "Checked {{time}}. Compare these details with the printed manifest.",
       "notFound": {
@@ -1133,7 +1238,8 @@
       "failed": {
         "title": "Couldn't check this manifest",
         "body": "Masarat can't be reached right now. Check your connection and try again."
-      }
+      },
+      "passengerCount": "{{seated}} passengers, {{infants}} infants"
     }
   },
   "members": {
@@ -1327,6 +1433,51 @@
     "govt_search": "Search trips",
     "govt_exports": "Exports",
     "govt_charges": "Taxes and fees",
-    "govt_users": "Government accounts"
+    "govt_users": "Government accounts",
+    "templates_use": "Book trips from templates",
+    "templates_manage": "Keep the trip templates",
+    "govt_settings": "Settings"
+  },
+  "tripCategories": {
+    "cargo": "Cargo",
+    "passenger": "Passengers"
+  },
+  "idTypes": {
+    "national_id": "National ID",
+    "passport": "Passport"
+  },
+  "templates": {
+    "title": "Trip templates",
+    "subtitle": "The passenger trips your company repeats: a route, a bus and its driver, the time it leaves and how long it takes. A new trip from a template only needs its date and passengers.",
+    "add": "New template",
+    "edit": "Edit",
+    "editName": "Edit {{name}}",
+    "delete": "Delete",
+    "deleteName": "Delete {{name}}",
+    "hours": "{{hours}} h",
+    "empty": {
+      "title": "No templates yet",
+      "body": "Save the bus trips you run often, to book them in a few clicks."
+    },
+    "columns": {
+      "name": "Template",
+      "route": "Route",
+      "departs": "Leaves at",
+      "duration": "Takes"
+    },
+    "form": {
+      "title": "New template",
+      "editTitle": "Edit template",
+      "name": "Name",
+      "nameHint": "e.g. Khartoum – Port Sudan 07:00",
+      "bus": "Bus",
+      "busPlaceholder": "Choose a bus",
+      "noBuses": "Add a bus in Vehicles first",
+      "noDriver": "No usual driver",
+      "departureTime": "Leaves at",
+      "duration": "Takes (hours:minutes)",
+      "durationHint": "The estimated arrival is the departure plus this.",
+      "save": "Save template"
+    }
   }
 }

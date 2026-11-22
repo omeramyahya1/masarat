@@ -13,6 +13,7 @@ import {
   manifestCharges,
   manifestTrailers,
   manifests,
+  tripPassengers,
   payments,
   states,
   vehicles
@@ -20,6 +21,7 @@ import {
 import { formatDay, resolveRange } from '@masarat/shared/analytics'
 import {
   EXPORT_COLUMNS,
+  exportColumns,
   type ExportDataset,
   type ExportInput,
   type ExportRows
@@ -31,8 +33,8 @@ type Cell = string | number | Date | null
 type Row = Cell[]
 
 // Columns holding a date with a time, or a date alone
-const DATE_TIME_COLUMNS = new Set(['createdAt', 'paidAt', 'issuedAt'])
-const DATE_COLUMNS = new Set(['tripDate'])
+const DATE_TIME_COLUMNS = new Set(['createdAt', 'paidAt', 'issuedAt', 'departureAt', 'arrivalAt'])
+const DATE_COLUMNS = new Set<string>()
 
 const origin = alias(cities, 'export_origin')
 const destination = alias(cities, 'export_destination')
@@ -42,7 +44,7 @@ async function selectTripIds(input: ExportInput): Promise<number[]> {
   const { from, to } = resolveRange(input.filters.range, new Date())
   const period: SQL | undefined =
     input.dateBasis === 'trip'
-      ? and(gte(manifests.tripDate, from), lt(manifests.tripDate, to))
+      ? and(gte(manifests.departureAt, from), lt(manifests.departureAt, to))
       : input.dateBasis === 'billed'
         ? and(gte(payments.createdAt, from), lt(payments.createdAt, to))
         : and(eq(payments.status, 'paid'), gte(payments.paidAt, from), lt(payments.paidAt, to))
@@ -57,7 +59,7 @@ async function selectTripIds(input: ExportInput): Promise<number[]> {
     .from(manifests)
     .leftJoin(payments, eq(payments.manifestId, manifests.id))
     .where(and(period, status, inFilteredTrips(manifests.id, input.filters)))
-    .orderBy(asc(manifests.tripDate), asc(manifests.id))
+    .orderBy(asc(manifests.departureAt), asc(manifests.id))
   return rows.map((r) => r.id)
 }
 
@@ -69,16 +71,25 @@ async function buildRows(input: ExportInput, ids: number[]): Promise<Record<Expo
   const db = getDb()
   const value = (group: string, key: string | null | undefined): string | null =>
     key ? (input.labels.values[group]?.[key] ?? key) : null
-  const empty: Record<ExportDataset, Row[]> = { trips: [], bills: [], items: [], taxLines: [] }
+  const empty: Record<ExportDataset, Row[]> = {
+    trips: [],
+    bills: [],
+    items: [],
+    passengers: [],
+    taxLines: []
+  }
   if (ids.length === 0) return empty
 
   const trips = await db
     .select({
       id: manifests.id,
       manifestNo: certificates.manifestNo,
-      tripDate: manifests.tripDate,
+      departureAt: manifests.departureAt,
+      arrivalAt: manifests.arrivalAt,
       createdAt: manifests.createdAt,
       status: manifests.status,
+      category: manifests.category,
+      ticketPrice: manifests.ticketPrice,
       cargoType: manifests.cargoType,
       companyName: companies.name,
       plate: vehicles.plateNumber,
@@ -116,7 +127,7 @@ async function buildRows(input: ExportInput, ids: number[]): Promise<Record<Expo
     .leftJoin(payments, eq(payments.manifestId, manifests.id))
     .leftJoin(certificates, eq(certificates.manifestId, manifests.id))
     .where(inArray(manifests.id, ids))
-    .orderBy(asc(manifests.tripDate), asc(manifests.id))
+    .orderBy(asc(manifests.departureAt), asc(manifests.id))
   const byId = new Map(trips.map((trip) => [trip.id, trip]))
 
   const items = await db
@@ -148,9 +159,11 @@ async function buildRows(input: ExportInput, ids: number[]): Promise<Record<Expo
     rows.trips.push([
       t.id,
       t.manifestNo,
-      t.tripDate,
+      t.departureAt,
+      t.arrivalAt,
       t.createdAt,
       value('statuses', t.status),
+      value('categories', t.category),
       t.companyName,
       t.plate,
       t.registrationNo,
@@ -166,12 +179,13 @@ async function buildRows(input: ExportInput, ids: number[]): Promise<Record<Expo
       t.driverPhone,
       t.shipperName,
       t.receiverName,
-      // Trips from before cargo items existed have only their own type
-      [...(cargoTypes.get(t.id) ?? new Set([t.cargoType]))]
+      // Trips from before cargo items existed have only their own type; passenger trips none
+      [...(cargoTypes.get(t.id) ?? new Set(t.cargoType ? [t.cargoType] : []))]
         .map((c) => value('cargoTypes', c))
-        .join('، '),
+        .join('، ') || null,
       t.cargoQuantity,
       value('units', t.cargoUnit),
+      t.ticketPrice,
       t.tripCost,
       t.amountDue,
       t.billId,
@@ -205,6 +219,24 @@ async function buildRows(input: ExportInput, ids: number[]): Promise<Record<Expo
       value('units', item.unit),
       item.cost,
       item.notes
+    ])
+  }
+  for (const p of await db
+    .select()
+    .from(tripPassengers)
+    .where(inArray(tripPassengers.manifestId, ids))
+    .orderBy(asc(tripPassengers.manifestId), asc(tripPassengers.position))) {
+    const trip = byId.get(p.manifestId)
+    rows.passengers.push([
+      p.manifestId,
+      trip?.manifestNo ?? null,
+      trip?.departureAt ?? null,
+      p.seatNo,
+      p.fullName,
+      value('yesNo', String(p.isInfant)),
+      value('idTypes', p.idType),
+      p.idNumber,
+      p.notes
     ])
   }
   for (const line of await db
@@ -243,8 +275,21 @@ function csvField(value: Cell, column: string): string {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 
-function toCsv(input: ExportInput, dataset: ExportDataset, rows: Row[]): string {
-  const columns = EXPORT_COLUMNS[dataset]
+// A dataset's columns and rows as this export writes them (without the ID columns unless asked)
+function shaped(
+  input: ExportInput,
+  dataset: ExportDataset,
+  rows: Row[]
+): { columns: readonly string[]; rows: Row[] } {
+  const all: readonly string[] = EXPORT_COLUMNS[dataset]
+  const columns = exportColumns(dataset, input.includeIdNumbers)
+  if (columns.length === all.length) return { columns, rows }
+  const keep = columns.map((c) => all.indexOf(c))
+  return { columns, rows: rows.map((row) => keep.map((i) => row[i])) }
+}
+
+function toCsv(input: ExportInput, dataset: ExportDataset, data: Row[]): string {
+  const { columns, rows } = shaped(input, dataset, data)
   const header = columns.map((c) => csvField(input.labels.columns[dataset]?.[c] ?? c, c))
   const lines = [
     header.join(','),
@@ -262,7 +307,7 @@ async function writeWorkbook(
   workbook.creator = 'Masarat'
   workbook.created = new Date()
   for (const dataset of input.datasets) {
-    const columns = EXPORT_COLUMNS[dataset]
+    const { columns, rows } = shaped(input, dataset, data[dataset])
     // Sheet names are limited to 31 characters and some punctuation
     const name = (input.labels.sheets[dataset] ?? dataset).replace(/[\\/?*[\]:]/g, ' ').slice(0, 31)
     const sheet = workbook.addWorksheet(name, {
@@ -278,7 +323,7 @@ async function writeWorkbook(
           ? { numFmt: 'yyyy-mm-dd' }
           : undefined
     }))
-    sheet.addRows(data[dataset])
+    sheet.addRows(rows)
     const header = sheet.getRow(1)
     header.font = { bold: true }
     header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE7F0EA' } }

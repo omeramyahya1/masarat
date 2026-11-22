@@ -5,6 +5,7 @@ import { zipSync, strToU8 } from 'fflate'
 import { isAnalyticsFilters, isDashboardView } from '@masarat/shared/analytics'
 import { isExportOptions, type ExportInput } from '@masarat/shared/exports'
 import type { GovtSearchInput } from '@masarat/shared/billing'
+import type { SystemSettings } from '@masarat/shared/settings'
 import type { ChargeInput } from '@masarat/shared/tax'
 import { config } from '../config'
 import { listCompanies } from '../services/analyticsQuery'
@@ -15,6 +16,7 @@ import { findOwnedDocumentFile } from '../services/documents'
 import { exportData } from '../services/exports'
 import { searchTrips } from '../services/govtTrips'
 import { createCharge, getChargesView, updateCharge } from '../services/charges'
+import { getSettings, updateSettings } from '../services/settings'
 import { getReferenceData } from '../services/trips'
 import { fail, idParam, readJson, send, type AppEnv } from '../http/context'
 import { contentDisposition, sendFile } from '../http/files'
@@ -74,6 +76,13 @@ export const govtRoutes = new Hono<AppEnv>()
     const id = idParam(c)
     return sendFile(c, id === null ? undefined : await findOwnedDocumentFile(null, id))
   })
+  // The validity margin and average speeds
+  .get('/settings', requirePermission('govt.settings'), async (c) =>
+    send(c, { ok: true, data: await getSettings() })
+  )
+  .put('/settings', requirePermission('govt.settings'), async (c) =>
+    send(c, await updateSettings((await readJson(c)) as unknown as SystemSettings))
+  )
   // Taxes and fees: each change is logged under the signed-in admin
   .get('/charges', requirePermission('govt.charges'), async (c) =>
     send(c, { ok: true, data: await getChargesView() })

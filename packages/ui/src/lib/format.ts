@@ -49,6 +49,8 @@ export interface Formatters {
   list: (values: string[]) => string
   date: (ms: number) => string
   dateTime: (ms: number) => string
+  // The time of day alone ("08:30")
+  time: (ms: number) => string
   // Stored English plate ("KH 12/34567") in the current language ("خ ١٢ / ٣٤٥٦٧" in Arabic)
   plate: (plate: string) => string
   city: (city: Pick<CityRecord, 'name' | 'nameAr'> | undefined) => string
@@ -66,6 +68,7 @@ export function createFormatters(isArabic: boolean, t: TFunction): Formatters {
     dateStyle: 'medium',
     timeStyle: 'short'
   })
+  const timeFormat = new Intl.DateTimeFormat(locale, { timeStyle: 'short' })
   const compactFormat = new Intl.NumberFormat(locale, {
     notation: 'compact',
     maximumFractionDigits: 1
@@ -105,6 +108,7 @@ export function createFormatters(isArabic: boolean, t: TFunction): Formatters {
         : t('units.mb', { value: number(Math.round((bytes / (1024 * 1024)) * 10) / 10) }),
     date: (ms) => dateFormat.format(ms),
     dateTime: (ms) => dateTimeFormat.format(ms),
+    time: (ms) => timeFormat.format(ms),
     plate: (plate) => {
       const parts = parsePlate(plate)
       if (!parts) return plate

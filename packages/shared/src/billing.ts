@@ -7,9 +7,6 @@ export const ESALI_BILL_ID_RE = /^\d{4}(0[1-9]|1[0-2])0(0[1-9]|[12]\d|3[01])\d{1
 export const isEsaliBillId = (value: unknown): value is string =>
   typeof value === 'string' && ESALI_BILL_ID_RE.test(value)
 
-// Certificates stay valid until the end of this many days after the trip date
-export const CERTIFICATE_VALID_DAYS = 30
-
 export interface PaymentRecord {
   billId: string
   amount: number
@@ -65,7 +62,11 @@ export interface ManifestVerification {
   tripKind: TripKind
   origin: { name: string; nameAr: string }
   destination: { name: string; nameAr: string }
-  tripDate: number
+  departureAt: number
+  arrivalAt: number
+  // A passenger trip's head count, for the officer to compare with the bus: everyone with a
+  // seat, and the infants on their laps. Never their names or IDs.
+  passengers: { seated: number; infants: number } | null
   issuedAt: number
   validUntil: number
   // The carrier printed on the manifest
@@ -77,8 +78,8 @@ export interface ManifestVerification {
 
 // A trip found by the government search
 export interface GovtSearchInput {
-  // Bill ID, MNF-/MSR- number, trip number, plate, company or city name; may be empty when a
-  // route is given
+  // Bill ID, MNF-/PSG-/MSR- number, trip number, plate, a passenger's ID number, company or city
+  // name; may be empty when a route is given
   query: string
   originCityId?: number | null
   destinationCityId?: number | null
@@ -95,7 +96,7 @@ export interface GovtSearchResult {
   plateNumber: string
   originCityId: number
   destinationCityId: number
-  tripDate: number
+  departureAt: number
   amount: number
   status: TripRecord['status']
 }

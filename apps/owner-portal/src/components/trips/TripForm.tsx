@@ -1,11 +1,12 @@
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowRight, Calculator, Info, LoaderCircle, Truck } from 'lucide-react'
+import { ArrowRight, Calculator, Info, LoaderCircle, Truck, Wand2 } from 'lucide-react'
 import {
   MAX_DOCUMENT_BYTES,
   TRIP_KINDS,
   documentTypesFor,
   totalInVehicleUnit,
+  tripCategoryFor,
   type CargoType,
   type DocumentType,
   type DriverRecord,
@@ -22,8 +23,12 @@ import {
   ROAD_FACTOR,
   calculateItemsCost,
   calculateCharges,
+  calculateTicketPrice,
   estimateRoadKm
 } from '@masarat/shared/tax'
+import { normalizeIdNumber } from '@masarat/shared/passengers'
+import { parseLocalDateTime, suggestedArrival, toLocalDateTime } from '@masarat/shared/settings'
+import type { TemplateRecord } from '@masarat/shared/templates'
 import type { BranchRecord } from '@masarat/shared/members'
 import { useAccount, useCan } from '@masarat/ui/lib/account'
 import { todayIso, useFormat } from '@masarat/ui/lib/format'
@@ -42,6 +47,13 @@ import DriverField from './DriverField'
 import PartyFields from './PartyFields'
 import TrailersField from './TrailersField'
 import { fitItemsTo, newItemDraft, type ItemDraft } from './itemDrafts'
+import PassengersEditor from './PassengersEditor'
+import {
+  newPassengerDraft,
+  orphanInfants,
+  seatConflicts,
+  type PassengerDraft
+} from './passengerDrafts'
 import TaxBreakdown from '@masarat/ui/components/trips/TaxBreakdown'
 import { api } from '@masarat/api-client'
 
@@ -55,11 +67,18 @@ function toPlateValue(plate: string): PlateValue {
     : { code: '', series: '', number: '' }
 }
 
-// A stored trip date (local midnight) as YYYY-MM-DD for the date input
-function isoDate(ms: number): string {
-  const date = new Date(ms)
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+// A new trip from a template leaves today at the template's time, or tomorrow once that's past
+function templateDeparture(template: TemplateRecord): Date {
+  const [hour, minute] = template.departureTime.split(':').map(Number)
+  const date = new Date()
+  date.setHours(hour, minute, 0, 0)
+  if (date.getTime() < Date.now()) date.setDate(date.getDate() + 1)
+  return date
+}
+
+// Today at 08:00, for a new trip without a template
+function defaultDeparture(): string {
+  return `${todayIso()}T08:00`
 }
 
 interface TripFormProps {
@@ -68,6 +87,8 @@ interface TripFormProps {
   branches: readonly BranchRecord[]
   // A draft to edit; without it the form creates a new trip
   trip?: TripRecord
+  // A passenger trip template to start a new trip from
+  template?: TemplateRecord
   onCancel: () => void
   onSaved: (trip: TripRecord) => void
   onGoToVehicles: () => void
@@ -77,6 +98,7 @@ function TripForm({
   reference,
   branches,
   trip,
+  template,
   onCancel,
   onSaved,
   onGoToVehicles
@@ -89,37 +111,66 @@ function TripForm({
   const ownBranch = account.role.scope === 'branch' ? account.branch : null
   const openBranches = branches.filter((b) => b.active)
   const [branchId, setBranchId] = useState(() =>
-    trip ? String(trip.branchId) : openBranches.length === 1 ? String(openBranches[0].id) : ''
+    trip
+      ? String(trip.branchId)
+      : template
+        ? String(template.branchId)
+        : openBranches.length === 1
+          ? String(openBranches[0].id)
+          : ''
   )
-  const dateId = useId()
+  const departureId = useId()
+  const arrivalId = useId()
   const kindId = useId()
   const [vehicles, setVehicles] = useState<VehicleRecord[] | null>(null)
-  const [vehicleId, setVehicleId] = useState(trip ? String(trip.vehicleId) : '')
-  const [originId, setOriginId] = useState(trip ? String(trip.originCityId) : '')
-  const [destinationId, setDestinationId] = useState(trip ? String(trip.destinationCityId) : '')
+  const from = trip ?? template
+  const [vehicleId, setVehicleId] = useState(from ? String(from.vehicleId) : '')
+  const [originId, setOriginId] = useState(from ? String(from.originCityId) : '')
+  const [destinationId, setDestinationId] = useState(from ? String(from.destinationCityId) : '')
   const [items, setItems] = useState<ItemDraft[]>(() => {
-    if (!trip) return [newItemDraft('ton', '')]
+    if (!trip || trip.category === 'passenger') return [newItemDraft('ton', '')]
     if (trip.items.length > 0) return trip.items.map((item) => newItemDraft(item.unit, '', item))
     // A trip from before cargo items existed: start from its cargo type and quantity
+    const unit = trip.cargoUnit === 'liter' ? 'liter' : 'ton'
     return [
-      newItemDraft(trip.cargoUnit, trip.cargoType, {
+      newItemDraft(unit, trip.cargoType ?? '', {
         name: '',
         quantity: trip.cargoQuantity,
-        unit: trip.cargoUnit,
-        cargoType: trip.cargoType,
+        unit,
+        cargoType: trip.cargoType ?? 'general_cargo',
         packingType: null,
         packageCount: null,
         notes: null
       })
     ]
   })
-  const [tripDate, setTripDate] = useState(() => (trip ? isoDate(trip.tripDate) : todayIso()))
+  const [passengers, setPassengers] = useState<PassengerDraft[]>(() =>
+    (trip?.passengers ?? []).map((p) => newPassengerDraft(p))
+  )
+  // When it leaves, and the estimated arrival: suggested from the distance at the government's
+  // average speed until the member types their own
+  const [departureAt, setDepartureAt] = useState(() =>
+    trip
+      ? toLocalDateTime(new Date(trip.departureAt))
+      : template
+        ? toLocalDateTime(templateDeparture(template))
+        : defaultDeparture()
+  )
+  const [arrivalEdited, setArrivalEdited] = useState<string | null>(() =>
+    trip
+      ? toLocalDateTime(new Date(trip.arrivalAt))
+      : template
+        ? toLocalDateTime(
+            new Date(templateDeparture(template).getTime() + template.durationMinutes * 60_000)
+          )
+        : null
+  )
   const [tripKind, setTripKind] = useState<TripKind>(trip?.tripKind ?? 'domestic')
   const [trailers, setTrailers] = useState<PlateValue[]>(() =>
     (trip?.trailers ?? []).map(toPlateValue)
   )
   const [drivers, setDrivers] = useState<DriverRecord[]>([])
-  const [driverId, setDriverId] = useState(trip?.driverId ? String(trip.driverId) : '')
+  const [driverId, setDriverId] = useState(from?.driverId ? String(from.driverId) : '')
   const [shipper, setShipper] = useState<Party>(trip?.shipper ?? EMPTY_PARTY)
   const [receiver, setReceiver] = useState<Party>(trip?.receiver ?? EMPTY_PARTY)
   const [suggestions, setSuggestions] = useState<TripSuggestions>({
@@ -144,6 +195,9 @@ function TripForm({
   }, [])
 
   const vehicle = vehicles?.find((v) => String(v.id) === vehicleId)
+  // A bus carries passengers; anything else cargo
+  const category = vehicle ? tripCategoryFor(vehicle.vehicleType) : 'cargo'
+  const passengerTrip = category === 'passenger'
   // Each item is measured in its cargo type's rate unit, so only offer cargo the vehicle can carry
   const cargoTypesFor = (v: VehicleRecord): CargoType[] =>
     reference.cargoRates.filter((r) => r.unit === v.capacityUnit).map((r) => r.cargoType)
@@ -183,7 +237,23 @@ function TripForm({
     distanceKm !== null && countedItems.length > 0
       ? calculateItemsCost(countedItems, reference.cargoRates, distanceKm)
       : null
-  const tripCost = priced?.total ?? null
+  // A passenger trip: the ticket price for the distance, times the tickets (infants have none)
+  const ticketPrice =
+    distanceKm !== null ? calculateTicketPrice(reference.ticketRatePerKm, distanceKm) : null
+  const tickets = passengers.filter((p) => !p.isInfant).length
+  const tripCost = passengerTrip
+    ? ticketPrice !== null
+      ? ticketPrice * tickets
+      : null
+    : (priced?.total ?? null)
+  const departure = parseLocalDateTime(departureAt)
+  const suggested =
+    departure && distanceKm !== null
+      ? toLocalDateTime(
+          suggestedArrival(departure, distanceKm, reference.averageSpeedKmh[category])
+        )
+      : null
+  const arrivalAt = arrivalEdited ?? suggested ?? ''
   // Cost and quantity per cargo type, for the summary
   const costByType = new Map<CargoType, { cost: number; quantity: number }>()
   countedItems.forEach((item, index) => {
@@ -193,13 +263,14 @@ function TripForm({
     costByType.set(item.cargoType, entry)
   })
   // Previewed with today's percentages and fees; the bill uses the ones current when it's issued
-  const taxes = calculateCharges(tripCost ?? 0, reference.charges, 'cargo')
+  const taxes = calculateCharges(tripCost ?? 0, reference.charges, category)
 
   const handleVehicleChange = (id: string): void => {
     setVehicleId(id)
     const next = vehicles?.find((v) => String(v.id) === id)
-    if (!next) return
-    setItems((current) => fitItemsTo(current, next.capacityUnit, cargoTypesFor(next)))
+    if (!next || next.capacityUnit === 'seat') return
+    const unit = next.capacityUnit
+    setItems((current) => fitItemsTo(current, unit, cargoTypesFor(next)))
   }
 
   const attachDocument = async (docType: DocumentType, file: File): Promise<void> => {
@@ -223,15 +294,31 @@ function TripForm({
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
     if (!ownBranch && !branchId) return setError('branch_required')
-    if (!vehicle || !origin || !destination || !tripDate) {
+    if (!vehicle || !origin || !destination || !departureAt) {
       setError('missing_fields')
       return
     }
     if (origin.id === destination.id) return setError('same_route')
-    if (countedItems.length !== parsedItems.length || parsedItems.some((item) => !item.name)) {
-      return setError('invalid_items')
+    const arrival = parseLocalDateTime(arrivalAt)
+    if (!departure || !arrival) return setError('invalid_date')
+    if (arrival <= departure) return setError('invalid_arrival')
+    if (passengerTrip) {
+      if (seatConflicts(passengers).size > 0) return setError('seat_taken')
+      if (orphanInfants(passengers).size > 0) return setError('invalid_passengers')
+      if (tickets > vehicle.capacity) return setError('over_capacity')
+      const invalid = passengers.some(
+        (p) =>
+          !p.fullName.trim() ||
+          !p.seatNo ||
+          (p.idNumber.trim() !== '' && !normalizeIdNumber(p.idType, p.idNumber))
+      )
+      if (invalid) return setError('invalid_passengers')
+    } else {
+      if (countedItems.length !== parsedItems.length || parsedItems.some((item) => !item.name)) {
+        return setError('invalid_items')
+      }
+      if (overCapacity) return setError('over_capacity')
     }
-    if (overCapacity) return setError('over_capacity')
     // Trailer rows left completely empty are dropped; any other row has to be a valid plate
     const trailerPlates = trailers
       .filter((p) => p.code || p.series || p.number)
@@ -247,8 +334,19 @@ function TripForm({
         vehicleId: vehicle.id,
         originCityId: origin.id,
         destinationCityId: destination.id,
-        items: countedItems,
-        tripDate,
+        items: passengerTrip ? [] : countedItems,
+        passengers: passengerTrip
+          ? passengers.map((p) => ({
+              fullName: p.fullName,
+              idType: p.idNumber.trim() ? p.idType : null,
+              idNumber: p.idNumber.trim() || null,
+              seatNo: Number(p.seatNo),
+              isInfant: p.isInfant,
+              notes: p.notes.trim() || null
+            }))
+          : [],
+        departureAt,
+        arrivalAt,
         tripKind,
         trailers: trailerPlates as string[],
         driverId: driverId ? Number(driverId) : null,
@@ -256,7 +354,7 @@ function TripForm({
         receiver,
         // Documents of types the trip no longer needs (its type changed) are dropped
         documents: documents
-          .filter((d) => documentTypesFor(tripKind).includes(d.docType))
+          .filter((d) => documentTypesFor(tripKind, category).includes(d.docType))
           .map((d) =>
             d.id !== undefined
               ? { docType: d.docType, id: d.id }
@@ -358,10 +456,12 @@ function TripForm({
               </span>
             </div>
           )}
-          <div className="flex flex-col gap-2">
-            <span className="label">{t('trips.trailers.title')}</span>
-            <TrailersField value={trailers} onChange={setTrailers} />
-          </div>
+          {!passengerTrip && (
+            <div className="flex flex-col gap-2">
+              <span className="label">{t('trips.trailers.title')}</span>
+              <TrailersField value={trailers} onChange={setTrailers} />
+            </div>
+          )}
           <DriverField
             drivers={drivers}
             value={driverId}
@@ -380,7 +480,7 @@ function TripForm({
           <legend className="mb-3 text-sm font-semibold text-stone-800">
             {t('trips.form.routeSection')}
           </legend>
-          <div className="flex flex-col gap-1.5">
+          <div className={`flex flex-col gap-1.5 ${passengerTrip ? 'hidden' : ''}`}>
             <span className="label" id={kindId}>
               {t('trips.fields.tripKind')}
             </span>
@@ -426,73 +526,125 @@ function TripForm({
               onChange={(e) => setDestinationId(e.target.value)}
             />
           </div>
-          <div className="flex flex-col gap-1.5 sm:w-1/2 sm:pe-2">
-            <FieldLabel htmlFor={dateId} label={t('trips.fields.tripDate')} />
-            <input
-              id={dateId}
-              type="date"
-              className="input"
-              value={tripDate}
-              onChange={(e) => setTripDate(e.target.value)}
-            />
-          </div>
-        </fieldset>
-
-        <fieldset className="flex flex-col gap-3 border-t border-stone-200 pt-5">
-          <legend className="mb-3 text-sm font-semibold text-stone-800">
-            {t('trips.form.documentsSection')}
-          </legend>
-          <p className="text-xs text-stone-500">{t('trips.documents.hint')}</p>
-          <DocumentsField
-            tripKind={tripKind}
-            value={documents}
-            busy={documentBusy}
-            onAttach={attachDocument}
-            onRemove={(docType) => setDocuments(documents.filter((d) => d.docType !== docType))}
-          />
-        </fieldset>
-
-        <fieldset className="flex flex-col gap-4 border-t border-stone-200 pt-5">
-          <legend className="mb-3 text-sm font-semibold text-stone-800">
-            {t('trips.form.partiesSection')}
-          </legend>
-          <div className="grid gap-6 sm:grid-cols-2">
-            <PartyFields
-              legend={t('trips.party.shipper')}
-              value={shipper}
-              suggestions={suggestions.parties}
-              onChange={setShipper}
-            />
-            <PartyFields
-              legend={t('trips.party.receiver')}
-              value={receiver}
-              suggestions={suggestions.parties}
-              onChange={setReceiver}
-            />
-          </div>
-        </fieldset>
-
-        <fieldset className="flex flex-col gap-4 border-t border-stone-200 pt-5">
-          <legend className="mb-3 text-sm font-semibold text-stone-800">
-            {t('trips.form.cargoSection')}
-          </legend>
-          <div className="flex flex-col gap-2">
-            <span className="label">{t('trips.items.title')}</span>
-            {vehicle ? (
-              <CargoItemsEditor
-                items={items}
-                unit={vehicle.capacityUnit}
-                cargoTypes={cargoTypesFor(vehicle)}
-                total={quantityValue}
-                capacity={vehicle.capacity}
-                usedPackingTypes={suggestions.packingTypes}
-                onChange={setItems}
+          {passengerTrip && (
+            <p className="text-xs text-stone-500">{t('trips.form.domesticOnly')}</p>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <FieldLabel htmlFor={departureId} label={t('trips.fields.departureAt')} />
+              <input
+                id={departureId}
+                type="datetime-local"
+                className="input"
+                value={departureAt}
+                onChange={(e) => setDepartureAt(e.target.value)}
               />
-            ) : (
-              <p className="text-sm text-stone-500">{t('trips.items.chooseVehicle')}</p>
-            )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <FieldLabel htmlFor={arrivalId} label={t('trips.fields.arrivalAt')} />
+              <input
+                id={arrivalId}
+                type="datetime-local"
+                className="input"
+                value={arrivalAt}
+                onChange={(e) => setArrivalEdited(e.target.value)}
+              />
+              {suggested && arrivalEdited !== null && arrivalEdited !== suggested ? (
+                <button
+                  type="button"
+                  className="link inline-flex w-fit items-center gap-1 text-xs"
+                  onClick={() => setArrivalEdited(null)}
+                >
+                  <Wand2 size={12} />
+                  {t('trips.form.useSuggested', {
+                    time: format.dateTime(parseLocalDateTime(suggested)!.getTime())
+                  })}
+                </button>
+              ) : (
+                suggested && (
+                  <p className="field-hint">
+                    {t('trips.form.suggestedHint', {
+                      speed: format.number(reference.averageSpeedKmh[category])
+                    })}
+                  </p>
+                )
+              )}
+            </div>
           </div>
         </fieldset>
+
+        {!passengerTrip && (
+          <>
+            <fieldset className="flex flex-col gap-3 border-t border-stone-200 pt-5">
+              <legend className="mb-3 text-sm font-semibold text-stone-800">
+                {t('trips.form.documentsSection')}
+              </legend>
+              <p className="text-xs text-stone-500">{t('trips.documents.hint')}</p>
+              <DocumentsField
+                tripKind={tripKind}
+                value={documents}
+                busy={documentBusy}
+                onAttach={attachDocument}
+                onRemove={(docType) => setDocuments(documents.filter((d) => d.docType !== docType))}
+              />
+            </fieldset>
+
+            <fieldset className="flex flex-col gap-4 border-t border-stone-200 pt-5">
+              <legend className="mb-3 text-sm font-semibold text-stone-800">
+                {t('trips.form.partiesSection')}
+              </legend>
+              <div className="grid gap-6 sm:grid-cols-2">
+                <PartyFields
+                  legend={t('trips.party.shipper')}
+                  value={shipper}
+                  suggestions={suggestions.parties}
+                  onChange={setShipper}
+                />
+                <PartyFields
+                  legend={t('trips.party.receiver')}
+                  value={receiver}
+                  suggestions={suggestions.parties}
+                  onChange={setReceiver}
+                />
+              </div>
+            </fieldset>
+          </>
+        )}
+
+        {passengerTrip && vehicle ? (
+          <fieldset className="flex flex-col gap-4 border-t border-stone-200 pt-5">
+            <legend className="mb-3 text-sm font-semibold text-stone-800">
+              {t('trips.form.passengersSection')}
+            </legend>
+            <PassengersEditor
+              passengers={passengers}
+              seats={vehicle.capacity}
+              onChange={setPassengers}
+            />
+          </fieldset>
+        ) : (
+          <fieldset className="flex flex-col gap-4 border-t border-stone-200 pt-5">
+            <legend className="mb-3 text-sm font-semibold text-stone-800">
+              {t('trips.form.cargoSection')}
+            </legend>
+            <div className="flex flex-col gap-2">
+              <span className="label">{t('trips.items.title')}</span>
+              {vehicle && vehicle.capacityUnit !== 'seat' ? (
+                <CargoItemsEditor
+                  items={items}
+                  unit={vehicle.capacityUnit}
+                  cargoTypes={cargoTypesFor(vehicle)}
+                  total={quantityValue}
+                  capacity={vehicle.capacity}
+                  usedPackingTypes={suggestions.packingTypes}
+                  onChange={setItems}
+                />
+              ) : (
+                <p className="text-sm text-stone-500">{t('trips.items.chooseVehicle')}</p>
+              )}
+            </div>
+          </fieldset>
+        )}
 
         <div className="flex justify-end gap-2 border-t border-stone-200 pt-5">
           <button type="button" className="btn btn-secondary" onClick={onCancel}>
@@ -527,14 +679,23 @@ function TripForm({
           <SummaryRow label={t('trips.tax.distance')}>
             {distanceKm !== null ? t('units.km', { value: format.number(distanceKm) }) : '—'}
           </SummaryRow>
-          <SummaryRow label={t('trips.tax.quantity')}>
-            {vehicle && quantityValue > 0
-              ? format.quantity(quantityValue, vehicle.capacityUnit)
-              : '—'}
-          </SummaryRow>
+          {passengerTrip ? (
+            <>
+              <SummaryRow label={t('trips.tax.ticketPrice')}>
+                {ticketPrice !== null ? format.currency(ticketPrice) : '—'}
+              </SummaryRow>
+              <SummaryRow label={t('trips.tax.tickets')}>{format.number(tickets)}</SummaryRow>
+            </>
+          ) : (
+            <SummaryRow label={t('trips.tax.quantity')}>
+              {vehicle && quantityValue > 0
+                ? format.quantity(quantityValue, vehicle.capacityUnit)
+                : '—'}
+            </SummaryRow>
+          )}
         </dl>
 
-        {costByType.size > 0 && distanceKm !== null && (
+        {!passengerTrip && costByType.size > 0 && distanceKm !== null && (
           <ul className="flex flex-col gap-2 border-t border-stone-200 pt-3 text-sm">
             {[...costByType].map(([type, entry]) => {
               const rate = reference.cargoRates.find((r) => r.cargoType === type)

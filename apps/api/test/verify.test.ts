@@ -41,7 +41,9 @@ describe('verify', () => {
         'origin',
         'plateNumber',
         'status',
-        'tripDate',
+        'departureAt',
+        'arrivalAt',
+        'passengers',
         'tripKind',
         'validUntil'
       ].sort()

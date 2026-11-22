@@ -11,6 +11,7 @@ import {
   type CompanyOption
 } from '@masarat/shared/analytics'
 import { CARGO_TYPES, TRIP_KINDS, VEHICLE_TYPES, type CityRecord } from '@masarat/shared/fleet'
+import { TRIP_CATEGORIES } from '@masarat/shared/tax'
 import { useFormat } from '@masarat/ui/lib/format'
 import { Segmented } from './parts'
 
@@ -218,6 +219,12 @@ function AnalyticsFilterFields({
           onChange={(value) =>
             set('vehicleType', (value || null) as AnalyticsFilters['vehicleType'])
           }
+        />
+        <FilterSelect
+          label={t('govt.filters.category')}
+          value={filters.category ?? ''}
+          options={TRIP_CATEGORIES.map((c) => ({ value: c, label: t(`tripCategories.${c}`) }))}
+          onChange={(value) => set('category', (value || null) as AnalyticsFilters['category'])}
         />
         <FilterSelect
           label={t('govt.filters.tripKind')}

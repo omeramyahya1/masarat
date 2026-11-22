@@ -28,8 +28,11 @@ export interface RevenuePoint {
   trips: number
 }
 
+// Passenger trips' revenue is one slice of its own
+export const PASSENGERS_SLICE = 'passengers'
+
 export interface CargoSlice {
-  cargoType: CargoType
+  cargoType: CargoType | typeof PASSENGERS_SLICE
   revenue: number
   trips: number
 }

@@ -63,8 +63,8 @@ export interface ManifestVerification {
   certificateNo: string
   plateNumber: string
   tripKind: TripKind
-  origin: { name: string; nameAr: string | null }
-  destination: { name: string; nameAr: string | null }
+  origin: { name: string; nameAr: string }
+  destination: { name: string; nameAr: string }
   tripDate: number
   issuedAt: number
   validUntil: number

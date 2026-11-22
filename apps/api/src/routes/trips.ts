@@ -22,9 +22,11 @@ import { requirePermission } from '../http/middleware'
 
 export const tripRoutes = new Hono<AppEnv>()
   .use(...requireCompany)
-  // Seeing trips needs trips.view; drafts need trips.edit, bills trips.bill
+  // Seeing trips needs trips.view; drafts need trips.edit, bills trips.bill. The reference data
+  // (cities, rates) is for every member: the Branches section picks cities too.
   .use('*', async (c, next) => {
     const path = c.req.path
+    if (c.req.method === 'GET' && path.endsWith('/reference')) return next()
     const needed =
       c.req.method === 'GET'
         ? 'trips.view'

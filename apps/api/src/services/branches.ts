@@ -18,22 +18,20 @@ const toRecord = (branch: Branch, memberCount: number, tripCount: number): Branc
 
 export async function listBranches(companyId: number): Promise<BranchRecord[]> {
   const db = getDb()
-  const rows = await db
-    .select()
-    .from(branches)
-    .where(eq(branches.companyId, companyId))
-    .orderBy(asc(branches.name))
-  const members = await db
-    .select({ branchId: users.branchId, value: count() })
-    .from(users)
-    .where(eq(users.companyId, companyId))
-    .groupBy(users.branchId)
-  const trips = await db
-    .select({ branchId: manifests.branchId, value: count() })
-    .from(manifests)
-    .innerJoin(branches, eq(manifests.branchId, branches.id))
-    .where(eq(branches.companyId, companyId))
-    .groupBy(manifests.branchId)
+  const [rows, members, trips] = await Promise.all([
+    db.select().from(branches).where(eq(branches.companyId, companyId)).orderBy(asc(branches.name)),
+    db
+      .select({ branchId: users.branchId, value: count() })
+      .from(users)
+      .where(eq(users.companyId, companyId))
+      .groupBy(users.branchId),
+    db
+      .select({ branchId: manifests.branchId, value: count() })
+      .from(manifests)
+      .innerJoin(branches, eq(manifests.branchId, branches.id))
+      .where(eq(branches.companyId, companyId))
+      .groupBy(manifests.branchId)
+  ])
   const memberCount = new Map(members.map((m) => [m.branchId, m.value]))
   const tripCount = new Map(trips.map((t) => [t.branchId, t.value]))
   return rows.map((b) => toRecord(b, memberCount.get(b.id) ?? 0, tripCount.get(b.id) ?? 0))

@@ -15,6 +15,20 @@
       "when": 1795351606712,
       "tag": "0001_reference_data",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795353577753,
+      "tag": "0002_charges",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795353606848,
+      "tag": "0003_drop_tax_tables",
+      "breakpoints": true
     }
   ]
 }

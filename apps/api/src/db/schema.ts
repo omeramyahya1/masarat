@@ -23,7 +23,14 @@ import {
   TRIP_KINDS,
   DOCUMENT_TYPES
 } from '@masarat/shared/fleet'
-import { FEE_CODES, LINE_CODES, MAX_FEE, TAX_CODES } from '@masarat/shared/tax'
+import {
+  CHARGE_FIELDS,
+  CHARGE_KINDS,
+  MAX_FEE,
+  MAX_TAX_BPS,
+  PRICING_CODES,
+  RATE_UNITS
+} from '@masarat/shared/tax'
 import {
   BUILTIN_ROLE_KEYS,
   PERMISSIONS,
@@ -39,10 +46,7 @@ export {
   ITEM_UNITS,
   MANIFEST_STATUSES,
   PAYMENT_STATUSES,
-  TRIP_KINDS,
-  TAX_CODES,
-  FEE_CODES,
-  LINE_CODES
+  TRIP_KINDS
 }
 
 // Text enums are backed by a CHECK constraint each, so adding a value is a plain migration
@@ -267,22 +271,72 @@ export const vehicles = pgTable(
   ]
 )
 
-// Trip cost rates: cost = ratePerKm * distanceKm * (quantity / perQuantity)
-// e.g. 2000 SDG per km per 1 ton, or per 1000 liters. The taxes are percentages of that cost.
-export const taxRates = pgTable(
-  'tax_rates',
+// The development pricing formula's rates (services/pricing.ts): per km for each cargo type (per
+// `per_quantity` of its unit), and per km per seat for a passenger ticket
+export const pricingRates = pgTable(
+  'pricing_rates',
   {
     id,
-    cargoType: text('cargo_type', { enum: CARGO_TYPES }).notNull().unique(),
+    code: text('code', { enum: PRICING_CODES }).notNull().unique(),
     ratePerKm: integer('rate_per_km').notNull(),
-    unit: text('unit', { enum: QUANTITY_UNITS }).notNull(),
+    unit: text('unit', { enum: RATE_UNITS }).notNull(),
     perQuantity: integer('per_quantity').notNull(),
     ...timestamps
   },
   (t) => [
-    check('tax_rates_cargo_type_check', sql`${t.cargoType} IN (${inList(CARGO_TYPES)})`),
-    check('tax_rates_unit_check', sql`${t.unit} IN (${inList(QUANTITY_UNITS)})`)
+    check('pricing_rates_code_check', sql`${t.code} IN (${inList(PRICING_CODES)})`),
+    check('pricing_rates_unit_check', sql`${t.unit} IN (${inList(RATE_UNITS)})`),
+    check('pricing_rates_rate_check', sql`${t.ratePerKm} >= 0 AND ${t.perQuantity} > 0`)
   ]
+)
+
+// The taxes and fees (packages/shared/src/tax.ts): a percentage in basis points or a fixed amount
+// in SDG, with a value per kind of trip (null: not charged on it). Managed by the government admin.
+export const charges = pgTable(
+  'charges',
+  {
+    id,
+    // The built-in ones' codes, or custom_<id>
+    code: text('code').notNull().unique(),
+    name: text('name').notNull(),
+    nameAr: text('name_ar').notNull(),
+    kind: text('kind', { enum: CHARGE_KINDS }).notNull(),
+    cargoValue: integer('cargo_value'),
+    passengerValue: integer('passenger_value'),
+    active: boolean('active').notNull().default(true),
+    builtin: boolean('builtin').notNull().default(false),
+    // Display and billing order within its kind
+    sort: integer('sort').notNull().default(0),
+    ...timestamps
+  },
+  (t) => [
+    check('charges_kind_check', sql`${t.kind} IN (${inList(CHARGE_KINDS)})`),
+    check(
+      'charges_value_check',
+      sql`(${t.kind} = 'percent' AND coalesce(${t.cargoValue}, 0) BETWEEN 0 AND ${sql.raw(String(MAX_TAX_BPS))} AND coalesce(${t.passengerValue}, 0) BETWEEN 0 AND ${sql.raw(String(MAX_TAX_BPS))})
+        OR (${t.kind} = 'fixed' AND coalesce(${t.cargoValue}, 0) BETWEEN 0 AND ${sql.raw(String(MAX_FEE))} AND coalesce(${t.passengerValue}, 0) BETWEEN 0 AND ${sql.raw(String(MAX_FEE))})`
+    )
+  ]
+)
+
+// Audit log of the changes to the taxes and fees: who changed which field, from what to what
+// (as text, see ChargeChange)
+export const chargeChanges = pgTable(
+  'charge_changes',
+  {
+    id,
+    chargeId: integer('charge_id')
+      .notNull()
+      .references(() => charges.id, { onDelete: 'restrict' }),
+    field: text('field', { enum: CHARGE_FIELDS }).notNull(),
+    oldValue: text('old_value'),
+    newValue: text('new_value'),
+    changedBy: integer('changed_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    changedAt: timestamp('changed_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [check('charge_changes_field_check', sql`${t.field} IN (${inList(CHARGE_FIELDS)})`)]
 )
 
 // The company is derived via vehicle_id -> vehicles.company_id
@@ -424,57 +478,24 @@ export const tripDocuments = pgTable(
   ]
 )
 
-// Current tax percentages, in basis points (1700 = 17%), and fixed fees, in whole SDG. A tax row
-// has rate_bps, a fee row has amount. Editable by government users.
-export const taxSettings = pgTable(
-  'tax_settings',
-  {
-    id,
-    code: text('code', { enum: LINE_CODES }).notNull().unique(),
-    rateBps: integer('rate_bps'),
-    amount: integer('amount'),
-    ...timestamps
-  },
-  (t) => [
-    check('tax_settings_code_check', sql`${t.code} IN (${inList(LINE_CODES)})`),
-    check(
-      'tax_settings_value_check',
-      sql`(${t.code} IN (${inList(TAX_CODES)}) AND ${t.rateBps} BETWEEN 0 AND 10000 AND ${t.amount} IS NULL)
-        OR (${t.code} IN (${inList(FEE_CODES)}) AND ${t.amount} BETWEEN 0 AND ${sql.raw(String(MAX_FEE))} AND ${t.rateBps} IS NULL)`
-    )
-  ]
-)
-
-// Audit log of tax percentage and fee changes. Values are basis points for a tax, SDG for a fee.
-export const taxSettingChanges = pgTable('tax_setting_changes', {
-  id,
-  code: text('code', { enum: LINE_CODES }).notNull(),
-  oldValue: integer('old_value').notNull(),
-  newValue: integer('new_value').notNull(),
-  changedBy: integer('changed_by')
-    .notNull()
-    .references(() => users.id, { onDelete: 'restrict' }),
-  changedAt: timestamp('changed_at', { withTimezone: true }).notNull().defaultNow()
-})
-
-// The taxes and fees applied to a manifest, frozen when its bill is issued. rate_bps is null for
-// a fee.
-export const manifestTaxes = pgTable(
-  'manifest_taxes',
+// A manifest's bill lines, frozen when its bill is issued (drafts are repriced): each charge's
+// code, name and value then. rate_bps is null for a fixed fee.
+export const manifestCharges = pgTable(
+  'manifest_charges',
   {
     id,
     manifestId: integer('manifest_id')
       .notNull()
       .references(() => manifests.id, { onDelete: 'restrict' }),
-    code: text('code', { enum: LINE_CODES }).notNull(),
+    position: integer('position').notNull(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    nameAr: text('name_ar').notNull(),
     rateBps: integer('rate_bps'),
     amount: integer('amount').notNull(),
     ...timestamps
   },
-  (t) => [
-    uniqueIndex('manifest_taxes_manifest_code_idx').on(t.manifestId, t.code),
-    check('manifest_taxes_code_check', sql`${t.code} IN (${inList(LINE_CODES)})`)
-  ]
+  (t) => [uniqueIndex('manifest_charges_manifest_code_idx').on(t.manifestId, t.code)]
 )
 
 // One bill per manifest for the MVP. Amounts are whole SDG.
@@ -548,11 +569,10 @@ export type City = typeof cities.$inferSelect
 export type Vehicle = typeof vehicles.$inferSelect
 export type NewVehicle = typeof vehicles.$inferInsert
 export type Driver = typeof drivers.$inferSelect
+export type Charge = typeof charges.$inferSelect
 export type TripDocument = typeof tripDocuments.$inferSelect
-export type TaxRate = typeof taxRates.$inferSelect
 export type Manifest = typeof manifests.$inferSelect
 export type ManifestCargoItem = typeof manifestCargoItems.$inferSelect
-export type ManifestTax = typeof manifestTaxes.$inferSelect
 export type NewManifest = typeof manifests.$inferInsert
 export type Payment = typeof payments.$inferSelect
 export type NewPayment = typeof payments.$inferInsert

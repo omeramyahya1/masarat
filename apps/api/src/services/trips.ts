@@ -6,12 +6,10 @@ import {
   getDb,
   manifestCargoItems,
   manifests,
-  manifestTaxes,
+  manifestCharges,
   manifestTrailers,
   states,
   tripDocuments,
-  taxRates,
-  taxSettings,
   vehicles
 } from '../db'
 import {
@@ -46,16 +44,7 @@ import {
   type TripSuggestions
 } from '@masarat/shared/fleet'
 import { normalizePlate } from '@masarat/shared/plate'
-import {
-  calculateItemsCost,
-  calculateTaxes,
-  estimateRoadKm,
-  isFeeCode,
-  isTaxCode,
-  type FeeSetting,
-  type TaxLine,
-  type TaxSetting
-} from '@masarat/shared/tax'
+import { calculateCharges, estimateRoadKm, type TaxLine } from '@masarat/shared/tax'
 import {
   findStaged,
   isDocumentType,
@@ -64,8 +53,10 @@ import {
   removeTripFolder
 } from './documents'
 import { tripScopeCondition, type CompanyScope } from './access'
+import { listCharges } from './charges'
 import { findOwnedDriver } from './drivers'
 import { findOwnedVehicle } from './fleet'
+import { pricing } from './pricing'
 
 const isCargoType = (value: unknown): value is CargoType =>
   (CARGO_TYPES as readonly unknown[]).includes(value)
@@ -90,19 +81,6 @@ type Tx = Parameters<Parameters<Db['transaction']>[0]>[0]
 
 export type { Tx }
 
-const settingRows = (db: Db | Tx): Promise<(typeof taxSettings.$inferSelect)[]> =>
-  db.select().from(taxSettings)
-
-export const getTaxSettings = async (db: Db | Tx = getDb()): Promise<TaxSetting[]> =>
-  (await settingRows(db)).flatMap(({ code, rateBps }) =>
-    isTaxCode(code) && rateBps !== null ? [{ code, rateBps }] : []
-  )
-
-export const getFeeSettings = async (db: Db | Tx = getDb()): Promise<FeeSetting[]> =>
-  (await settingRows(db)).flatMap(({ code, amount }) =>
-    isFeeCode(code) && amount !== null ? [{ code, amount }] : []
-  )
-
 export async function getReferenceData(): Promise<TripReferenceData> {
   const db = getDb()
   return {
@@ -119,16 +97,9 @@ export async function getReferenceData(): Promise<TripReferenceData> {
       .from(cities)
       .innerJoin(states, eq(cities.stateId, states.id))
       .orderBy(cities.name),
-    taxRates: await db
-      .select({
-        cargoType: taxRates.cargoType,
-        ratePerKm: taxRates.ratePerKm,
-        unit: taxRates.unit,
-        perQuantity: taxRates.perQuantity
-      })
-      .from(taxRates),
-    taxSettings: await getTaxSettings(db),
-    feeSettings: await getFeeSettings(db)
+    cargoRates: await pricing.cargoRates(db),
+    ticketRatePerKm: await pricing.ticketRatePerKm(db),
+    charges: await listCharges(db)
   }
 }
 
@@ -203,9 +174,9 @@ export async function toTripRecords(rows: readonly TripRow[]): Promise<TripRecor
       .orderBy(asc(manifestCargoItems.position)),
     db
       .select()
-      .from(manifestTaxes)
-      .where(inArray(manifestTaxes.manifestId, ids))
-      .orderBy(asc(manifestTaxes.id)),
+      .from(manifestCharges)
+      .where(inArray(manifestCharges.manifestId, ids))
+      .orderBy(asc(manifestCharges.position), asc(manifestCharges.id)),
     db
       .select()
       .from(manifestTrailers)
@@ -237,7 +208,13 @@ export async function toTripRecords(rows: readonly TripRow[]): Promise<TripRecor
   const taxes = new Map<number, TaxLine[]>()
   for (const line of lineRows) {
     const list = taxes.get(line.manifestId) ?? []
-    list.push({ code: line.code, rateBps: line.rateBps, amount: line.amount })
+    list.push({
+      code: line.code,
+      name: line.name,
+      nameAr: line.nameAr,
+      rateBps: line.rateBps,
+      amount: line.amount
+    })
     taxes.set(line.manifestId, list)
   }
   const trailers = new Map<number, string[]>()
@@ -451,7 +428,7 @@ async function buildTrip(
 
   const items = parseItems(input.items, vehicle.capacityUnit)
   if (!items) return { ok: false, error: 'invalid_items' }
-  const rates = await db.select().from(taxRates)
+  const rates = await pricing.cargoRates(db)
   // Each item is measured in its rate's unit, which has to match what the vehicle carries
   for (const item of items) {
     const rate = rates.find((r) => r.cargoType === item.cargoType)
@@ -479,12 +456,12 @@ async function buildTrip(
   if (!documents) return { ok: false, error: 'invalid_document' }
 
   const distanceKm = estimateRoadKm(origin, destination)
-  const priced = calculateItemsCost(items, rates, distanceKm)
+  const priced = await pricing.cargoCost(items, distanceKm, db)
   if (!priced || !priced.mainType) return { ok: false, error: 'unknown' }
   const mainRate = rates.find((r) => r.cargoType === priced.mainType)
   if (!mainRate) return { ok: false, error: 'unknown' }
   const tripCost = priced.total
-  const taxes = calculateTaxes(tripCost, await getTaxSettings(db), await getFeeSettings(db))
+  const taxes = calculateCharges(tripCost, await listCharges(db), 'cargo')
   return {
     ok: true,
     data: {
@@ -569,13 +546,16 @@ async function insertDocuments(
 }
 
 // Replaces a manifest's tax lines (drafts reprice; billing freezes them)
-export async function writeTaxes(
+export async function writeCharges(
   tx: Tx,
   manifestId: number,
   lines: readonly TaxLine[]
 ): Promise<void> {
-  await tx.delete(manifestTaxes).where(eq(manifestTaxes.manifestId, manifestId))
-  await tx.insert(manifestTaxes).values(lines.map((line) => ({ manifestId, ...line })))
+  await tx.delete(manifestCharges).where(eq(manifestCharges.manifestId, manifestId))
+  if (lines.length === 0) return
+  await tx
+    .insert(manifestCharges)
+    .values(lines.map((line, position) => ({ manifestId, position, ...line })))
 }
 
 async function findOwnedTripRow(
@@ -620,7 +600,7 @@ export async function createTrip(
       .values({ ...manifest, createdBy: userId, status: 'draft' })
       .returning({ id: manifests.id })
     await writeItems(tx, id, items)
-    await writeTaxes(tx, id, taxes)
+    await writeCharges(tx, id, taxes)
     await writeTrailers(tx, id, trailers)
     await insertDocuments(tx, id, documents.add)
     return id
@@ -651,7 +631,7 @@ export async function updateTrip(
     if ((await lockedStatus(tx, existing.id)) !== 'draft') return null
     await tx.update(manifests).set(manifest).where(eq(manifests.id, existing.id))
     await writeItems(tx, existing.id, items)
-    await writeTaxes(tx, existing.id, taxes)
+    await writeCharges(tx, existing.id, taxes)
     await writeTrailers(tx, existing.id, trailers)
     const dropped = (
       await tx
@@ -693,7 +673,7 @@ export async function deleteTrip(
     // Re-checked inside the transaction so a bill issued meanwhile isn't lost
     if ((await lockedStatus(tx, existing.id)) !== 'draft') return false
     await tx.delete(manifestCargoItems).where(eq(manifestCargoItems.manifestId, existing.id))
-    await tx.delete(manifestTaxes).where(eq(manifestTaxes.manifestId, existing.id))
+    await tx.delete(manifestCharges).where(eq(manifestCharges.manifestId, existing.id))
     await tx.delete(manifestTrailers).where(eq(manifestTrailers.manifestId, existing.id))
     await tx.delete(tripDocuments).where(eq(tripDocuments.manifestId, existing.id))
     await tx.delete(manifests).where(eq(manifests.id, existing.id))

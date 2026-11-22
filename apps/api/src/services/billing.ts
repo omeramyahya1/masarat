@@ -15,7 +15,7 @@ import {
   type Payment
 } from '../db'
 import { missingForBilling, type FleetResult } from '@masarat/shared/fleet'
-import { calculateTaxes } from '@masarat/shared/tax'
+import { calculateCharges } from '@masarat/shared/tax'
 import {
   CERTIFICATE_VALID_DAYS,
   verifyUrl,
@@ -25,16 +25,10 @@ import {
 } from '@masarat/shared/billing'
 import { config } from '../config'
 import { tripScopeCondition, type CompanyScope, type TripScope } from './access'
+import { listCharges } from './charges'
 import { findOwnedDriver } from './drivers'
 import { esali } from './esali'
-import {
-  getFeeSettings,
-  getTaxSettings,
-  toTripRecord,
-  tripColumns,
-  writeTaxes,
-  type TripRow
-} from './trips'
+import { toTripRecord, tripColumns, writeCharges, type TripRow } from './trips'
 
 // Who booked the trip
 const booker = alias(users, 'booker')
@@ -196,12 +190,12 @@ export async function generateBill(
 
   // Billed at today's tax percentages and fees (they may have changed since the draft was
   // saved); the lines are frozen from here on, and so are the carrier and driver details
-  const taxes = calculateTaxes(trip.tripCost, await getTaxSettings(db), await getFeeSettings(db))
+  const taxes = calculateCharges(trip.tripCost, await listCharges(db), 'cargo')
   // With every rate and fee at 0 there is nothing to pay; E-Sali isn't asked for a bill
   if (taxes.total <= 0) return { ok: false, error: 'zero_bill' }
   const { billId } = await esali.createBill({ amount: taxes.total })
   await db.transaction(async (tx) => {
-    await writeTaxes(tx, trip.id, taxes.lines)
+    await writeCharges(tx, trip.id, taxes.lines)
     // manifest_id is unique, so a second bill for the trip fails here and rolls everything back
     await tx.insert(payments).values({ manifestId: trip.id, billId, amount: taxes.total })
     await tx

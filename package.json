@@ -16,9 +16,13 @@
     "dev:demo": "cd apps/desktop-demo && bun run dev",
     "build": "bun --filter './apps/*' build",
     "typecheck": "bun --filter '*' typecheck",
+    "test": "bun --filter @masarat/api test",
     "lint": "eslint --cache .",
     "format": "prettier --write .",
     "db:generate": "bun --filter @masarat/api db:generate",
+    "db:migrate": "bun --filter @masarat/api db:migrate",
+    "db:up": "podman compose up -d || docker compose up -d",
+    "db:down": "podman compose down || docker compose down",
     "release": "cd apps/desktop-demo && bun run release"
   },
   "devDependencies": {

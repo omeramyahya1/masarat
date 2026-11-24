@@ -86,4 +86,10 @@ The seeder (`apps/api/src/scripts/loadSeed.ts`) refuses any database whose name 
 
 ## Results
 
+The first run (24 Nov 2026) found six application problems. Branch `scale-fixes` fixes them: the missing indexes, the dashboard's daily summary, streamed exports, trip lists without joins, indexed government search capped at 1,000, and time limits.
+
+The tests were not run again after those fixes. Before the next run:
+- `loadtest/stack.sh migrate` adds migrations 0006 and 0007 to the seeded database. That takes a while on 37 GB.
+- Drop the six `lt_*` indexes added by hand during the first run; the migration creates its own.
+
 See the sizing report for the latest numbers. Rerun the matrix before a release that touches the dashboard, the trip queries or billing.

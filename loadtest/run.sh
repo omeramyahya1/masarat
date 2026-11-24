@@ -56,6 +56,9 @@ run_one() {
     (cd loadtest/k6 && taskset -c 12-19 "$K6" run --quiet --summary-mode disabled -e SCALE=0.3 -e DURATION=90s mixed.js >/dev/null 2>&1)
   fi
   loadtest/stack.sh api-up "$api_cpus" "$pool" >/dev/null
+  # Queries left running by an earlier run (Bun drops a request after 10 s, Postgres carries on)
+  psql_load "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'masarat_load'
+             AND pid <> pg_backend_pid() AND state <> 'idle'" >/dev/null
   psql_load 'SELECT pg_stat_statements_reset()' >/dev/null
   sample "$dir/stats.csv" &
   local sampler=$!

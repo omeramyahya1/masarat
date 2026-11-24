@@ -2,7 +2,7 @@
 // government sees of it (dashboard, search, taxes and fees), and the pricing guard
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { eq, sql } from 'drizzle-orm'
-import { branches, getDb, manifests } from '../src/db'
+import { branches, getDb, isQueryTimeout, manifests, openUnlimitedDb } from '../src/db'
 import type { CompanyScope } from '../src/services/access'
 import { addVehicle } from '../src/services/fleet'
 import { addDriver } from '../src/services/drivers'
@@ -10,6 +10,7 @@ import {
   createTrip,
   deleteTrip,
   getReferenceData,
+  listSuggestions,
   listTrips,
   updateTrip
 } from '../src/services/trips'
@@ -167,6 +168,29 @@ describe('company trip', () => {
     const [gone] = await getDb().select().from(manifests).where(eq(manifests.id, draft.data.id))
     expect(gone).toBeUndefined()
     expect(await deleteTrip(scope, tripId)).toEqual({ ok: false, error: 'not_draft' })
+  })
+})
+
+describe('trip form suggestions', () => {
+  test('come from the trips booked in the last 30 days only', async () => {
+    const recent = await createTrip(scope, ownerId, {
+      ...tripInput,
+      shipper: { name: 'Recent Sender', address: 'Khartoum', phone: '0911111112' }
+    })
+    const old = await createTrip(scope, ownerId, {
+      ...tripInput,
+      shipper: { name: 'Old Sender', address: 'Khartoum', phone: '0911111113' }
+    })
+    if (!recent.ok || !old.ok) throw new Error('create failed')
+    await getDb()
+      .update(manifests)
+      .set({ createdAt: new Date(Date.now() - 40 * 86_400_000) })
+      .where(eq(manifests.id, old.data.id))
+    const names = (await listSuggestions(scope)).parties.map((p) => p.name)
+    expect(names).toContain('Recent Sender')
+    expect(names).not.toContain('Old Sender')
+    await deleteTrip(scope, recent.data.id)
+    await deleteTrip(scope, old.data.id)
   })
 })
 
@@ -406,5 +430,31 @@ describe('permissions', () => {
     )
     const allowed = [...row.def.matchAll(/'([a-z.]+)'/g)].map((m) => m[1])
     expect(allowed.sort()).toEqual([...PERMISSIONS].sort())
+  })
+})
+
+describe('time limits', () => {
+  test('API queries stop at the statement timeout; migrations have none', async () => {
+    const [api] = await getDb().execute<{ statement_timeout: string }>(sql`show statement_timeout`)
+    expect(api.statement_timeout).toBe('15s')
+    const unlimited = openUnlimitedDb()
+    const [migration] = await unlimited.db.execute<{ statement_timeout: string }>(
+      sql`show statement_timeout`
+    )
+    await unlimited.close()
+    expect(migration.statement_timeout).toBe('0')
+  })
+
+  test('a query past the limit answers query_timeout', async () => {
+    let caught: unknown = null
+    try {
+      await getDb().transaction(async (tx) => {
+        await tx.execute(sql`set local statement_timeout = 50`)
+        await tx.execute(sql`select pg_sleep(1)`)
+      })
+    } catch (err) {
+      caught = err
+    }
+    expect(isQueryTimeout(caught)).toBe(true)
   })
 })

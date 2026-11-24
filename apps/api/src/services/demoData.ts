@@ -595,6 +595,7 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
   const companyById = new Map(seeded.map((c) => [c.id, c]))
 
   await db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL statement_timeout = 0`)
     // A trip's own rows, written in batches once every manifest has its id
     const itemRows: (typeof manifestCargoItems.$inferInsert)[] = []
     const trailerRows: (typeof manifestTrailers.$inferInsert)[] = []
@@ -1067,6 +1068,8 @@ async function deleteDemoCompanies(): Promise<void> {
 
   // Folders of demo trips that had attachments, removed once the rows are gone for good
   const folders = await getDb().transaction(async (tx) => {
+    // On a big database these deletes outlast the API's statement timeout
+    await tx.execute(sql`SET LOCAL statement_timeout = 0`)
     const demoVehicles = tx
       .select({ id: vehicles.id })
       .from(vehicles)

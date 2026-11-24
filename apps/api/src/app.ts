@@ -6,6 +6,7 @@ import { cors } from 'hono/cors'
 import { config } from './config'
 import { log } from './log'
 import { fail, type AppEnv } from './http/context'
+import { isQueryTimeout } from './db/errors'
 import { originCheck, session } from './http/middleware'
 import { MAX_DOCUMENT_BYTES } from '@masarat/shared/fleet'
 import { authRoutes } from './routes/auth'
@@ -62,5 +63,6 @@ export const app = new Hono<AppEnv>()
 app.notFound((c) => fail(c, 'not_found'))
 app.onError((err, c) => {
   log.error(`${c.req.method} ${c.req.path} failed:`, err)
-  return fail(c, 'unknown')
+  // A query that ran past the statement timeout: the client can say "took too long, narrow it"
+  return fail(c, isQueryTimeout(err) ? 'query_timeout' : 'unknown')
 })

@@ -44,6 +44,7 @@ const STATUS: Record<string, ContentfulStatusCode> = {
   role_locked: 403,
   cannot_change_self: 403,
   too_many_attempts: 429,
+  query_timeout: 503,
   unknown: 500
 }
 

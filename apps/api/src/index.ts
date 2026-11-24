@@ -34,5 +34,8 @@ if (config.demoMode) {
 
 export default {
   port: config.port,
+  // A request that sends nothing for this long is closed; Postgres's own limit (shorter) has
+  // stopped its query by then. Exports lift it for themselves (routes/govt.ts).
+  idleTimeout: config.requestTimeoutS,
   fetch: app.fetch
 }

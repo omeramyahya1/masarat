@@ -1,9 +1,11 @@
 // Applies the pending migrations in apps/api/drizzle: `bun run db:migrate`, run before the API
-// starts (locally and on every deploy)
+// starts (locally and on every deploy). No statement timeout: building an index on a big table
+// takes as long as it takes.
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
-import { closeDb, getDb } from './client'
+import { openUnlimitedDb } from './client'
 import { config } from '../config'
 
-await migrate(getDb(), { migrationsFolder: config.migrationsFolder })
-await closeDb()
+const { db, close } = openUnlimitedDb()
+await migrate(db, { migrationsFolder: config.migrationsFolder })
+await close()
 console.log('Migrations applied')

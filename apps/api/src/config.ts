@@ -17,6 +17,12 @@ type AppEnv = (typeof APP_ENVS)[number]
 const appEnv = (process.env.APP_ENV || 'development') as AppEnv
 if (!APP_ENVS.includes(appEnv)) throw new Error(`APP_ENV must be one of ${APP_ENVS.join(', ')}`)
 
+// A positive number from the environment, or the default
+const positiveNumber = (name: string, fallback: number): number => {
+  const value = Number(process.env[name])
+  return Number.isFinite(value) && value > 0 ? value : fallback
+}
+
 const siteUrl = url('SITE_URL', 'http://localhost:5175')
 const ownerUrl = url('OWNER_URL', 'http://localhost:5173')
 const govtUrl = url('GOVT_URL', 'http://localhost:5174')
@@ -27,6 +33,12 @@ export const config = {
   databaseUrl: process.env.DATABASE_URL ?? 'postgres://masarat:masarat@localhost:5433/masarat',
   // Connections the API keeps open to Postgres (postgres.js's default is 10)
   dbPoolMax: Number(process.env.DB_POOL_MAX) || 10,
+  // Time limits. Postgres stops an API query after STATEMENT_TIMEOUT_MS; an export's queries get
+  // EXPORT_STATEMENT_TIMEOUT_MS. Bun gives up on a request that sends nothing for
+  // REQUEST_TIMEOUT_S (at most 255). Migrations and seeding have no limit.
+  statementTimeoutMs: positiveNumber('STATEMENT_TIMEOUT_MS', 15_000),
+  exportStatementTimeoutMs: positiveNumber('EXPORT_STATEMENT_TIMEOUT_MS', 120_000),
+  requestTimeoutS: Math.min(255, positiveNumber('REQUEST_TIMEOUT_S', 30)),
   migrationsFolder: resolve(import.meta.dir, '..', 'drizzle'),
   // Trip attachments: documents/<manifest id>/ and documents/staging/
   storageDir: resolve(process.env.STORAGE_DIR ?? 'storage'),

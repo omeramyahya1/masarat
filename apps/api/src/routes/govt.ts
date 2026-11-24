@@ -12,6 +12,7 @@ import { listCompanies } from '../services/analyticsQuery'
 import { getTripDetails } from '../services/billing'
 import { getDashboard } from '../services/dashboard'
 import { regenerateDemoData } from '../services/demoData'
+import { liftRequestTimeout } from '../http/timeout'
 import { findOwnedDocumentFile } from '../services/documents'
 import { exportData } from '../services/exports'
 import { searchTrips } from '../services/govtTrips'
@@ -114,6 +115,7 @@ export const govtRoutes = new Hono<AppEnv>()
   // Demo only
   .post('/demo/regenerate', async (c) => {
     if (!config.demoMode) return fail(c, 'forbidden')
+    liftRequestTimeout(c)
     await regenerateDemoData()
     return send(c, { ok: true, data: null })
   })

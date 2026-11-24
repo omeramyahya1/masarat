@@ -16,6 +16,8 @@ process.env.DEMO_MODE = 'true'
 process.env.STORAGE_DIR = `${import.meta.dir}/.storage`
 
 const { migrate } = await import('drizzle-orm/postgres-js/migrator')
-const { getDb } = await import('../src/db')
+const { openUnlimitedDb } = await import('../src/db')
 const { config } = await import('../src/config')
-await migrate(getDb(), { migrationsFolder: config.migrationsFolder })
+const migration = openUnlimitedDb()
+await migrate(migration.db, { migrationsFolder: config.migrationsFolder })
+await migration.close()

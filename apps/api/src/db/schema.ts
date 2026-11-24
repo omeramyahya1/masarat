@@ -5,6 +5,7 @@ import {
   integer,
   doublePrecision,
   boolean,
+  date,
   timestamp,
   index,
   check,
@@ -50,6 +51,21 @@ export {
   PAYMENT_STATUSES,
   TRIP_KINDS
 }
+
+// What the daily revenue summary is kept by (services/dailyRevenue.ts)
+export const REVENUE_DIMENSIONS = [
+  'total',
+  'category',
+  'cargo',
+  'charge',
+  'route',
+  'origin_state',
+  'destination_state',
+  'company',
+  'vehicle_type',
+  'trip_kind'
+] as const
+export type RevenueDimension = (typeof REVENUE_DIMENSIONS)[number]
 
 // Text enums are backed by a CHECK constraint each, so adding a value is a plain migration
 const inList = (values: readonly string[]): ReturnType<typeof sql.raw> =>
@@ -267,6 +283,12 @@ export const vehicles = pgTable(
   },
   (t) => [
     index('vehicles_company_id_idx').on(t.companyId),
+    // Substring search on registration numbers and plates (the plate as plateKeyOf compares it)
+    index('vehicles_registration_no_trgm_idx').using('gin', t.registrationNo.op('gin_trgm_ops')),
+    index('vehicles_plate_key_trgm_idx').using(
+      'gin',
+      sql`(replace(replace(upper(${t.plateNumber}), ' ', ''), '/', '')) gin_trgm_ops`
+    ),
     check('vehicles_type_check', sql`${t.vehicleType} IN (${inList(VEHICLE_TYPES)})`),
     check('vehicles_unit_check', sql`${t.capacityUnit} IN (${inList(QUANTITY_UNITS)})`),
     check('vehicles_capacity_check', sql`${t.capacity} > 0`),
@@ -351,6 +373,11 @@ export const manifests = pgTable(
     vehicleId: integer('vehicle_id')
       .notNull()
       .references(() => vehicles.id, { onDelete: 'restrict' }),
+    // The vehicle's company, kept on the trip so company-scoped lists and counts read one index
+    // (services/access.ts tripScopeCondition) instead of joining vehicles
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'restrict' }),
     // The company branch the trip was booked at, and who booked it
     branchId: integer('branch_id')
       .notNull()
@@ -404,7 +431,15 @@ export const manifests = pgTable(
   },
   (t) => [
     index('manifests_vehicle_id_idx').on(t.vehicleId),
-    index('manifests_branch_id_idx').on(t.branchId),
+    // A company's or a branch's trips, newest first: the trips list, its counts and suggestions
+    index('manifests_company_departure_idx').on(t.companyId, t.departureAt),
+    index('manifests_branch_departure_idx').on(t.branchId, t.departureAt),
+    index('manifests_driver_id_idx').on(t.driverId),
+    index('manifests_created_at_idx').on(t.createdAt),
+    // Substring search on names (pg_trgm, created by the migration)
+    index('manifests_shipper_name_trgm_idx').using('gin', t.shipperName.op('gin_trgm_ops')),
+    index('manifests_receiver_name_trgm_idx').using('gin', t.receiverName.op('gin_trgm_ops')),
+    index('manifests_driver_name_trgm_idx').using('gin', t.driverName.op('gin_trgm_ops')),
     check('manifests_trip_kind_check', sql`${t.tripKind} IN (${inList(TRIP_KINDS)})`),
     index('manifests_status_idx').on(t.status),
     check('manifests_route_check', sql`${t.originCityId} <> ${t.destinationCityId}`),
@@ -616,6 +651,12 @@ export const payments = pgTable(
     ...timestamps
   },
   (t) => [
+    // Paid in a period (the dashboard, exports) and pending bills
+    index('payments_status_paid_at_idx').on(t.status, t.paidAt),
+    // Billed in a period (collection rate, exports)
+    index('payments_created_at_idx').on(t.createdAt),
+    // Bill ID prefixes in the government search (LIKE '2026…%')
+    index('payments_bill_id_pattern_idx').on(t.billId.op('text_pattern_ops')),
     check('payments_status_check', sql`${t.status} IN (${inList(PAYMENT_STATUSES)})`),
     check('payments_amount_check', sql`${t.amount} > 0`)
   ]
@@ -623,22 +664,33 @@ export const payments = pgTable(
 
 // Issued once a manifest's bill is paid: the payment receipt and the authorized manifest
 // (تصريح الحركة)
-export const certificates = pgTable('certificates', {
-  id,
-  manifestId: integer('manifest_id')
-    .notNull()
-    .unique()
-    .references(() => manifests.id, { onDelete: 'restrict' }),
-  // The electronic payment receipt's number (MSR-yyyy-xxxxxx)
-  certificateNo: text('certificate_no').notNull().unique(),
-  // The authorized manifest's number (MNF-yyyy-xxxxxx), issued with the receipt
-  manifestNo: text('manifest_no').notNull().unique(),
-  // Random, unguessable value encoded in the QR; looked up by the public verify screen
-  qrToken: text('qr_token').notNull().unique(),
-  issuedAt: timestamp('issued_at', { withTimezone: true }).notNull().defaultNow(),
-  validUntil: timestamp('valid_until', { withTimezone: true }).notNull(),
-  ...timestamps
-})
+export const certificates = pgTable(
+  'certificates',
+  {
+    id,
+    manifestId: integer('manifest_id')
+      .notNull()
+      .unique()
+      .references(() => manifests.id, { onDelete: 'restrict' }),
+    // The electronic payment receipt's number (MSR-yyyy-xxxxxx)
+    certificateNo: text('certificate_no').notNull().unique(),
+    // The authorized manifest's number (MNF-yyyy-xxxxxx), issued with the receipt
+    manifestNo: text('manifest_no').notNull().unique(),
+    // Random, unguessable value encoded in the QR; looked up by the public verify screen
+    qrToken: text('qr_token').notNull().unique(),
+    issuedAt: timestamp('issued_at', { withTimezone: true }).notNull().defaultNow(),
+    validUntil: timestamp('valid_until', { withTimezone: true }).notNull(),
+    ...timestamps
+  },
+  (t) => [
+    // Issued in a period, and still valid (the dashboard)
+    index('certificates_issued_at_idx').on(t.issuedAt),
+    index('certificates_valid_until_idx').on(t.validUntil),
+    // MNF- / PSG- / MSR- prefixes in the government search
+    index('certificates_manifest_no_pattern_idx').on(t.manifestNo.op('text_pattern_ops')),
+    index('certificates_certificate_no_pattern_idx').on(t.certificateNo.op('text_pattern_ops'))
+  ]
+)
 
 // SIMULATION ONLY: stands in for E-Sali's own records of the bills it issued, so a simulated
 // payment survives restarts and only reaches `payments` when the app checks the bill's status.
@@ -655,6 +707,28 @@ export const esaliSimBills = pgTable(
     ...timestamps
   },
   (t) => [check('esali_sim_bills_status_check', sql`${t.status} IN (${inList(PAYMENT_STATUSES)})`)]
+)
+
+// The dashboard's revenue per Sudan day, by dimension (services/dailyRevenue.ts): kept up to date
+// in the transaction that records a payment as paid, so the unfiltered dashboard reads days
+// instead of every paid trip. `key` is the group (a cargo type, a route "<origin>-<destination>",
+// a company id, …; '' for the total); a charge's row carries the name of its latest bill line.
+// A trip's taxes are split across its cargo items by cost, so `revenue` isn't whole.
+export const dailyRevenue = pgTable(
+  'daily_revenue',
+  {
+    day: date('day', { mode: 'string' }).notNull(),
+    dimension: text('dimension', { enum: REVENUE_DIMENSIONS }).notNull(),
+    key: text('key').notNull(),
+    name: text('name'),
+    nameAr: text('name_ar'),
+    revenue: doublePrecision('revenue').notNull(),
+    trips: integer('trips').notNull()
+  },
+  (t) => [
+    primaryKey({ columns: [t.day, t.dimension, t.key] }),
+    check('daily_revenue_dimension_check', sql`${t.dimension} IN (${inList(REVENUE_DIMENSIONS)})`)
+  ]
 )
 
 export type User = typeof users.$inferSelect

@@ -321,12 +321,12 @@ q AS (
   FROM p
 ),
 m AS (
-  INSERT INTO manifests (vehicle_id, branch_id, created_by, origin_city_id, destination_city_id, category,
+  INSERT INTO manifests (vehicle_id, company_id, branch_id, created_by, origin_city_id, destination_city_id, category,
     cargo_type, cargo_quantity, cargo_unit, departure_at, arrival_at, distance_km, rate_per_km, ticket_price,
     trip_cost, tax_amount, status, trip_kind, driver_id, driver_name, driver_phone,
     shipper_name, shipper_address, shipper_phone, receiver_name, receiver_address, receiver_phone,
     carrier_name, carrier_address, carrier_tin, created_at, updated_at)
-  SELECT vehicle_id, branch_id, clerk_id, origin, destination,
+  SELECT vehicle_id, company_id, branch_id, clerk_id, origin, destination,
          CASE WHEN is_bus THEN 'passenger' ELSE 'cargo' END,
          cargo_type, qty, CASE WHEN is_bus THEN 'seat' ELSE capacity_unit END,
          departure_at, arrival_at, km, rate_per_km, ticket_price, cost,

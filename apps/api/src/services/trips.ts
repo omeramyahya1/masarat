@@ -557,6 +557,7 @@ async function buildTrip(
     data: {
       manifest: {
         vehicleId: vehicle.id,
+        companyId: scope.companyId,
         branchId,
         originCityId: origin.id,
         destinationCityId: destination.id,

@@ -1,0 +1,105 @@
+// The dashboard's daily revenue summary (daily_revenue): what paid trips brought in, per Sudan day
+// and per dimension (total, category, cargo slice, charge, route, origin and destination state,
+// company, vehicle type, trip kind). The dashboard reads it for unfiltered views, so a 12-month
+// view adds up a few thousand rows instead of every paid trip.
+//
+// It's kept exact: recording a payment as paid adds that trip's rows in the same transaction
+// (addPaidTrip), and bulk writers (demo seeding, the load-test seeder) rebuild it afterwards
+// (rebuildDailyRevenue). Migration 0006 filled it from the history with the same SQL.
+import { sql, type SQL } from 'drizzle-orm'
+import { getDb, type AppDatabase } from '../db'
+import { PASSENGERS_SLICE } from '@masarat/shared/dashboard'
+
+type Executor = Pick<AppDatabase, 'execute'>
+
+// One statement: the rows for the paid payments matching `where` (on payments as p), added to
+// what's there. Days are Sudan days (the session's time zone). A trip's taxes are split across its
+// cargo items in proportion to their cost, as the cargo card always did; a trip without items
+// (passengers, or from before items existed) counts under its own cargo type or as passengers.
+export const summarySql = (where: SQL): SQL => sql`
+WITH paid AS (
+  SELECT p.manifest_id, p.amount, p.paid_at::date AS day, m.category, m.cargo_type,
+         m.origin_city_id, m.destination_city_id, m.company_id, m.trip_kind, v.vehicle_type,
+         os.name AS origin_state, ds.name AS destination_state
+  FROM payments p
+  JOIN manifests m ON m.id = p.manifest_id
+  JOIN vehicles v ON v.id = m.vehicle_id
+  JOIN cities oc ON oc.id = m.origin_city_id
+  JOIN states os ON os.id = oc.state_id
+  JOIN cities dc ON dc.id = m.destination_city_id
+  JOIN states ds ON ds.id = dc.state_id
+  WHERE p.status = 'paid' AND p.paid_at IS NOT NULL AND ${where}
+),
+items AS (
+  SELECT i.manifest_id, i.cargo_type, i.cost
+  FROM manifest_cargo_items i JOIN paid ON paid.manifest_id = i.manifest_id
+),
+item_cost AS (
+  SELECT manifest_id, sum(cost) AS cost FROM items GROUP BY manifest_id
+),
+cargo_shares AS (
+  SELECT paid.day, items.cargo_type AS key,
+         paid.amount::float8 * items.cost / item_cost.cost AS revenue, paid.manifest_id
+  FROM paid
+  JOIN items ON items.manifest_id = paid.manifest_id
+  JOIN item_cost ON item_cost.manifest_id = paid.manifest_id
+  WHERE item_cost.cost > 0
+  UNION ALL
+  SELECT paid.day, coalesce(paid.cargo_type, ${PASSENGERS_SLICE}), paid.amount::float8, paid.manifest_id
+  FROM paid LEFT JOIN item_cost ON item_cost.manifest_id = paid.manifest_id
+  WHERE coalesce(item_cost.cost, 0) <= 0
+),
+rows AS (
+  SELECT day, 'total' AS dimension, '' AS key, NULL::text AS name, NULL::text AS name_ar,
+         sum(amount)::float8 AS revenue, count(*)::int AS trips
+  FROM paid GROUP BY day
+  UNION ALL
+  SELECT day, 'category', category, NULL, NULL, sum(amount), count(*) FROM paid GROUP BY day, category
+  UNION ALL
+  SELECT day, 'route', origin_city_id || '-' || destination_city_id, NULL, NULL, sum(amount), count(*)
+  FROM paid GROUP BY day, origin_city_id, destination_city_id
+  UNION ALL
+  SELECT day, 'origin_state', origin_state, NULL, NULL, sum(amount), count(*) FROM paid GROUP BY day, origin_state
+  UNION ALL
+  SELECT day, 'destination_state', destination_state, NULL, NULL, sum(amount), count(*)
+  FROM paid GROUP BY day, destination_state
+  UNION ALL
+  SELECT day, 'company', company_id::text, NULL, NULL, sum(amount), count(*) FROM paid GROUP BY day, company_id
+  UNION ALL
+  SELECT day, 'vehicle_type', vehicle_type, NULL, NULL, sum(amount), count(*) FROM paid GROUP BY day, vehicle_type
+  UNION ALL
+  SELECT day, 'trip_kind', trip_kind, NULL, NULL, sum(amount), count(*) FROM paid GROUP BY day, trip_kind
+  UNION ALL
+  SELECT day, 'cargo', key, NULL, NULL, sum(revenue), count(DISTINCT manifest_id)::int
+  FROM cargo_shares GROUP BY day, key
+  UNION ALL
+  SELECT paid.day, 'charge', c.code,
+         (array_agg(c.name ORDER BY c.id DESC))[1], (array_agg(c.name_ar ORDER BY c.id DESC))[1],
+         sum(c.amount), count(*)
+  FROM paid JOIN manifest_charges c ON c.manifest_id = paid.manifest_id
+  GROUP BY paid.day, c.code
+)
+INSERT INTO daily_revenue (day, dimension, key, name, name_ar, revenue, trips)
+SELECT day, dimension, key, name, name_ar, revenue, trips FROM rows
+ON CONFLICT (day, dimension, key) DO UPDATE SET
+  revenue = daily_revenue.revenue + EXCLUDED.revenue,
+  trips = daily_revenue.trips + EXCLUDED.trips,
+  name = coalesce(EXCLUDED.name, daily_revenue.name),
+  name_ar = coalesce(EXCLUDED.name_ar, daily_revenue.name_ar)`
+
+// A trip whose payment was just recorded as paid: call inside that transaction, once
+export async function addPaidTrip(tx: Executor, manifestId: number): Promise<void> {
+  await tx.execute(summarySql(sql`p.manifest_id = ${manifestId}`))
+}
+
+// Recomputes the whole summary from the payments (after bulk writes: demo seeding, regenerating,
+// the load-test seeder). Locks the table meanwhile, so a payment recorded at the same time waits
+// and is counted once.
+export async function rebuildDailyRevenue(db: AppDatabase = getDb()): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL statement_timeout = 0`)
+    await tx.execute(sql`LOCK TABLE daily_revenue IN EXCLUSIVE MODE`)
+    await tx.execute(sql`DELETE FROM daily_revenue`)
+    await tx.execute(summarySql(sql`true`))
+  })
+}

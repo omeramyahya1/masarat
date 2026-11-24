@@ -732,6 +732,7 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
           .insert(manifests)
           .values({
             vehicleId: vehicle.id,
+            companyId: vehicle.companyId,
             branchId: branch.id,
             createdBy: branch.clerkId,
             originCityId: origin.id,
@@ -956,6 +957,7 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
           .insert(manifests)
           .values({
             vehicleId: bus.id,
+            companyId: bus.companyId,
             branchId: branch.id,
             createdBy: branch.clerkId,
             originCityId: origin.id,

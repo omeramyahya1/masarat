@@ -24,3 +24,9 @@ masarat.db*
 storage/
 docs/system_docs
 apps/api/test/.storage/
+
+# Load test: generated data, results and the stack's state
+loadtest/data/
+loadtest/results/
+loadtest/.state/
+loadtest/.storage/

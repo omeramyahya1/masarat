@@ -41,6 +41,21 @@ import { cargoSharesSql, dayOf } from './dailyRevenue'
 
 const RECENT_BILLS = 10
 
+// A latest bill, as the dashboard lists it
+interface BillRow {
+  id: number
+  manifestId: number
+  billId: string
+  createdAt: Date
+  paidAt: Date | null
+  status: (typeof payments.$inferSelect)['status']
+  amount: number
+  companyName: string
+  plateNumber: string
+  originCityId: number
+  destinationCityId: number
+}
+
 const total = (value: string | number | null): number => Number(value ?? 0)
 const revenueSum = sql<number>`sum(${payments.amount})`.mapWith(Number)
 
@@ -162,7 +177,10 @@ function liveFigures(f: AnalyticsFilters): RevenueFigures {
     },
 
     async breakdown(from, to, by) {
-      const grouped = async (key: SQL, join?: 'originState' | 'destinationState') => {
+      const grouped = async (
+        key: SQL,
+        join?: 'originState' | 'destinationState'
+      ): Promise<BreakdownRow[]> => {
         const query = db
           .select({ key: sql<string>`${key}`, revenue: revenueSum, trips: count() })
           .from(payments)
@@ -211,19 +229,26 @@ function summaryFigures(): RevenueFigures {
   const db = getDb()
   const live = liveFigures({ range: { preset: '30d' } })
   // Whole days from the day `from` falls on to the day before `to` ends ([from, to) as days)
-  const days = (from: Date, to: Date) => {
+  const days = (from: Date, to: Date): SQL | undefined => {
     const first = dayOf(from)
     const last = dayOf(new Date(to.getTime() - 1))
     return and(gte(dailyRevenue.day, first), sql`${dailyRevenue.day} <= ${last}`)
   }
-  const dimension = (name: RevenueDimension) => eq(dailyRevenue.dimension, name)
+  const dimension = (name: RevenueDimension): SQL => eq(dailyRevenue.dimension, name)
   // Where `from` isn't midnight, the part of its day before `from` must be left out: it is in the
   // summary's row for that day. Split it off and compute it live.
   const split = (from: Date): { midnight: Date; partial: boolean } => {
     const day = parseDay(dayOf(from))!
     return { midnight: day, partial: day.getTime() !== from.getTime() }
   }
-  const grouped = async (name: RevenueDimension, from: Date, to: Date) =>
+  type SummaryRow = {
+    key: string
+    revenue: number
+    trips: number
+    name: string | null
+    nameAr: string | null
+  }
+  const grouped = async (name: RevenueDimension, from: Date, to: Date): Promise<SummaryRow[]> =>
     db
       .select({
         key: dailyRevenue.key,
@@ -293,7 +318,8 @@ function summaryFigures(): RevenueFigures {
     },
 
     async breakdown(from, to, by) {
-      const of = async (name: RevenueDimension) => rows(await grouped(name, from, to))
+      const of = async (name: RevenueDimension): Promise<BreakdownRow[]> =>
+        rows(await grouped(name, from, to))
       switch (by) {
         case 'route':
           return withRouteCities(await of('route'))
@@ -415,7 +441,10 @@ export async function getDashboard(
     originCityId: manifests.originCityId,
     destinationCityId: manifests.destinationCityId
   }
-  const latestBills = (when: typeof payments.paidAt | typeof payments.createdAt, which: SQL) =>
+  const latestBills = (
+    when: typeof payments.paidAt | typeof payments.createdAt,
+    which: SQL
+  ): Promise<BillRow[]> =>
     db
       .select(billColumns)
       .from(payments)
@@ -508,11 +537,17 @@ export async function getDashboard(
         ? byCargo.map((c) => ({ key: c.cargoType, revenue: c.revenue, trips: c.trips }))
         : await figures.breakdown(from, to, view.breakdown),
     statusCounts,
-    recentBills: recentBills.map(({ createdAt, paidAt, status, id: _id, at: _at, ...bill }) => ({
-      ...bill,
-      createdAt: createdAt.getTime(),
-      paidAt: paidAt?.getTime() ?? null,
-      status: status === 'paid' ? 'paid' : 'pending'
+    recentBills: recentBills.map((bill) => ({
+      manifestId: bill.manifestId,
+      billId: bill.billId,
+      amount: bill.amount,
+      companyName: bill.companyName,
+      plateNumber: bill.plateNumber,
+      originCityId: bill.originCityId,
+      destinationCityId: bill.destinationCityId,
+      createdAt: bill.createdAt.getTime(),
+      paidAt: bill.paidAt?.getTime() ?? null,
+      status: bill.status === 'paid' ? 'paid' : 'pending'
     }))
   }
 }

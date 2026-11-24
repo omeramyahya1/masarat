@@ -62,7 +62,9 @@ function GovtSearch({
       <div>
         <h2 className="text-lg font-semibold text-stone-900">{t('govt.search.resultsTitle')}</h2>
         <p className="text-sm text-stone-500">
-          {t('govt.search.resultCount', { count: format.number(results.total) })}
+          {t(results.more ? 'govt.search.resultCountMore' : 'govt.search.resultCount', {
+            count: format.number(results.total)
+          })}
         </p>
       </div>
 
@@ -151,6 +153,7 @@ function GovtSearch({
         page={results.page}
         pageSize={results.pageSize}
         total={results.total}
+        more={results.more}
         onPage={setPage}
         onPageSize={(size) => {
           setPageSize(size)

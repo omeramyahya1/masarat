@@ -434,6 +434,9 @@ export const manifests = pgTable(
     // A company's or a branch's trips, newest first: the trips list, its counts and suggestions
     index('manifests_company_departure_idx').on(t.companyId, t.departureAt),
     index('manifests_branch_departure_idx').on(t.branchId, t.departureAt),
+    // Trips from or to a city, newest first: the government search by city name or route
+    index('manifests_origin_departure_idx').on(t.originCityId, t.departureAt),
+    index('manifests_destination_departure_idx').on(t.destinationCityId, t.departureAt),
     index('manifests_driver_id_idx').on(t.driverId),
     index('manifests_created_at_idx').on(t.createdAt),
     // Substring search on names (pg_trgm, created by the migration)

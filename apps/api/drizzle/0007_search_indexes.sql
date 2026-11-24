@@ -1,0 +1,2 @@
+CREATE INDEX "manifests_origin_departure_idx" ON "manifests" USING btree ("origin_city_id","departure_at");--> statement-breakpoint
+CREATE INDEX "manifests_destination_departure_idx" ON "manifests" USING btree ("destination_city_id","departure_at");

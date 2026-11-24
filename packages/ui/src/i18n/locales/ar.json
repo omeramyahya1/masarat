@@ -958,6 +958,7 @@
       "clear": "مسح البحث",
       "resultsTitle": "نتائج البحث",
       "resultCount": "عدد الرحلات: {{count}}",
+      "resultCountMore": "عدد الرحلات أكثر من {{count}}. تُعرض أحدث {{count}} رحلة: أضف كلمة أو رقمًا أو مسارًا لتضييق البحث.",
       "noResults": "لا توجد رحلات تطابق هذا البحث.",
       "openTrip": "فتح الرحلة رقم {{id}}",
       "columns": {
@@ -1157,6 +1158,7 @@
     "pagination": {
       "label": "الصفحات",
       "range": "{{from}}–{{to}} من {{total}}",
+      "rangeMore": "{{from}}–{{to}} من {{total}}+",
       "previous": "الصفحة السابقة",
       "next": "الصفحة التالية",
       "page": "الصفحة {{n}}",

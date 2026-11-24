@@ -12,17 +12,20 @@ function pageNumbers(page: number, pages: number): (number | null)[] {
   return list.flatMap((n, i) => (i > 0 && n - list[i - 1] > 1 ? [null, n] : [n]))
 }
 
-// Under a paged list: "51–100 of 1,284", previous / next, page numbers, and the page size
+// Under a paged list: "51–100 of 1,284", previous / next, page numbers, and the page size. With
+// `more`, the count stopped at `total` and more rows match ("of 1,000+").
 function Pagination({
   page,
   pageSize,
   total,
+  more = false,
   onPage,
   onPageSize
 }: {
   page: number
   pageSize: PageSize
   total: number
+  more?: boolean
   onPage: (page: number) => void
   onPageSize: (pageSize: PageSize) => void
 }): React.JSX.Element | null {
@@ -40,7 +43,7 @@ function Pagination({
       className="flex flex-wrap items-center justify-between gap-3 text-sm text-stone-600"
     >
       <span className="tabular-nums">
-        {t('listView.pagination.range', {
+        {t(more ? 'listView.pagination.rangeMore' : 'listView.pagination.range', {
           from: format.number(from),
           to: format.number(to),
           total: format.number(total)

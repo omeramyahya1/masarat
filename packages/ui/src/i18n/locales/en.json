@@ -958,6 +958,7 @@
       "clear": "Clear search",
       "resultsTitle": "Search results",
       "resultCount": "{{count}} trips found",
+      "resultCountMore": "More than {{count}} trips found. The newest {{count}} are shown: add a word, a number or a route to narrow the search.",
       "noResults": "No trips match this search.",
       "openTrip": "Open trip #{{id}}",
       "columns": {
@@ -1157,6 +1158,7 @@
     "pagination": {
       "label": "Pages",
       "range": "{{from}}–{{to}} of {{total}}",
+      "rangeMore": "{{from}}–{{to}} of {{total}}+",
       "previous": "Previous page",
       "next": "Next page",
       "page": "Page {{n}}",

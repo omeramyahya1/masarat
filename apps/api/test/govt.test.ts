@@ -5,8 +5,9 @@ import { strFromU8, unzipSync } from 'fflate'
 import { ensureDemoData } from '../src/services/demoData'
 import { getDashboard } from '../src/services/dashboard'
 import { exportLimits } from '../src/services/exports'
+import { SEARCH_CAP } from '../src/services/govtTrips'
 import { BREAKDOWNS } from '@masarat/shared/analytics'
-import { getDb, payments, tripDocuments } from '../src/db'
+import { certificates, getDb, manifests, payments, tripDocuments, vehicles } from '../src/db'
 import { eq, sql } from 'drizzle-orm'
 import { resetData, signedIn, type Browser } from './helpers'
 
@@ -129,6 +130,53 @@ describe('search', () => {
 
   test('an empty search is refused', async () => {
     expect((await govt.call('GET', '/govt/search')).body.error).toBe('missing_fields')
+  })
+
+  test('a broad search counts up to 1,000, says there are more, and pages no further', async () => {
+    const broad = await govt.call('GET', '/govt/search?query=khartoum&pageSize=100')
+    expect(broad.body.data).toMatchObject({ total: SEARCH_CAP, more: true })
+    const past = await govt.call('GET', '/govt/search?query=khartoum&pageSize=100&page=50')
+    expect(past.body.data.page).toBe(SEARCH_CAP / 100)
+    expect(past.body.data.rows).toHaveLength(100)
+    const narrow = await govt.call('GET', '/govt/search?query=nile&pageSize=25')
+    expect(narrow.body.data.more).toBe(false)
+  })
+
+  test('finds a trip by each of its numbers', async () => {
+    const [trip] = await getDb()
+      .select({
+        id: manifests.id,
+        billId: payments.billId,
+        manifestNo: certificates.manifestNo,
+        certificateNo: certificates.certificateNo,
+        plate: vehicles.plateNumber
+      })
+      .from(manifests)
+      .innerJoin(payments, eq(payments.manifestId, manifests.id))
+      .innerJoin(certificates, eq(certificates.manifestId, manifests.id))
+      .innerJoin(vehicles, eq(vehicles.id, manifests.vehicleId))
+      .where(eq(manifests.category, 'cargo'))
+      .limit(1)
+    const [bus] = await getDb()
+      .select({ id: manifests.id, manifestNo: certificates.manifestNo })
+      .from(manifests)
+      .innerJoin(certificates, eq(certificates.manifestId, manifests.id))
+      .where(eq(manifests.category, 'passenger'))
+      .limit(1)
+    const found = async (query: string): Promise<number[]> =>
+      (
+        await govt.call('GET', `/govt/search?query=${encodeURIComponent(query)}&pageSize=100`)
+      ).body.data.rows.map((r: { manifestId: number }) => r.manifestId)
+    expect(await found(trip.billId)).toEqual([trip.id])
+    expect(await found(trip.billId.slice(0, 14))).toContain(trip.id)
+    expect(await found(trip.manifestNo!)).toEqual([trip.id])
+    expect(await found(trip.certificateNo)).toEqual([trip.id])
+    expect(await found(bus.manifestNo!)).toEqual([bus.id])
+    expect(await found(`#${trip.id}`)).toEqual([trip.id])
+    // The plate's number in Arabic digits
+    const digits = trip.plate.split('/')[1]
+    const arabic = digits.replace(/\d/g, (d) => '٠١٢٣٤٥٦٧٨٩'[Number(d)])
+    expect(await found(arabic)).toContain(trip.id)
   })
 })
 

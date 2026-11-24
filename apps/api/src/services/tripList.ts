@@ -16,7 +16,7 @@ import {
   type SQL,
   type SQLWrapper
 } from 'drizzle-orm'
-import { alias } from 'drizzle-orm/pg-core'
+import { alias, type PgSelect } from 'drizzle-orm/pg-core'
 import { cities, getDb, manifestCargoItems, manifests, tripPassengers, vehicles } from '../db'
 import { idSearchKey } from '@masarat/shared/passengers'
 import { TRIP_CATEGORIES } from '@masarat/shared/tax'
@@ -248,19 +248,18 @@ export async function listTripsPage(
 ): Promise<FleetResult<Page<TripRecord>>> {
   const db = getDb()
   const where = filterConditions(scope, q)
+  // Only a search reads the vehicle's plate and the cities' names; without one, the counts and
+  // the group totals read manifests alone, through the company's (or branch's) index
+  const searchJoins = <T extends PgSelect>(query: T): T =>
+    q.query
+      ? (query
+          .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
+          .innerJoin(origin, eq(manifests.originCityId, origin.id))
+          .innerJoin(destination, eq(manifests.destinationCityId, destination.id)) as unknown as T)
+      : query
   const [[{ total }], [{ overall }]] = await Promise.all([
-    db
-      .select({ total: count() })
-      .from(manifests)
-      .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-      .innerJoin(origin, eq(manifests.originCityId, origin.id))
-      .innerJoin(destination, eq(manifests.destinationCityId, destination.id))
-      .where(where),
-    db
-      .select({ overall: count() })
-      .from(manifests)
-      .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-      .where(tripScopeCondition(scope))
+    searchJoins(db.select({ total: count() }).from(manifests).$dynamic()).where(where),
+    db.select({ overall: count() }).from(manifests).where(tripScopeCondition(scope))
   ])
 
   // A page past the end shows the last one
@@ -284,19 +283,20 @@ export async function listTripsPage(
   let groups: GroupSummary[] | undefined
   if (grouped) {
     const keys = [...new Set(rows.map((r) => String(r.groupKey)))]
+    // The keys are manifests' own columns (ids for vehicles, routes, branches), so the totals
+    // need no join unless the search does
+    const sumsQuery = db
+      .select({
+        key: sql<string>`${grouped.key}`,
+        count: count(),
+        totalDue: sql<number>`coalesce(sum(${manifests.taxAmount}), 0)`.mapWith(Number)
+      })
+      .from(manifests)
+      .$dynamic()
     const sums =
       keys.length === 0
         ? []
-        : await db
-            .select({
-              key: sql<string>`${grouped.key}`,
-              count: count(),
-              totalDue: sql<number>`coalesce(sum(${manifests.taxAmount}), 0)`.mapWith(Number)
-            })
-            .from(manifests)
-            .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-            .innerJoin(origin, eq(manifests.originCityId, origin.id))
-            .innerJoin(destination, eq(manifests.destinationCityId, destination.id))
+        : await searchJoins(sumsQuery)
             .where(and(where, inArray(grouped.key, keys)))
             .groupBy(grouped.key)
     const byKey = new Map(sums.map((s) => [String(s.key), s]))

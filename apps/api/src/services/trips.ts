@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm'
 import { log } from '../log'
 import {
   branches,
@@ -808,11 +808,18 @@ export async function deleteTrip(
 }
 
 const MAX_SUGGESTED_PARTIES = 50
+// Suggestions come from the trips booked in this many days, so the form reads a few weeks of the
+// company's trips, not its whole history
+export const SUGGESTION_DAYS = 30
 
-// Senders and receivers from the trips the member can see (newest first, each once), and the
-// packing types they used, for the trip form's suggestions
+// Senders and receivers from the recent trips the member can see (newest first, each once), and
+// the packing types they used, for the trip form's suggestions
 export async function listSuggestions(scope: CompanyScope): Promise<TripSuggestions> {
   const db = getDb()
+  const recent = and(
+    tripScopeCondition(scope),
+    gte(manifests.createdAt, new Date(Date.now() - SUGGESTION_DAYS * 86_400_000))
+  )
   const rows = await db
     .select({
       shipperName: manifests.shipperName,
@@ -823,8 +830,7 @@ export async function listSuggestions(scope: CompanyScope): Promise<TripSuggesti
       receiverPhone: manifests.receiverPhone
     })
     .from(manifests)
-    .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-    .where(tripScopeCondition(scope))
+    .where(recent)
     .orderBy(desc(manifests.createdAt), desc(manifests.id))
   const parties = new Map<string, Party>()
   for (const row of rows) {
@@ -843,8 +849,7 @@ export async function listSuggestions(scope: CompanyScope): Promise<TripSuggesti
       .selectDistinct({ packingType: manifestCargoItems.packingType })
       .from(manifestCargoItems)
       .innerJoin(manifests, eq(manifestCargoItems.manifestId, manifests.id))
-      .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-      .where(and(tripScopeCondition(scope), isNotNull(manifestCargoItems.packingType)))
+      .where(and(recent, isNotNull(manifestCargoItems.packingType)))
   ).flatMap((row) => (row.packingType ? [row.packingType] : []))
   return { parties: [...parties.values()].slice(0, MAX_SUGGESTED_PARTIES), packingTypes }
 }

@@ -10,7 +10,6 @@ import {
   rolePermissions,
   roles,
   users,
-  vehicles,
   type User
 } from '../db'
 import type { AuthUser, BranchSummary, CompanyProfile } from '@masarat/shared/auth'
@@ -106,13 +105,13 @@ export function scopeOf(account: AuthUser): CompanyScope {
   return { companyId: account.company.id, branchId }
 }
 
-// The trips a scope may see, as a condition on a query that joins manifests with their vehicles:
-// the company's vehicles, and the member's branch when they're branch-scoped. Null (the
-// government) sees every trip.
+// The trips a scope may see, as a condition on manifests alone: the company's trips, and the
+// member's branch when they're branch-scoped (both served by an index with the departure, so a
+// list's count reads only that company's or branch's rows). Null (the government) sees every trip.
 export function tripScopeCondition(scope: TripScope): SQL | undefined {
   if (scope === null) return undefined
   return and(
-    eq(vehicles.companyId, scope.companyId),
+    eq(manifests.companyId, scope.companyId),
     scope.branchId === null ? undefined : eq(manifests.branchId, scope.branchId)
   )
 }

@@ -212,8 +212,13 @@ describe('export', () => {
       'csv',
       'csv'
     ])
+    expect(result.data.download.name.endsWith('.zip')).toBe(true)
     expect(result.data.rows.trips).toBe(1)
     expect(result.data.rows.taxLines).toBe(4)
+    // The files are on disk until the download has been sent
+    expect(await Bun.file(result.data.download.path).exists()).toBe(true)
+    result.data.cleanup()
+    expect(await Bun.file(result.data.download.path).exists()).toBe(false)
   })
 })
 

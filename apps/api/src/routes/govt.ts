@@ -1,7 +1,6 @@
 // The government portal: reference data, the dashboard, the search across every company, any trip
 // read-only with its attachments, the tax settings, the data export, and the demo regenerate
 import { Hono } from 'hono'
-import { zipSync, strToU8 } from 'fflate'
 import { isAnalyticsFilters, isDashboardView } from '@masarat/shared/analytics'
 import { isExportOptions, type ExportInput } from '@masarat/shared/exports'
 import type { GovtSearchInput } from '@masarat/shared/billing'
@@ -29,7 +28,7 @@ const EXPORT_TYPES: Record<string, string> = {
   zip: 'application/zip'
 }
 
-const download = (name: string, body: Uint8Array | string, rows: object): Response =>
+const download = (name: string, body: ReadableStream<Uint8Array>, rows: object): Response =>
   new Response(body, {
     headers: {
       'Content-Type': EXPORT_TYPES[name.split('.').pop() ?? ''] ?? 'application/octet-stream',
@@ -97,20 +96,21 @@ export const govtRoutes = new Hono<AppEnv>()
     const input = (await readJson(c)) as unknown as ChargeInput
     return send(c, await updateCharge(c.get('user')!.id, id, input))
   })
-  // One file as is; several as one ZIP
+  // One file as is; several as one ZIP. Built on disk first (services/exports.ts), then streamed
+  // from there; the folder goes once the download is sent.
   .post('/exports', requirePermission('govt.exports'), async (c) => {
     const input = (await readJson(c)) as unknown as ExportInput
     if (!isAnalyticsFilters(input?.filters) || !isExportOptions(input)) {
       return fail(c, 'missing_fields')
     }
+    liftRequestTimeout(c)
     const result = await exportData(input)
-    if (!result.ok) return send(c, result)
-    const { files, archiveName, rows } = result.data
-    const bytes = (content: Buffer | string): Uint8Array =>
-      typeof content === 'string' ? strToU8(content) : new Uint8Array(content)
-    if (files.length === 1) return download(files[0].name, bytes(files[0].content), rows)
-    const zip = zipSync(Object.fromEntries(files.map((f) => [f.name, bytes(f.content)])))
-    return download(archiveName, zip, rows)
+    if (!result.ok) return c.json(result, 413)
+    const { download: file, rows, cleanup } = result.data
+    const body = Bun.file(file.path)
+      .stream()
+      .pipeThrough(new TransformStream<Uint8Array, Uint8Array>({ flush: cleanup }))
+    return download(file.name, body, rows)
   })
   // Demo only
   .post('/demo/regenerate', async (c) => {

@@ -4,6 +4,7 @@ import { LoaderCircle } from 'lucide-react'
 import type { AnalyticsFilters } from '@masarat/shared/analytics'
 import {
   DATE_BASES,
+  EXCEL_MAX_ROWS,
   EXPORT_COLUMNS,
   EXPORT_FORMATS,
   EXPORT_DATASETS,
@@ -60,6 +61,7 @@ function DataExportFields({
   const [error, setError] = useState<FleetErrorCode | null>(null)
   // Rows per dataset of the last file downloaded
   const [result, setResult] = useState<ExportRows | null>(null)
+  const [tooLarge, setTooLarge] = useState<ExportRows | null>(null)
 
   // Everything the API writes into the files, in Arabic
   const labels = useMemo<ExportLabels>(() => {
@@ -100,6 +102,7 @@ function DataExportFields({
   const runExport = async (): Promise<void> => {
     setPending(true)
     setError(null)
+    setTooLarge(null)
     setResult(null)
     try {
       const response = await api.govt.exportData({
@@ -113,7 +116,11 @@ function DataExportFields({
         labels
       })
       if (!response.ok) {
-        if (mounted.current) setError(response.error)
+        if (mounted.current) {
+          setError(response.error)
+          // Which datasets are over Excel's limit, and by how much
+          setTooLarge('rows' in response ? response.rows : null)
+        }
         return
       }
       // Saved even if the dialog was closed meanwhile
@@ -228,7 +235,25 @@ function DataExportFields({
         </p>
       </fieldset>
 
-      {error && <FormAlert message={t(`fleet.errors.${error}`)} />}
+      {error && (
+        <FormAlert
+          message={
+            error === 'export_too_large_for_excel' && tooLarge
+              ? t('fleet.errors.export_too_large_for_excel', {
+                  rows: format.list(
+                    EXPORT_DATASETS.filter((d) => (tooLarge[d] ?? 0) > EXCEL_MAX_ROWS).map((d) =>
+                      t('govt.export.rowCount', {
+                        dataset: t(`govt.export.datasets.${d}`),
+                        count: format.number(tooLarge[d] ?? 0)
+                      })
+                    )
+                  ),
+                  limit: format.number(EXCEL_MAX_ROWS)
+                })
+              : t(`fleet.errors.${error}`)
+          }
+        />
+      )}
       {result && (
         <FormAlert
           tone="success"

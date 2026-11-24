@@ -123,6 +123,10 @@ export interface ExportInput {
   labels: ExportLabels
 }
 
+// The most data rows an Excel sheet holds (1,048,576 rows, one of them the header). An export that
+// would pass it in any dataset is refused for Excel; CSV has no limit.
+export const EXCEL_MAX_ROWS = 1_048_575
+
 // Rows written per dataset
 export type ExportRows = Partial<Record<ExportDataset, number>>
 

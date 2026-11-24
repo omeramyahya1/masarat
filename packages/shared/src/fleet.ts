@@ -407,6 +407,10 @@ export type FleetErrorCode =
   | 'forbidden'
   // The account must replace its temporary password first
   | 'password_change_required'
+  // A query ran past the server's time limit (narrow the search or the period)
+  | 'query_timeout'
+  // A dataset has more rows than an Excel sheet holds (choose CSV or a shorter period)
+  | 'export_too_large_for_excel'
   | 'unknown'
 
 export type FleetResult<T> = { ok: true; data: T } | { ok: false; error: FleetErrorCode }

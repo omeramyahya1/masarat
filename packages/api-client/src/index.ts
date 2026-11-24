@@ -151,7 +151,13 @@ export interface GovtAPI {
   documentFile: (documentId: number) => Promise<FleetResult<DownloadedFile>>
   // Raw data (trips, bills, cargo items, tax lines): one Excel or CSV file, or a ZIP of several,
   // with the rows written per dataset
-  exportData: (input: ExportInput) => Promise<FleetResult<DownloadedFile & { rows: ExportRows }>>
+  // Refused with the counts when a dataset has more rows than an Excel sheet holds
+  exportData: (
+    input: ExportInput
+  ) => Promise<
+    | FleetResult<DownloadedFile & { rows: ExportRows }>
+    | { ok: false; error: 'export_too_large_for_excel'; rows: ExportRows }
+  >
   // The validity margin and average speeds (government admins)
   settings: () => Promise<FleetResult<SystemSettings>>
   updateSettings: (input: SystemSettings) => Promise<FleetResult<SystemSettings>>

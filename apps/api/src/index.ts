@@ -4,6 +4,7 @@ import { app } from './app'
 import { config } from './config'
 import { log } from './log'
 import { clearStaging, removeOrphanFolders } from './services/documents'
+import { clearStaleExports } from './services/exports'
 import { ensureDemoData } from './services/demoData'
 import { assertPricingAllowed } from './services/pricing'
 import { purgeExpired } from './services/sessions'
@@ -21,6 +22,8 @@ try {
 // Uploads staged for trips that were never saved, and folders of deleted trips, don't outlive a
 // restart. The demo companies are seeded only in demo mode.
 clearStaging()
+// Exports half-built when the API stopped
+clearStaleExports(0)
 await removeOrphanFolders()
 await purgeExpired()
 setInterval(

@@ -1,9 +1,10 @@
 // The government portal's routes: access, dashboard, paged search, read-only trips and their
 // files, taxes and fees, the data export (one file or a ZIP), and the demo regenerate
 import { beforeAll, describe, expect, test } from 'bun:test'
-import { unzipSync } from 'fflate'
+import { strFromU8, unzipSync } from 'fflate'
 import { ensureDemoData } from '../src/services/demoData'
 import { getDashboard } from '../src/services/dashboard'
+import { exportLimits } from '../src/services/exports'
 import { BREAKDOWNS } from '@masarat/shared/analytics'
 import { getDb, payments, tripDocuments } from '../src/db'
 import { eq, sql } from 'drizzle-orm'
@@ -219,6 +220,58 @@ describe('export', () => {
     expect(names).toHaveLength(3)
     expect(names.filter((n) => n.endsWith('.csv'))).toHaveLength(2)
     expect(names.filter((n) => n.endsWith('.xlsx'))).toHaveLength(1)
+  })
+
+  test('a long export is read in batches, every trip once, in departure order', async () => {
+    const all = await govt.call('POST', '/govt/exports', {
+      ...input,
+      datasets: ['trips', 'taxLines'],
+      formats: ['csv']
+    })
+    const before = exportLimits.batch
+    exportLimits.batch = 7
+    try {
+      const batched = await govt.call('POST', '/govt/exports', {
+        ...input,
+        datasets: ['trips', 'taxLines'],
+        formats: ['csv']
+      })
+      const files = (body: ArrayBuffer): Record<string, string> =>
+        Object.fromEntries(
+          Object.entries(unzipSync(new Uint8Array(body))).map(([name, bytes]) => [
+            name,
+            strFromU8(bytes)
+          ])
+        )
+      // The same files, byte for byte, whatever the batch size
+      expect(files(batched.body)).toEqual(files(all.body))
+      const trips = Object.entries(files(batched.body)).find(([n]) => n.includes('-trips-'))![1]
+      const ids = trips
+        .trim()
+        .split('\r\n')
+        .slice(1)
+        .map((line) => Number(line.split(',')[0]))
+      expect(ids.length).toBeGreaterThan(7 * 3)
+      expect(new Set(ids).size).toBe(ids.length)
+      expect(JSON.parse(batched.headers.get('x-export-rows') ?? '{}').trips).toBe(ids.length)
+    } finally {
+      exportLimits.batch = before
+    }
+  })
+
+  test('an Excel sheet past its row limit is refused with the counts, CSV is not', async () => {
+    const before = exportLimits.excelRows
+    exportLimits.excelRows = 5
+    try {
+      const excel = await govt.call('POST', '/govt/exports', { ...input, formats: ['xlsx'] })
+      expect(excel.status).toBe(413)
+      expect(excel.body.error).toBe('export_too_large_for_excel')
+      expect(excel.body.rows.trips).toBeGreaterThan(5)
+      const csv = await govt.call('POST', '/govt/exports', { ...input, formats: ['csv'] })
+      expect(csv.status).toBe(200)
+    } finally {
+      exportLimits.excelRows = before
+    }
   })
 
   test('malformed options are refused', async () => {

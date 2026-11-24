@@ -203,6 +203,7 @@ All from the repo root:
 - `bun run --filter @masarat/api user:create-admin <username> <phone> "<full name>"`: a government admin, for a new deployment
 - `bun run dev:demo`: the Electron demo. Run `bun install` in `apps/desktop-demo` first, since it isn't a workspace.
 - `bun run typecheck`, `bun run test` (API), `bun run build` (the three web apps), `bun run lint`, `bun run format`
+- **Load test** (`loadtest/`, see its README): `loadtest/stack.sh` runs a separate Postgres (port 5434) and the API (port 3100) pinned to set CPUs, `bun run --filter @masarat/api load:seed` fills it with national-scale data (only a database named `*load*`), and `loadtest/run.sh` runs the k6 scenarios at a server size and load. `DB_POOL_MAX` sets the API's Postgres pool (default 10).
 
 ## Releasing
 

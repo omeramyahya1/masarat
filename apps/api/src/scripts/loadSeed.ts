@@ -16,9 +16,10 @@ import { parseArgs } from 'util'
 import { BUILTIN_ROLES } from '@masarat/shared/permissions'
 import { PLATE_CODES } from '@masarat/shared/plate'
 import { config } from '../config'
-import { closeDb } from '../db'
+import { closeDb, openUnlimitedDb } from '../db'
 import { hashPassword } from '../services/auth'
 import { ensureDemoData } from '../services/demoData'
+import { rebuildDailyRevenue } from '../services/dailyRevenue'
 
 const { values: args } = parseArgs({
   args: process.argv.slice(2),
@@ -432,6 +433,11 @@ const worker = async (): Promise<void> => {
   }
 }
 await Promise.all(Array.from({ length: WORKERS }, worker))
+
+step('Rebuilding the daily revenue summary')
+const summary = openUnlimitedDb()
+await rebuildDailyRevenue(summary.db)
+await summary.close()
 
 step('Analyzing')
 await sql.unsafe(

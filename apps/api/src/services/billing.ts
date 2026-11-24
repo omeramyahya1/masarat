@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, ne } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 // The Node build: the package's root export has no condition TypeScript's bundler resolution picks
 import bwipjs from 'bwip-js/node'
@@ -27,6 +27,7 @@ import { tripScopeCondition, type CompanyScope, type TripScope } from './access'
 import { listCharges } from './charges'
 import { pricing } from './pricing'
 import { getSettings } from './settings'
+import { addPaidTrip } from './dailyRevenue'
 import { findOwnedDriver } from './drivers'
 import { esali } from './esali'
 import { toTripRecord, tripColumns, writeCharges, type TripRow } from './trips'
@@ -248,7 +249,9 @@ export async function refreshBillStatus(
       const paidAt = bill.paidAt ?? new Date()
       const issuedAt = new Date()
       await getDb().transaction(async (tx) => {
-        await tx
+        // Only one refresh records the payment, even when two run at once: the other finds it
+        // paid already and changes nothing (the summary must count it once)
+        const recorded = await tx
           .update(payments)
           .set({
             status: 'paid',
@@ -256,7 +259,10 @@ export async function refreshBillStatus(
             paymentRef: bill.paymentRef ?? null,
             bank: 'E-Sali'
           })
-          .where(eq(payments.id, payment.id))
+          .where(and(eq(payments.id, payment.id), ne(payments.status, 'paid')))
+          .returning({ id: payments.id })
+        if (recorded.length === 0) return
+        await addPaidTrip(tx, trip.id)
         await tx
           .insert(certificates)
           .values({

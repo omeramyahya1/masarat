@@ -12,24 +12,11 @@ import { PASSENGERS_SLICE } from '@masarat/shared/dashboard'
 
 type Executor = Pick<AppDatabase, 'execute'>
 
-// One statement: the rows for the paid payments matching `where` (on payments as p), added to
-// what's there. Days are Sudan days (the session's time zone). A trip's taxes are split across its
-// cargo items in proportion to their cost, as the cargo card always did; a trip without items
-// (passengers, or from before items existed) counts under its own cargo type or as passengers.
-export const summarySql = (where: SQL): SQL => sql`
-WITH paid AS (
-  SELECT p.manifest_id, p.amount, p.paid_at::date AS day, m.category, m.cargo_type,
-         m.origin_city_id, m.destination_city_id, m.company_id, m.trip_kind, v.vehicle_type,
-         os.name AS origin_state, ds.name AS destination_state
-  FROM payments p
-  JOIN manifests m ON m.id = p.manifest_id
-  JOIN vehicles v ON v.id = m.vehicle_id
-  JOIN cities oc ON oc.id = m.origin_city_id
-  JOIN states os ON os.id = oc.state_id
-  JOIN cities dc ON dc.id = m.destination_city_id
-  JOIN states ds ON ds.id = dc.state_id
-  WHERE p.status = 'paid' AND p.paid_at IS NOT NULL AND ${where}
-),
+// After a `paid` CTE (manifest_id, amount, day, cargo_type): each paid trip's taxes split across
+// its cargo items in proportion to their cost, as `cargo_shares` (day, key, revenue, manifest_id).
+// A trip without items (passengers, or from before items existed) counts under its own cargo type,
+// or as passengers. The dashboard's live query and the summary both use it, so they agree.
+export const cargoSharesSql = sql`
 items AS (
   SELECT i.manifest_id, i.cargo_type, i.cost
   FROM manifest_cargo_items i JOIN paid ON paid.manifest_id = i.manifest_id
@@ -48,7 +35,25 @@ cargo_shares AS (
   SELECT paid.day, coalesce(paid.cargo_type, ${PASSENGERS_SLICE}), paid.amount::float8, paid.manifest_id
   FROM paid LEFT JOIN item_cost ON item_cost.manifest_id = paid.manifest_id
   WHERE coalesce(item_cost.cost, 0) <= 0
+)`
+
+// One statement: the rows for the paid payments matching `where` (on payments as p), added to
+// what's there. Days are Sudan days (the session's time zone).
+export const summarySql = (where: SQL): SQL => sql`
+WITH paid AS (
+  SELECT p.manifest_id, p.amount, p.paid_at::date AS day, m.category, m.cargo_type,
+         m.origin_city_id, m.destination_city_id, m.company_id, m.trip_kind, v.vehicle_type,
+         os.name AS origin_state, ds.name AS destination_state
+  FROM payments p
+  JOIN manifests m ON m.id = p.manifest_id
+  JOIN vehicles v ON v.id = m.vehicle_id
+  JOIN cities oc ON oc.id = m.origin_city_id
+  JOIN states os ON os.id = oc.state_id
+  JOIN cities dc ON dc.id = m.destination_city_id
+  JOIN states ds ON ds.id = dc.state_id
+  WHERE p.status = 'paid' AND p.paid_at IS NOT NULL AND ${where}
 ),
+${cargoSharesSql},
 rows AS (
   SELECT day, 'total' AS dimension, '' AS key, NULL::text AS name, NULL::text AS name_ar,
          sum(amount)::float8 AS revenue, count(*)::int AS trips
@@ -102,4 +107,10 @@ export async function rebuildDailyRevenue(db: AppDatabase = getDb()): Promise<vo
     await tx.execute(sql`DELETE FROM daily_revenue`)
     await tx.execute(summarySql(sql`true`))
   })
+}
+
+// A local (Sudan) date as YYYY-MM-DD; the API runs on Sudan time (config.ts)
+export function dayOf(date: Date): string {
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }

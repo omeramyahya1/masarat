@@ -179,6 +179,10 @@ describe('government', () => {
     expect(data.byTax.reduce((sum, line) => sum + line.revenue, 0)).toBe(data.kpis.revenue)
     expect(data.recentBills.length).toBeGreaterThan(0)
     expect(trip).toBeDefined()
+    // Refreshing a paid trip again doesn't count it twice in the daily summary
+    for (const t of paid) await refreshBillStatus(scope, t.id)
+    const again = await getDashboard({ range: { preset: '30d' } }, DEFAULT_VIEW)
+    expect(again.kpis.revenue).toBe(data.kpis.revenue)
   })
 
   test('search ignores case and finds plates in Arabic digits', async () => {

@@ -3,6 +3,8 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { unzipSync } from 'fflate'
 import { ensureDemoData } from '../src/services/demoData'
+import { getDashboard } from '../src/services/dashboard'
+import { BREAKDOWNS } from '@masarat/shared/analytics'
 import { getDb, payments, tripDocuments } from '../src/db'
 import { eq, sql } from 'drizzle-orm'
 import { resetData, signedIn, type Browser } from './helpers'
@@ -66,6 +68,44 @@ describe('dashboard', () => {
     expect(result.body.data.kpis.revenue).toBe(row.sum)
     expect(result.body.data.kpis.revenue).toBeGreaterThan(0)
   })
+
+  test('the daily summary gives the same figures as the paid trips themselves', async () => {
+    const ranges = [
+      { preset: '7d' },
+      { preset: '30d' },
+      { preset: '90d' },
+      { preset: '12m' },
+      { preset: 'ytd' },
+      { preset: 'custom', from: '2026-01-10', to: '2026-03-20' }
+    ] as const
+    for (const range of ranges) {
+      for (const breakdown of BREAKDOWNS) {
+        const view = { bucket: null, breakdown, sort: 'revenue' as const }
+        const fromSummary = await getDashboard({ range }, view)
+        const live = await getDashboard({ range }, view, 'live')
+        const label = `${range.preset} by ${breakdown}`
+        expect(fromSummary.kpis, label).toEqual(live.kpis)
+        expect(fromSummary.revenueSeries, label).toEqual(live.revenueSeries)
+        expect(fromSummary.byTax, label).toEqual(live.byTax)
+        // Cargo shares are fractions summed per day or all at once: equal once rounded, give or
+        // take the rounding of a half
+        const close = (a: { revenue: number; trips: number }[], b: typeof a): void => {
+          expect(a.length, label).toBe(b.length)
+          a.forEach((row, i) => {
+            expect(Math.abs(row.revenue - b[i].revenue), label).toBeLessThanOrEqual(1)
+            expect(row.trips, label).toBe(b[i].trips)
+          })
+        }
+        close(fromSummary.byCargo, live.byCargo)
+        const byKey = <T extends { key: string }>(rows: T[]): T[] =>
+          [...rows].sort((a, b) => a.key.localeCompare(b.key))
+        close(byKey(fromSummary.breakdown), byKey(live.breakdown))
+        expect(byKey(fromSummary.breakdown).map((r) => [r.key, r.name, r.originCityId])).toEqual(
+          byKey(live.breakdown).map((r) => [r.key, r.name, r.originCityId])
+        )
+      }
+    }
+  }, 120_000)
 
   test('bad filters are refused', async () => {
     expect((await govt.call('POST', '/govt/dashboard', { filters: {}, view: {} })).status).toBe(400)

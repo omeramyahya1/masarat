@@ -1,241 +1,367 @@
-// Government dashboard: totals and breakdowns across all transport companies, for the filters chosen
-import { and, count, desc, eq, gte, lt, sql, sum, type SQL } from 'drizzle-orm'
-import { alias } from 'drizzle-orm/pg-core'
+// Government dashboard: totals and breakdowns across all transport companies, for the filters
+// chosen. Revenue figures (the total, the previous period, the chart, by cargo type, by tax and
+// fee, the breakdown) come from the daily summary (services/dailyRevenue.ts) when no trip filter
+// is set, and from grouped SQL over the paid trips otherwise; Postgres does the adding up either
+// way. The other figures are indexed counts.
+import { and, count, desc, eq, gte, lt, ne, sql, sum, type SQL } from 'drizzle-orm'
+import { type PgSelect } from 'drizzle-orm/pg-core'
 import {
   certificates,
-  cities,
   companies,
+  dailyRevenue,
   getDb,
-  manifestCargoItems,
   manifestCharges,
   manifests,
   payments,
   states,
-  vehicles
+  vehicles,
+  type RevenueDimension
 } from '../db'
-import { MANIFEST_STATUSES, type CargoType, type ManifestStatus } from '@masarat/shared/fleet'
+import { MANIFEST_STATUSES, type ManifestStatus } from '@masarat/shared/fleet'
 import {
   bucketStart,
   nextBucket,
+  parseDay,
   resolveBucket,
   resolveRange,
   type AnalyticsFilters,
+  type Breakdown,
   type BucketSize,
   type DashboardView
 } from '@masarat/shared/analytics'
 import {
-  PASSENGERS_SLICE,
   type BreakdownRow,
   type CargoSlice,
   type DashboardData,
-  type RevenuePoint
+  type RevenuePoint,
+  type TaxSlice
 } from '@masarat/shared/dashboard'
-import { inFilteredTrips } from './analyticsQuery'
+import { destinationCity, inFilteredTrips, originCity, tripConditions } from './analyticsQuery'
+import { cargoSharesSql, dayOf } from './dailyRevenue'
 
 const RECENT_BILLS = 10
 
-// Paid payments of filtered trips, paid in [from, to)
-function paidIn(f: AnalyticsFilters, from: Date, to: Date): SQL | undefined {
-  return and(
-    eq(payments.status, 'paid'),
-    gte(payments.paidAt, from),
-    lt(payments.paidAt, to),
-    inFilteredTrips(payments.manifestId, f)
-  )
-}
-
-// Empty buckets covering [from, to), then the paid amounts dropped into them
-async function revenueSeries(
-  paid: SQL | undefined,
-  from: Date,
-  to: Date,
-  bucket: BucketSize
-): Promise<RevenuePoint[]> {
-  const points: RevenuePoint[] = []
-  for (let at = bucketStart(from, bucket); at < to; at = nextBucket(at, bucket)) {
-    points.push({ start: at.getTime(), revenue: 0, trips: 0 })
-  }
-  const rows = await getDb()
-    .select({ paidAt: payments.paidAt, amount: payments.amount })
-    .from(payments)
-    .where(paid)
-  for (const { paidAt, amount } of rows) {
-    if (!paidAt || points.length === 0) continue
-    const time = paidAt.getTime()
-    // Last bucket starting at or before the payment
-    let index = points.length - 1
-    while (index > 0 && points[index].start > time) index--
-    points[index].revenue += amount
-    points[index].trips += 1
-  }
-  return points
-}
-
 const total = (value: string | number | null): number => Number(value ?? 0)
+const revenueSum = sql<number>`sum(${payments.amount})`.mapWith(Number)
 
-// Each paid trip's taxes split across its cargo items in proportion to their cost (a trip can
-// mix cargo types). Trips from before cargo items existed count under their own cargo type, and
-// passenger trips as one slice of their own.
-async function revenueByCargo(paidInPeriod: SQL | undefined): Promise<CargoSlice[]> {
+// The revenue figures, however they're computed
+interface RevenueFigures {
+  revenue: (from: Date, to: Date) => Promise<number>
+  series: (from: Date, to: Date, bucket: BucketSize) => Promise<Map<number, RevenuePoint>>
+  byCargo: (from: Date, to: Date) => Promise<CargoSlice[]>
+  byTax: (from: Date, to: Date) => Promise<TaxSlice[]>
+  breakdown: (from: Date, to: Date, by: Breakdown) => Promise<BreakdownRow[]>
+}
+
+// Revenue figures from grouped SQL over the paid trips matching the filters
+function liveFigures(f: AnalyticsFilters): RevenueFigures {
   const db = getDb()
-  const paid = await db
-    .select({
-      manifestId: payments.manifestId,
-      amount: payments.amount,
-      cargoType: manifests.cargoType
-    })
-    .from(payments)
-    .innerJoin(manifests, eq(payments.manifestId, manifests.id))
-    .where(paidInPeriod)
-  const items = new Map<number, { cargoType: CargoType; cost: number }[]>()
-  for (const item of await db
-    .select({
-      manifestId: manifestCargoItems.manifestId,
-      cargoType: manifestCargoItems.cargoType,
-      cost: manifestCargoItems.cost
-    })
-    .from(manifestCargoItems)
-    .innerJoin(payments, eq(payments.manifestId, manifestCargoItems.manifestId))
-    .where(paidInPeriod)) {
-    const list = items.get(item.manifestId) ?? []
-    list.push(item)
-    items.set(item.manifestId, list)
+  // Paid payments with their trip, vehicle and cities, paid in [from, to) and matching the
+  // filters. Every figure starts from here, so the filters apply by the trip's primary key.
+  // `more` adds joins that refer to those tables (a city's state).
+  const paid = <T extends PgSelect>(query: T, from: Date, to: Date, more?: (q: T) => T): T => {
+    const joined = query
+      .innerJoin(manifests, eq(payments.manifestId, manifests.id))
+      .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
+      .innerJoin(originCity, eq(manifests.originCityId, originCity.id))
+      .innerJoin(
+        destinationCity,
+        eq(manifests.destinationCityId, destinationCity.id)
+      ) as unknown as T
+    return (more ? more(joined) : joined).where(
+      and(
+        eq(payments.status, 'paid'),
+        gte(payments.paidAt, from),
+        lt(payments.paidAt, to),
+        tripConditions(f)
+      )
+    ) as unknown as T
   }
 
-  type Key = CargoSlice['cargoType']
-  const slices = new Map<Key, { revenue: number; trips: Set<number> }>()
-  const add = (cargoType: Key, revenue: number, manifestId: number): void => {
-    const slice = slices.get(cargoType) ?? { revenue: 0, trips: new Set<number>() }
-    slice.revenue += revenue
-    slice.trips.add(manifestId)
-    slices.set(cargoType, slice)
-  }
-  for (const trip of paid) {
-    const tripItems = items.get(trip.manifestId) ?? []
-    const cost = tripItems.reduce((sum, item) => sum + item.cost, 0)
-    if (cost <= 0) {
-      add(trip.cargoType ?? PASSENGERS_SLICE, trip.amount, trip.manifestId)
-      continue
+  return {
+    async revenue(from, to) {
+      const [row] = await paid(
+        db
+          .select({ value: sum(payments.amount) })
+          .from(payments)
+          .$dynamic(),
+        from,
+        to
+      )
+      return total(row?.value ?? null)
+    },
+
+    async series(from, to, bucket) {
+      // Bucket starts in Sudan time (the session's zone); weeks start on Sunday
+      const start =
+        bucket === 'week'
+          ? sql`date_trunc('week', ${payments.paidAt} + interval '1 day') - interval '1 day'`
+          : // day or month, from the list (never user text): written into the SQL so the GROUP BY
+            // matches the SELECT
+            sql`date_trunc(${sql.raw(`'${bucket === 'month' ? 'month' : 'day'}'`)}, ${payments.paidAt})`
+      const rows = await paid(
+        db
+          .select({
+            start: sql<Date>`${start}`.mapWith((v: string | Date) => new Date(v)),
+            revenue: revenueSum,
+            trips: count()
+          })
+          .from(payments)
+          .$dynamic(),
+        from,
+        to
+      ).groupBy(start)
+      return new Map(
+        rows.map((r) => [
+          r.start.getTime(),
+          { start: r.start.getTime(), revenue: r.revenue, trips: r.trips }
+        ])
+      )
+    },
+
+    async byCargo(from, to) {
+      const paidTrips = paid(
+        db
+          .select({
+            manifest_id: payments.manifestId,
+            amount: payments.amount,
+            day: sql`${payments.paidAt}::date`.as('day'),
+            cargo_type: manifests.cargoType
+          })
+          .from(payments)
+          .$dynamic(),
+        from,
+        to
+      )
+      const rows = await db.execute<{ key: string; revenue: number; trips: number }>(sql`
+        WITH paid AS (${paidTrips}), ${cargoSharesSql}
+        SELECT key, sum(revenue)::float8 AS revenue, count(DISTINCT manifest_id)::int AS trips
+        FROM cargo_shares GROUP BY key`)
+      return cargoSlices(rows)
+    },
+
+    async byTax(from, to) {
+      const taxRevenue = sql<number>`sum(${manifestCharges.amount})`.mapWith(Number)
+      // A charge renamed since is shown under its latest name on a bill
+      return paid(
+        db
+          .select({
+            code: manifestCharges.code,
+            name: sql<string>`(array_agg(${manifestCharges.name} order by ${manifestCharges.id} desc))[1]`,
+            nameAr: sql<string>`(array_agg(${manifestCharges.nameAr} order by ${manifestCharges.id} desc))[1]`,
+            revenue: taxRevenue
+          })
+          .from(payments)
+          .innerJoin(manifestCharges, eq(manifestCharges.manifestId, payments.manifestId))
+          .$dynamic(),
+        from,
+        to
+      )
+        .groupBy(manifestCharges.code)
+        .orderBy(desc(taxRevenue))
+    },
+
+    async breakdown(from, to, by) {
+      const grouped = async (key: SQL, join?: 'originState' | 'destinationState') => {
+        const query = db
+          .select({ key: sql<string>`${key}`, revenue: revenueSum, trips: count() })
+          .from(payments)
+          .$dynamic()
+        const city = join === 'originState' ? originCity : destinationCity
+        return paid(query, from, to, (q) =>
+          join ? q.innerJoin(states, eq(city.stateId, states.id)) : q
+        )
+          .groupBy(key)
+          .orderBy(desc(revenueSum))
+      }
+      switch (by) {
+        case 'route':
+          return withRouteCities(
+            await grouped(
+              sql`${manifests.originCityId}::text || '-' || ${manifests.destinationCityId}::text`
+            )
+          )
+        case 'originState':
+          return grouped(sql`${states.name}`, 'originState')
+        case 'destinationState':
+          return grouped(sql`${states.name}`, 'destinationState')
+        case 'cargoType':
+          return (await this.byCargo(from, to)).map((c) => ({
+            key: c.cargoType,
+            revenue: c.revenue,
+            trips: c.trips
+          }))
+        case 'vehicleType':
+          return grouped(sql`${vehicles.vehicleType}`)
+        case 'tripKind':
+          return grouped(sql`${manifests.tripKind}`)
+        case 'category':
+          return grouped(sql`${manifests.category}`)
+        case 'company':
+          return withCompanyNames(await grouped(sql`${manifests.companyId}::text`))
+      }
     }
-    for (const item of tripItems)
-      add(item.cargoType, (trip.amount * item.cost) / cost, trip.manifestId)
   }
-  return [...slices]
-    .map(([cargoType, slice]) => ({
-      cargoType,
-      revenue: Math.round(slice.revenue),
-      trips: slice.trips.size
+}
+
+// Revenue figures from the daily summary. A range covers whole Sudan days, except that a preset
+// runs up to now (today so far is in the summary) and the previous period of a preset starts
+// mid-day: that first partial day is added from the payments themselves.
+function summaryFigures(): RevenueFigures {
+  const db = getDb()
+  const live = liveFigures({ range: { preset: '30d' } })
+  // Whole days from the day `from` falls on to the day before `to` ends ([from, to) as days)
+  const days = (from: Date, to: Date) => {
+    const first = dayOf(from)
+    const last = dayOf(new Date(to.getTime() - 1))
+    return and(gte(dailyRevenue.day, first), sql`${dailyRevenue.day} <= ${last}`)
+  }
+  const dimension = (name: RevenueDimension) => eq(dailyRevenue.dimension, name)
+  // Where `from` isn't midnight, the part of its day before `from` must be left out: it is in the
+  // summary's row for that day. Split it off and compute it live.
+  const split = (from: Date): { midnight: Date; partial: boolean } => {
+    const day = parseDay(dayOf(from))!
+    return { midnight: day, partial: day.getTime() !== from.getTime() }
+  }
+  const grouped = async (name: RevenueDimension, from: Date, to: Date) =>
+    db
+      .select({
+        key: dailyRevenue.key,
+        revenue: sql<number>`sum(${dailyRevenue.revenue})`.mapWith(Number),
+        trips: sql<number>`sum(${dailyRevenue.trips})`.mapWith(Number),
+        name: sql<
+          string | null
+        >`(array_agg(${dailyRevenue.name} order by ${dailyRevenue.day} desc))[1]`,
+        nameAr: sql<
+          string | null
+        >`(array_agg(${dailyRevenue.nameAr} order by ${dailyRevenue.day} desc))[1]`
+      })
+      .from(dailyRevenue)
+      .where(and(dimension(name), days(from, to)))
+      .groupBy(dailyRevenue.key)
+      .orderBy(desc(sql`sum(${dailyRevenue.revenue})`))
+  const rows = (list: { key: string; revenue: number; trips: number }[]): BreakdownRow[] =>
+    list.map((r) => ({ key: r.key, revenue: Math.round(r.revenue), trips: r.trips }))
+
+  return {
+    async revenue(from, to) {
+      const { midnight, partial } = split(from)
+      if (partial) {
+        // The first day's row covers it from midnight: take off what came before `from`
+        const before = await live.revenue(midnight, from)
+        const [row] = await db
+          .select({ value: sql<number>`coalesce(sum(${dailyRevenue.revenue}), 0)`.mapWith(Number) })
+          .from(dailyRevenue)
+          .where(and(dimension('total'), days(midnight, to)))
+        return Math.round((row?.value ?? 0) - before)
+      }
+      const [row] = await db
+        .select({ value: sql<number>`coalesce(sum(${dailyRevenue.revenue}), 0)`.mapWith(Number) })
+        .from(dailyRevenue)
+        .where(and(dimension('total'), days(from, to)))
+      return Math.round(row?.value ?? 0)
+    },
+
+    async series(from, to, bucket) {
+      const perDay = await db
+        .select({ day: dailyRevenue.day, revenue: dailyRevenue.revenue, trips: dailyRevenue.trips })
+        .from(dailyRevenue)
+        .where(and(dimension('total'), days(from, to)))
+      const points = new Map<number, RevenuePoint>()
+      for (const row of perDay) {
+        const start = bucketStart(parseDay(row.day)!, bucket).getTime()
+        const point = points.get(start) ?? { start, revenue: 0, trips: 0 }
+        point.revenue += row.revenue
+        point.trips += row.trips
+        points.set(start, point)
+      }
+      for (const point of points.values()) point.revenue = Math.round(point.revenue)
+      return points
+    },
+
+    async byCargo(from, to) {
+      return cargoSlices(await grouped('cargo', from, to))
+    },
+
+    async byTax(from, to) {
+      return (await grouped('charge', from, to)).map((r) => ({
+        code: r.key,
+        name: r.name ?? r.key,
+        nameAr: r.nameAr ?? r.name ?? r.key,
+        revenue: Math.round(r.revenue)
+      }))
+    },
+
+    async breakdown(from, to, by) {
+      const of = async (name: RevenueDimension) => rows(await grouped(name, from, to))
+      switch (by) {
+        case 'route':
+          return withRouteCities(await of('route'))
+        case 'originState':
+          return of('origin_state')
+        case 'destinationState':
+          return of('destination_state')
+        case 'cargoType':
+          return of('cargo')
+        case 'vehicleType':
+          return of('vehicle_type')
+        case 'tripKind':
+          return of('trip_kind')
+        case 'category':
+          return of('category')
+        case 'company':
+          return withCompanyNames(await of('company'))
+      }
+    }
+  }
+}
+
+// Cargo slices by revenue, rounded at the end
+function cargoSlices(rows: { key: string; revenue: number; trips: number }[]): CargoSlice[] {
+  return rows
+    .map((r) => ({
+      cargoType: r.key as CargoSlice['cargoType'],
+      revenue: Math.round(Number(r.revenue)),
+      trips: Number(r.trips)
     }))
     .sort((a, b) => b.revenue - a.revenue)
 }
 
-// Revenue grouped by the breakdown's dimension, every group, by revenue
-async function breakdown(
-  view: DashboardView,
-  paid: SQL | undefined,
-  byCargo: CargoSlice[]
-): Promise<BreakdownRow[]> {
-  const db = getDb()
-  const revenue = sql<number>`sum(${payments.amount})`.mapWith(Number)
-  switch (view.breakdown) {
-    case 'route':
-      return (
-        await db
-          .select({
-            originCityId: manifests.originCityId,
-            destinationCityId: manifests.destinationCityId,
-            revenue,
-            trips: count()
-          })
-          .from(payments)
-          .innerJoin(manifests, eq(payments.manifestId, manifests.id))
-          .where(paid)
-          .groupBy(manifests.originCityId, manifests.destinationCityId)
-          .orderBy(desc(revenue))
-      ).map((r) => ({ key: `${r.originCityId}-${r.destinationCityId}`, ...r }))
-    case 'originState':
-    case 'destinationState': {
-      const city = alias(cities, 'breakdown_city')
-      const cityId =
-        view.breakdown === 'originState' ? manifests.originCityId : manifests.destinationCityId
-      return db
-        .select({ key: states.name, revenue, trips: count() })
-        .from(payments)
-        .innerJoin(manifests, eq(payments.manifestId, manifests.id))
-        .innerJoin(city, eq(cityId, city.id))
-        .innerJoin(states, eq(city.stateId, states.id))
-        .where(paid)
-        .groupBy(states.name)
-        .orderBy(desc(revenue))
-    }
-    // Split across each trip's items like the cargo card, so the two agree
-    case 'cargoType':
-      return byCargo.map((c) => ({ key: c.cargoType, revenue: c.revenue, trips: c.trips }))
-    case 'vehicleType':
-      return db
-        .select({ key: vehicles.vehicleType, revenue, trips: count() })
-        .from(payments)
-        .innerJoin(manifests, eq(payments.manifestId, manifests.id))
-        .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-        .where(paid)
-        .groupBy(vehicles.vehicleType)
-        .orderBy(desc(revenue))
-    case 'tripKind':
-      return db
-        .select({ key: manifests.tripKind, revenue, trips: count() })
-        .from(payments)
-        .innerJoin(manifests, eq(payments.manifestId, manifests.id))
-        .where(paid)
-        .groupBy(manifests.tripKind)
-        .orderBy(desc(revenue))
-    case 'category':
-      return db
-        .select({ key: manifests.category, revenue, trips: count() })
-        .from(payments)
-        .innerJoin(manifests, eq(payments.manifestId, manifests.id))
-        .where(paid)
-        .groupBy(manifests.category)
-        .orderBy(desc(revenue))
-    case 'company':
-      return (
-        await db
-          .select({ id: companies.id, name: companies.name, revenue, trips: count() })
-          .from(payments)
-          .innerJoin(manifests, eq(payments.manifestId, manifests.id))
-          .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-          .innerJoin(companies, eq(vehicles.companyId, companies.id))
-          .where(paid)
-          .groupBy(companies.id)
-          .orderBy(desc(revenue))
-      ).map((r) => ({
-        key: String(r.id),
-        name: r.name,
-        revenue: r.revenue,
-        trips: r.trips
-      }))
-  }
+// A route's key is "<origin id>-<destination id>"; the card shows the cities
+function withRouteCities(rows: BreakdownRow[]): BreakdownRow[] {
+  return rows.map((r) => {
+    const [origin, destination] = r.key.split('-').map(Number)
+    return { ...r, originCityId: origin, destinationCityId: destination }
+  })
+}
+
+// A company's key is its id; the card shows its name as it is now
+async function withCompanyNames(rows: BreakdownRow[]): Promise<BreakdownRow[]> {
+  const names = new Map(
+    (await getDb().select({ id: companies.id, name: companies.name }).from(companies)).map((c) => [
+      String(c.id),
+      c.name
+    ])
+  )
+  return rows.map((r) => ({ ...r, name: names.get(r.key) ?? r.key }))
 }
 
 export async function getDashboard(
   filters: AnalyticsFilters,
-  view: DashboardView
+  view: DashboardView,
+  // Tests compare the two; the API picks the summary whenever no trip filter is set
+  source: 'auto' | 'live' = 'auto'
 ): Promise<DashboardData> {
   const db = getDb()
   const now = new Date()
   const { from, to } = resolveRange(filters.range, now)
   const previousFrom = new Date(from.getTime() - (to.getTime() - from.getTime()))
   const bucket = resolveBucket(from, to, view.bucket)
-  // Trips matching the route / cargo / vehicle / company filters
+  const figures =
+    source === 'auto' && !tripConditions(filters) ? summaryFigures() : liveFigures(filters)
+  // Trips matching the route / cargo / vehicle / company filters, for the non-revenue counts
   const inTrips = (column: Parameters<typeof inFilteredTrips>[0]): SQL | undefined =>
     inFilteredTrips(column, filters)
-
-  const paidBetween = async (start: Date, end: Date): Promise<number> => {
-    const [row] = await db
-      .select({ value: sum(payments.amount) })
-      .from(payments)
-      .where(paidIn(filters, start, end))
-    return total(row?.value ?? null)
-  }
 
   const [pending] = await db
     .select({ bills: count(), amount: sum(payments.amount) })
@@ -262,27 +388,6 @@ export async function getDashboard(
   const firstPaidAt = first?.value ?? null
   const countOf = (rows: { value: number }[]): number => rows[0]?.value ?? 0
 
-  // Revenue breakdowns attribute each payment to the range it was paid in
-  const paidInPeriod = paidIn(filters, from, to)
-
-  const byCargo = await revenueByCargo(paidInPeriod)
-
-  // The paid trips' bill lines; together they add up to the revenue. A charge renamed since is
-  // shown under its latest name on a bill.
-  const taxRevenue = sql<number>`sum(${manifestCharges.amount})`.mapWith(Number)
-  const byTax = await db
-    .select({
-      code: manifestCharges.code,
-      name: sql<string>`(array_agg(${manifestCharges.name} order by ${manifestCharges.id} desc))[1]`,
-      nameAr: sql<string>`(array_agg(${manifestCharges.nameAr} order by ${manifestCharges.id} desc))[1]`,
-      revenue: taxRevenue
-    })
-    .from(payments)
-    .innerJoin(manifestCharges, eq(manifestCharges.manifestId, payments.manifestId))
-    .where(paidInPeriod)
-    .groupBy(manifestCharges.code)
-    .orderBy(desc(taxRevenue))
-
   const statusCounts = Object.fromEntries(MANIFEST_STATUSES.map((s) => [s, 0])) as Record<
     ManifestStatus,
     number
@@ -295,33 +400,38 @@ export async function getDashboard(
     statusCounts[row.status] = row.value
   }
 
-  const billedOrPaidAt = sql`coalesce(${payments.paidAt}, ${payments.createdAt})`
-  const recentBills = await db
-    .select({
-      manifestId: payments.manifestId,
-      billId: payments.billId,
-      createdAt: payments.createdAt,
-      paidAt: payments.paidAt,
-      status: payments.status,
-      amount: payments.amount,
-      companyName: companies.name,
-      plateNumber: vehicles.plateNumber,
-      originCityId: manifests.originCityId,
-      destinationCityId: manifests.destinationCityId
-    })
-    .from(payments)
-    .innerJoin(manifests, eq(payments.manifestId, manifests.id))
-    .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-    .innerJoin(companies, eq(vehicles.companyId, companies.id))
-    .where(
-      and(
-        sql`${billedOrPaidAt} >= ${from.toISOString()}`,
-        sql`${billedOrPaidAt} < ${to.toISOString()}`,
-        inTrips(payments.manifestId)
-      )
-    )
-    .orderBy(desc(billedOrPaidAt), desc(payments.id))
-    .limit(RECENT_BILLS)
+  // The latest bills, by when they were paid (or issued, if not paid yet): the newest paid ones
+  // and the newest unpaid ones, each through its own index, then the newest of both
+  const billColumns = {
+    id: payments.id,
+    manifestId: payments.manifestId,
+    billId: payments.billId,
+    createdAt: payments.createdAt,
+    paidAt: payments.paidAt,
+    status: payments.status,
+    amount: payments.amount,
+    companyName: companies.name,
+    plateNumber: vehicles.plateNumber,
+    originCityId: manifests.originCityId,
+    destinationCityId: manifests.destinationCityId
+  }
+  const latestBills = (when: typeof payments.paidAt | typeof payments.createdAt, which: SQL) =>
+    db
+      .select(billColumns)
+      .from(payments)
+      .innerJoin(manifests, eq(payments.manifestId, manifests.id))
+      .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
+      .innerJoin(companies, eq(manifests.companyId, companies.id))
+      .where(and(which, gte(when, from), lt(when, to), inTrips(payments.manifestId)))
+      .orderBy(desc(when), desc(payments.id))
+      .limit(RECENT_BILLS)
+  const recentBills = [
+    ...(await latestBills(payments.paidAt, eq(payments.status, 'paid'))),
+    ...(await latestBills(payments.createdAt, ne(payments.status, 'paid')))
+  ]
+    .map((bill) => ({ ...bill, at: (bill.paidAt ?? bill.createdAt).getTime() }))
+    .sort((a, b) => b.at - a.at || b.id - a.id)
+    .slice(0, RECENT_BILLS)
 
   // Vehicle counts follow the vehicle and company filters only
   const vehicleScope = and(
@@ -338,6 +448,14 @@ export async function getDashboard(
         )
       : countOf(await db.select({ value: count() }).from(companies))
 
+  // Every bucket of the range, with the revenue of those that had any
+  const filled = await figures.series(from, to, bucket)
+  const revenueSeries: RevenuePoint[] = []
+  for (let at = bucketStart(from, bucket); at < to; at = nextBucket(at, bucket)) {
+    revenueSeries.push(filled.get(at.getTime()) ?? { start: at.getTime(), revenue: 0, trips: 0 })
+  }
+
+  const byCargo = await figures.byCargo(from, to)
   return {
     filters,
     from: from.getTime(),
@@ -346,9 +464,11 @@ export async function getDashboard(
     breakdownBy: view.breakdown,
     generatedAt: now.getTime(),
     kpis: {
-      revenue: await paidBetween(from, to),
+      revenue: await figures.revenue(from, to),
       previousRevenue:
-        firstPaidAt && firstPaidAt <= previousFrom ? await paidBetween(previousFrom, from) : null,
+        firstPaidAt && firstPaidAt <= previousFrom
+          ? await figures.revenue(previousFrom, from)
+          : null,
       activeTrips: countOf(
         await db
           .select({ value: count() })
@@ -380,12 +500,15 @@ export async function getDashboard(
       vehicles: countOf(await db.select({ value: count() }).from(vehicles).where(vehicleScope)),
       companies: companyCount
     },
-    revenueSeries: await revenueSeries(paidInPeriod, from, to, bucket),
+    revenueSeries,
     byCargo,
-    byTax,
-    breakdown: await breakdown(view, paidInPeriod, byCargo),
+    byTax: await figures.byTax(from, to),
+    breakdown:
+      view.breakdown === 'cargoType'
+        ? byCargo.map((c) => ({ key: c.cargoType, revenue: c.revenue, trips: c.trips }))
+        : await figures.breakdown(from, to, view.breakdown),
     statusCounts,
-    recentBills: recentBills.map(({ createdAt, paidAt, status, ...bill }) => ({
+    recentBills: recentBills.map(({ createdAt, paidAt, status, id: _id, at: _at, ...bill }) => ({
       ...bill,
       createdAt: createdAt.getTime(),
       paidAt: paidAt?.getTime() ?? null,

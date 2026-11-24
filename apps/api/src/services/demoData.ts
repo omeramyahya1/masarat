@@ -49,6 +49,7 @@ import { pricing } from './pricing'
 import { config } from '../config'
 import { certificateNoFor, manifestNoFor, validUntilFor } from './billing'
 import { removeTripFolder } from './documents'
+import { rebuildDailyRevenue } from './dailyRevenue'
 import { newBillId } from './esali'
 
 const DAY_MS = 86_400_000
@@ -1135,7 +1136,11 @@ async function withDemoDataLock(work: () => Promise<void>): Promise<void> {
 
 export async function ensureDemoData(): Promise<void> {
   await withDemoDataLock(async () => {
-    if ((await demoCompanyIds()).length === 0) await seedCompanies()
+    if ((await demoCompanyIds()).length === 0) {
+      await seedCompanies()
+      // The seeded payments skipped the payment flow, so the summary is rebuilt from them
+      await rebuildDailyRevenue()
+    }
     await createGovtAccounts()
   })
 }
@@ -1147,6 +1152,7 @@ export async function regenerateDemoData(): Promise<void> {
   await withDemoDataLock(async () => {
     await deleteDemoCompanies()
     await seedCompanies()
+    await rebuildDailyRevenue()
     await createGovtAccounts()
   })
 }

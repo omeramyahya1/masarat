@@ -14,6 +14,7 @@ export function getDb(): AppDatabase {
   if (!database) {
     // Notices ("already exists, skipping" from migrations, …) are informational only
     client = postgres(config.databaseUrl, {
+      max: config.dbPoolMax,
       onnotice: () => {},
       connection: { TimeZone: config.timeZone }
     })

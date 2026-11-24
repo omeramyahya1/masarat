@@ -25,6 +25,8 @@ export const config = {
   appEnv,
   port: Number(process.env.PORT ?? 3000),
   databaseUrl: process.env.DATABASE_URL ?? 'postgres://masarat:masarat@localhost:5433/masarat',
+  // Connections the API keeps open to Postgres (postgres.js's default is 10)
+  dbPoolMax: Number(process.env.DB_POOL_MAX) || 10,
   migrationsFolder: resolve(import.meta.dir, '..', 'drizzle'),
   // Trip attachments: documents/<manifest id>/ and documents/staging/
   storageDir: resolve(process.env.STORAGE_DIR ?? 'storage'),

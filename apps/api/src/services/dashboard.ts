@@ -500,7 +500,11 @@ export async function getDashboard(
     return joined.where(and(where, tripFilter)) as unknown as T
   }
 
-  const [pending] = await withTrips(
+  // Every figure below is its own query; they run together, so the dashboard takes about as long
+  // as its slowest one (the pool and Postgres's cores serve them in parallel)
+  const countOf = (rows: { value: number }[]): number => rows[0]?.value ?? 0
+
+  const pendingQuery = withTrips(
     db
       .select({ bills: count(), amount: sum(payments.amount) })
       .from(payments)
@@ -509,7 +513,7 @@ export async function getDashboard(
     eq(payments.status, 'pending')
   )
 
-  const [billed] = await withTrips(
+  const billedQuery = withTrips(
     db
       .select({
         amount: sum(payments.amount),
@@ -522,26 +526,22 @@ export async function getDashboard(
     payments.manifestId,
     and(gte(payments.createdAt, from), lt(payments.createdAt, to))
   )
-  const billedAmount = total(billed?.amount ?? null)
 
-  const [first] = await db
+  // The previous period's revenue, when the records reach back that far
+  const previousRevenueQuery = db
     .select({ value: sql<Date | null>`min(${payments.paidAt})`.mapWith(payments.paidAt) })
     .from(payments)
     .where(eq(payments.status, 'paid'))
-  const firstPaidAt = first?.value ?? null
-  const countOf = (rows: { value: number }[]): number => rows[0]?.value ?? 0
+    .then(([first]) => {
+      const firstPaidAt = first?.value ?? null
+      return firstPaidAt && firstPaidAt <= previousFrom ? figures.revenue(previousFrom, from) : null
+    })
 
-  const statusCounts = Object.fromEntries(MANIFEST_STATUSES.map((s) => [s, 0])) as Record<
-    ManifestStatus,
-    number
-  >
-  for (const row of await withTrips(
+  const statusQuery = withTrips(
     db.select({ status: manifests.status, value: count() }).from(manifests).$dynamic(),
     null,
     and(gte(manifests.createdAt, from), lt(manifests.createdAt, to))
-  ).groupBy(manifests.status)) {
-    statusCounts[row.status] = row.value
-  }
+  ).groupBy(manifests.status)
 
   // The latest bills, by when they were paid (or issued, if not paid yet): the newest paid ones
   // and the newest unpaid ones, each through its own index, then the newest of both
@@ -571,37 +571,89 @@ export async function getDashboard(
       .where(and(which, gte(when, from), lt(when, to), inTrips(payments.manifestId)))
       .orderBy(desc(when), desc(payments.id))
       .limit(RECENT_BILLS)
-  const recentBills = [
-    ...(await latestBills(payments.paidAt, eq(payments.status, 'paid'))),
-    ...(await latestBills(payments.createdAt, ne(payments.status, 'paid')))
-  ]
-    .map((bill) => ({ ...bill, at: (bill.paidAt ?? bill.createdAt).getTime() }))
-    .sort((a, b) => b.at - a.at || b.id - a.id)
-    .slice(0, RECENT_BILLS)
 
   // Vehicle counts follow the vehicle and company filters only
   const vehicleScope = and(
     filters.vehicleType ? eq(vehicles.vehicleType, filters.vehicleType) : undefined,
     filters.companyId ? eq(vehicles.companyId, filters.companyId) : undefined
   )
-  const companyCount =
+  const companyCountQuery =
     filters.vehicleType || filters.companyId
-      ? countOf(
-          await db
-            .select({ value: sql<number>`count(distinct ${vehicles.companyId})`.mapWith(Number) })
-            .from(vehicles)
-            .where(vehicleScope)
-        )
-      : countOf(await db.select({ value: count() }).from(companies))
+      ? db
+          .select({ value: sql<number>`count(distinct ${vehicles.companyId})`.mapWith(Number) })
+          .from(vehicles)
+          .where(vehicleScope)
+      : db.select({ value: count() }).from(companies)
 
-  // Every bucket of the range, with the revenue of those that had any
-  const filled = await figures.series(from, to, bucket)
+  const byCargoQuery = figures.byCargo(from, to)
+  const [
+    [pending],
+    [billed],
+    previousRevenue,
+    statusRows,
+    latestPaid,
+    latestUnpaid,
+    companyRows,
+    filled,
+    byCargo,
+    revenue,
+    activeRows,
+    issuedRows,
+    vehicleRows,
+    byTax,
+    breakdown
+  ] = await Promise.all([
+    pendingQuery,
+    billedQuery,
+    previousRevenueQuery,
+    statusQuery,
+    latestBills(payments.paidAt, eq(payments.status, 'paid')),
+    latestBills(payments.createdAt, ne(payments.status, 'paid')),
+    companyCountQuery,
+    // Every bucket of the range is filled in below, with the revenue of those that had any
+    figures.series(from, to, bucket),
+    byCargoQuery,
+    figures.revenue(from, to),
+    withTrips(
+      db
+        .select({ value: count() })
+        .from(certificates)
+        .innerJoin(manifests, eq(certificates.manifestId, manifests.id))
+        .$dynamic(),
+      null,
+      and(eq(manifests.status, 'certified'), gte(certificates.validUntil, now))
+    ),
+    withTrips(
+      db.select({ value: count() }).from(certificates).$dynamic(),
+      certificates.manifestId,
+      and(gte(certificates.issuedAt, from), lt(certificates.issuedAt, to))
+    ),
+    db.select({ value: count() }).from(vehicles).where(vehicleScope),
+    figures.byTax(from, to),
+    view.breakdown === 'cargoType'
+      ? byCargoQuery.then((slices) =>
+          slices.map((c) => ({ key: c.cargoType, revenue: c.revenue, trips: c.trips }))
+        )
+      : figures.breakdown(from, to, view.breakdown)
+  ])
+
+  const billedAmount = total(billed?.amount ?? null)
+  const statusCounts = Object.fromEntries(MANIFEST_STATUSES.map((s) => [s, 0])) as Record<
+    ManifestStatus,
+    number
+  >
+  for (const row of statusRows) statusCounts[row.status] = row.value
+
+  const recentBills = [...latestPaid, ...latestUnpaid]
+    .map((bill) => ({ ...bill, at: (bill.paidAt ?? bill.createdAt).getTime() }))
+    .sort((a, b) => b.at - a.at || b.id - a.id)
+    .slice(0, RECENT_BILLS)
+
   const revenueSeries: RevenuePoint[] = []
   for (let at = bucketStart(from, bucket); at < to; at = nextBucket(at, bucket)) {
     revenueSeries.push(filled.get(at.getTime()) ?? { start: at.getTime(), revenue: 0, trips: 0 })
   }
 
-  const byCargo = await figures.byCargo(from, to)
   return {
     filters,
     from: from.getTime(),
@@ -610,42 +662,20 @@ export async function getDashboard(
     breakdownBy: view.breakdown,
     generatedAt: now.getTime(),
     kpis: {
-      revenue: await figures.revenue(from, to),
-      previousRevenue:
-        firstPaidAt && firstPaidAt <= previousFrom
-          ? await figures.revenue(previousFrom, from)
-          : null,
-      activeTrips: countOf(
-        await withTrips(
-          db
-            .select({ value: count() })
-            .from(certificates)
-            .innerJoin(manifests, eq(certificates.manifestId, manifests.id))
-            .$dynamic(),
-          null,
-          and(eq(manifests.status, 'certified'), gte(certificates.validUntil, now))
-        )
-      ),
+      revenue,
+      previousRevenue,
+      activeTrips: countOf(activeRows),
       pendingBills: pending?.bills ?? 0,
       pendingAmount: total(pending?.amount ?? null),
-      certificatesIssued: countOf(
-        await withTrips(
-          db.select({ value: count() }).from(certificates).$dynamic(),
-          certificates.manifestId,
-          and(gte(certificates.issuedAt, from), lt(certificates.issuedAt, to))
-        )
-      ),
+      certificatesIssued: countOf(issuedRows),
       collectionRate: billedAmount > 0 ? total(billed?.paid ?? 0) / billedAmount : null,
-      vehicles: countOf(await db.select({ value: count() }).from(vehicles).where(vehicleScope)),
-      companies: companyCount
+      vehicles: countOf(vehicleRows),
+      companies: countOf(companyRows)
     },
     revenueSeries,
     byCargo,
-    byTax: await figures.byTax(from, to),
-    breakdown:
-      view.breakdown === 'cargoType'
-        ? byCargo.map((c) => ({ key: c.cargoType, revenue: c.revenue, trips: c.trips }))
-        : await figures.breakdown(from, to, view.breakdown),
+    byTax,
+    breakdown,
     statusCounts,
     recentBills: recentBills.map((bill) => ({
       manifestId: bill.manifestId,

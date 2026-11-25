@@ -1,0 +1,17 @@
+{
+  "name": "@masarat/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "End-to-end tests: the three web apps and the API in a browser, against their own database (docs/testing/e2e-scenarios.md)",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@masarat/shared": "workspace:*",
+    "@playwright/test": "1.56.1",
+    "@types/bun": "^1.4.5",
+    "postgres": "^4.1.1"
+  }
+}

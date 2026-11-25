@@ -13,7 +13,8 @@
     "test": "bun test",
     "user:create-admin": "bun src/scripts/createAdmin.ts",
     "load:seed": "bun src/scripts/loadSeed.ts",
-    "storage:migrate": "bun src/scripts/moveDocumentsToStorage.ts"
+    "storage:migrate": "bun src/scripts/moveDocumentsToStorage.ts",
+    "trips:archive": "bun src/scripts/archiveNow.ts"
   },
   "dependencies": {
     "@hono/standard-validator": "^0.4.1",

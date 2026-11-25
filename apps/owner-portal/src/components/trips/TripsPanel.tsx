@@ -29,6 +29,7 @@ import { FormAlert } from '@masarat/ui/components/form/fields'
 import PlateBadge from '@masarat/ui/components/fleet/PlateBadge'
 import TripDetails from '@masarat/ui/components/trips/TripDetails'
 import TripForm from './TripForm'
+import PeriodBar from './PeriodBar'
 import { STATUS_STYLES } from '@masarat/ui/components/trips/statusStyles'
 import { api } from '@masarat/api-client'
 
@@ -94,6 +95,16 @@ function TripsPanel({
     defaultDirection: 'desc'
   })
   const page = list.data
+  // The period the list covers (the API answers with it: the current month by default); moving it
+  // keeps the other filters and goes back to the first page
+  const periodBar = page?.period ? (
+    <PeriodBar
+      period={page.period}
+      onChange={(period) =>
+        list.update({ filters: { ...list.state.filters, from: period.from, to: period.to } })
+      }
+    />
+  ) : null
 
   const cityById = (id: number): TripReferenceData['cities'][number] | undefined =>
     reference?.cities.find((c) => c.id === id)
@@ -375,21 +386,25 @@ function TripsPanel({
           </div>
         )
       ) : page.overall === 0 ? (
-        <div className="card flex flex-col items-center gap-3 px-6 py-14 text-center">
-          <div className="flex size-12 items-center justify-center rounded-full bg-brand-50 text-brand-700">
-            <Route size={24} />
+        <>
+          {periodBar}
+          <div className="card flex flex-col items-center gap-3 px-6 py-14 text-center">
+            <div className="flex size-12 items-center justify-center rounded-full bg-brand-50 text-brand-700">
+              <Route size={24} />
+            </div>
+            <h3 className="font-semibold text-stone-900">{t('trips.empty.periodTitle')}</h3>
+            <p className="max-w-sm text-sm text-stone-500">{t('trips.empty.periodBody')}</p>
+            {can('trips.edit') && (
+              <button type="button" className="btn btn-primary mt-2" onClick={startNew}>
+                <Plus size={16} />
+                {t('trips.new')}
+              </button>
+            )}
           </div>
-          <h3 className="font-semibold text-stone-900">{t('trips.empty.title')}</h3>
-          <p className="max-w-sm text-sm text-stone-500">{t('trips.empty.body')}</p>
-          {can('trips.edit') && (
-            <button type="button" className="btn btn-primary mt-2" onClick={startNew}>
-              <Plus size={16} />
-              {t('trips.new')}
-            </button>
-          )}
-        </div>
+        </>
       ) : (
         <>
+          {periodBar}
           <ListToolbar
             state={list.state}
             onChange={list.update}
@@ -440,9 +455,7 @@ function TripsPanel({
                       options: branches.map((b) => ({ value: String(b.id), label: b.name }))
                     }
                   ]
-                : []),
-              { key: 'from', label: t('trips.list.from'), type: 'date' },
-              { key: 'to', label: t('trips.list.to'), type: 'date' }
+                : [])
             ]}
             sorts={TRIP_SORTS.map((s) => ({
               value: s,

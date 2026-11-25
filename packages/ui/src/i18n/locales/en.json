@@ -325,7 +325,8 @@
       "invalid_arrival": "The estimated arrival has to be after the departure.",
       "template_not_found": "This template could not be found.",
       "invalid_template": "A template needs a bus, a departure time (HH:MM) and a duration.",
-      "invalid_settings": "Enter a margin from 0 to 720 hours and a speed from 10 to 150 km/h."
+      "invalid_settings": "Enter a margin from 0 to 720 hours and a speed from 10 to 150 km/h.",
+      "invalid_period": "Choose a period of at most 92 days that ends after it starts."
     },
     "groupSummary": "{{count}} vehicles",
     "list": {
@@ -395,7 +396,9 @@
     "created": "Trip for {{plate}} saved as a draft. Amount due: {{amount}}.",
     "empty": {
       "title": "No trips yet",
-      "body": "Create a trip to calculate its transport tax."
+      "body": "Create a trip to calculate its transport tax.",
+      "periodTitle": "No trips in this period",
+      "periodBody": "Choose another month, or create a trip."
     },
     "noVehicles": {
       "title": "Add a vehicle first",
@@ -562,7 +565,7 @@
     },
     "groupSummary": "{{count}} trips · {{total}}",
     "list": {
-      "search": "Search by trip #, plate, city, driver, sender, receiver or item",
+      "search": "Search by trip #, plate, or a whole name: city, driver, sender, receiver, passenger or item",
       "status": "Status",
       "cargoType": "Cargo type",
       "vehicle": "Vehicle",
@@ -613,6 +616,16 @@
       "fare": "{{tickets}} tickets at {{price}} each",
       "tickets": "{{n}} tickets",
       "infantSeat": "An infant has to be on the seat of a passenger with a ticket."
+    },
+    "period": {
+      "previous": "Previous month",
+      "next": "Next month",
+      "custom": "Custom period",
+      "from": "From",
+      "to": "To",
+      "apply": "Show",
+      "range": "{{from}} – {{to}}",
+      "limit": "A period of up to 92 days."
     }
   },
   "billing": {

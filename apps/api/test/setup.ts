@@ -20,6 +20,8 @@ process.env.MIGRATION_DATABASE_URL = testOwnerUrl
 process.env.DATABASE_URL = appUrl.toString()
 process.env.DEMO_MODE = 'true'
 process.env.STORAGE_DIR = `${import.meta.dir}/.storage`
+// Attachments go to the tests' own bucket (compose.yaml creates it)
+process.env.S3_BUCKET = process.env.TEST_S3_BUCKET ?? 'masarat-test'
 
 const { migrate } = await import('drizzle-orm/postgres-js/migrator')
 const { openUnlimitedDb } = await import('../src/db')

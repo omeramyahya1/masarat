@@ -1,14 +1,19 @@
-// Files attached to trips. An uploaded file is first written to a staging folder and named by a
-// random token; saving the trip moves it to documents/<manifest id>/ and records it in
-// trip_documents. Staging is emptied on startup, so files picked for a trip that was never saved
-// don't pile up.
+// Files attached to trips, kept in object storage (services/storage.ts), never on an API server's
+// disk, so any API instance can serve any file.
+//
+// An upload is checked (type, size, first bytes), written to `documents/<upload day>/<token>.<ext>`
+// and staged in Redis under its random token for 24 hours, for the member who uploaded it only.
+// Saving the trip records the object's key in trip_documents; the object doesn't move. A file that
+// was uploaded but never saved is deleted by the daily sweep (sweepUnusedUploads), which looks at
+// the uploads of two days ago, once their staging has expired.
 import { randomBytes } from 'crypto'
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'fs'
-import { basename, extname, join } from 'path'
-import { and, eq } from 'drizzle-orm'
-import { config } from '../config'
+import { basename, extname } from 'path'
+import { and, eq, inArray } from 'drizzle-orm'
 import { getDb, manifests, tripDocuments, vehicles, type TripDocument } from '../db'
+import { log } from '../log'
 import { tripScopeCondition, type TripScope } from './access'
+import { getRedis } from './redis'
+import { objectStore } from './storage'
 import {
   DOCUMENT_EXTENSIONS,
   DOCUMENT_TYPES,
@@ -19,41 +24,34 @@ import {
 } from '@masarat/shared/fleet'
 
 const TOKEN_PATTERN = /^[0-9a-f]{32}$/
+// How long an upload waits for its trip to be saved
+export const STAGING_TTL_S = 24 * 60 * 60
 
-const documentsRoot = (): string => join(config.storageDir, 'documents')
-const stagingDir = (): string => join(documentsRoot(), 'staging')
-const manifestDir = (manifestId: number): string => join(documentsRoot(), String(manifestId))
+export const CONTENT_TYPES: Record<string, string> = {
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg'
+}
 
 export const isDocumentType = (value: unknown): value is DocumentType =>
   (DOCUMENT_TYPES as readonly unknown[]).includes(value)
 
-// What we know about a staged file; kept in memory, since staging doesn't outlive the API process.
-// It belongs to the member who uploaded it: nobody else can attach it.
-interface Staged extends StagedDocument {
+// A staged upload: who may attach it, and where its file is
+export interface Staged extends StagedDocument {
   userId: number
+  // The object's key in the bucket (trip_documents.stored_name once saved)
   storedName: string
 }
-const staged = new Map<string, Staged>()
 
-export function clearStaging(): void {
-  rmSync(stagingDir(), { recursive: true, force: true })
-  staged.clear()
-}
+const stagingKey = (token: string): string => `staging:${token}`
 
-// Removes trip folders no attachment row points to any more: left behind when removing them
-// failed after their trip (or its attachments) was deleted. Runs on startup.
-export async function removeOrphanFolders(): Promise<void> {
-  if (!existsSync(documentsRoot())) return
-  const rows = await getDb()
-    .selectDistinct({ manifestId: tripDocuments.manifestId })
-    .from(tripDocuments)
-  const inUse = new Set(rows.map((d) => String(d.manifestId)))
-  for (const entry of readdirSync(documentsRoot(), { withFileTypes: true })) {
-    if (entry.isDirectory() && /^\d+$/.test(entry.name) && !inUse.has(entry.name)) {
-      rmSync(join(documentsRoot(), entry.name), { recursive: true, force: true })
-    }
-  }
+// The local (Sudan) day, YYYY-MM-DD, that names an upload's folder
+const dayOf = (date: Date): string => {
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
+export const uploadPrefix = (date: Date): string => `documents/${dayOf(date)}/`
 
 // The first bytes each allowed type starts with, so a renamed file of another kind is refused
 const SIGNATURES: Record<string, number[][]> = {
@@ -65,13 +63,13 @@ const SIGNATURES: Record<string, number[][]> = {
 const hasSignature = (bytes: Uint8Array, extension: string): boolean =>
   (SIGNATURES[extension] ?? []).some((signature) => signature.every((b, i) => bytes[i] === b))
 
-// Writes an uploaded file into staging, for the trip form to attach when the trip is saved
-export function stageDocument(
+// Stores an uploaded file and stages it, for the trip form to attach when the trip is saved
+export async function stageDocument(
   userId: number,
   docType: unknown,
   fileName: string,
   bytes: Uint8Array
-): FleetResult<StagedDocument> {
+): Promise<FleetResult<StagedDocument>> {
   if (!isDocumentType(docType)) return { ok: false, error: 'invalid_document' }
   const extension = extname(fileName).slice(1).toLowerCase()
   if (!(DOCUMENT_EXTENSIONS as readonly string[]).includes(extension)) {
@@ -82,42 +80,59 @@ export function stageDocument(
   if (!hasSignature(bytes, extension)) return { ok: false, error: 'invalid_document' }
 
   const token = randomBytes(16).toString('hex')
-  const storedName = `${token}.${extension}`
-  mkdirSync(stagingDir(), { recursive: true })
-  writeFileSync(join(stagingDir(), storedName), bytes)
+  const storedName = `${uploadPrefix(new Date())}${token}.${extension}`
+  await objectStore.put(storedName, bytes, CONTENT_TYPES[extension])
   const document: StagedDocument = { token, docType, fileName: basename(fileName), size }
-  staged.set(token, { ...document, userId, storedName })
+  const staged: Staged = { ...document, userId, storedName }
+  await getRedis().set(stagingKey(token), JSON.stringify(staged), 'EX', STAGING_TTL_S)
   return { ok: true, data: document }
 }
 
-// A staged file, if the token is one we handed this member and the file is still there
-export function findStaged(userId: number, token: unknown): Staged | undefined {
+// A staged upload, if the token is one we handed this member and it hasn't expired
+export async function findStaged(userId: number, token: unknown): Promise<Staged | undefined> {
   if (typeof token !== 'string' || !TOKEN_PATTERN.test(token)) return undefined
-  const document = staged.get(token)
-  if (!document || document.userId !== userId) return undefined
-  return existsSync(join(stagingDir(), document.storedName)) ? document : undefined
+  const value = await getRedis().get(stagingKey(token))
+  if (!value) return undefined
+  const staged = JSON.parse(value) as Staged
+  return staged.userId === userId ? staged : undefined
 }
 
-export const stagedPath = (document: Staged): string => join(stagingDir(), document.storedName)
-export const storedPath = (manifestId: number, storedName: string): string =>
-  join(manifestDir(manifestId), storedName)
-
-// Moves staged files into the trip's folder (after its rows are written)
-export function moveStaged(manifestId: number, documents: readonly Staged[]): void {
+// Once the trip that attached them is saved, the tokens can't be used again
+export async function consumeStaged(documents: readonly Staged[]): Promise<void> {
   if (documents.length === 0) return
-  mkdirSync(manifestDir(manifestId), { recursive: true })
-  for (const document of documents) {
-    renameSync(stagedPath(document), storedPath(manifestId, document.storedName))
-    staged.delete(document.token)
+  await getRedis().del(...documents.map((d) => stagingKey(d.token)))
+}
+
+// Deletes attachments' files after their rows are gone. The rows are what counts: a file that
+// can't be deleted now is only logged (it's no longer reachable from the app).
+export async function removeStoredObjects(keys: readonly string[]): Promise<void> {
+  if (keys.length === 0) return
+  try {
+    await objectStore.delete(keys)
+  } catch (err) {
+    log.error('Removing attachment files failed', err, { keys })
   }
 }
 
-export function removeStoredFiles(manifestId: number, storedNames: readonly string[]): void {
-  for (const name of storedNames) rmSync(storedPath(manifestId, name), { force: true })
-}
-
-export function removeTripFolder(manifestId: number): void {
-  rmSync(manifestDir(manifestId), { recursive: true, force: true })
+// The daily sweep: uploads of the day before yesterday that no trip uses (their staging expired
+// unused) are deleted. Returns how many.
+export async function sweepUnusedUploads(now = new Date()): Promise<number> {
+  const day = new Date(now)
+  day.setDate(day.getDate() - 2)
+  const uploads = await objectStore.list(uploadPrefix(day))
+  let removed = 0
+  for (let i = 0; i < uploads.length; i += 1000) {
+    const keys = uploads.slice(i, i + 1000).map((u) => u.key)
+    const used = await getDb()
+      .select({ key: tripDocuments.storedName })
+      .from(tripDocuments)
+      .where(inArray(tripDocuments.storedName, keys))
+    const inUse = new Set(used.map((u) => u.key))
+    const unused = keys.filter((key) => !inUse.has(key))
+    await objectStore.delete(unused)
+    removed += unused.length
+  }
+  return removed
 }
 
 // An attachment of a trip the scope may see, by id. A null scope is the government, which may open
@@ -137,13 +152,11 @@ async function findOwnedDocument(
   return row?.document
 }
 
-// A saved attachment's file and original name, for the viewer
+// A saved attachment's object and original name, for the viewer
 export async function findOwnedDocumentFile(
   scope: TripScope,
   documentId: unknown
-): Promise<{ path: string; fileName: string } | undefined> {
+): Promise<{ key: string; fileName: string } | undefined> {
   const document = await findOwnedDocument(scope, documentId)
-  return document
-    ? { path: storedPath(document.manifestId, document.storedName), fileName: document.fileName }
-    : undefined
+  return document ? { key: document.storedName, fileName: document.fileName } : undefined
 }

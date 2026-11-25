@@ -22,7 +22,7 @@ export const documentRoutes = new Hono<AppEnv>()
     async (c) => {
       const { docType, file } = c.req.valid('form')
       const bytes = new Uint8Array(await file.arrayBuffer())
-      return send(c, stageDocument(userId(c), docType, file.name, bytes))
+      return send(c, await stageDocument(userId(c), docType, file.name, bytes))
     }
   )
   .get(
@@ -31,6 +31,9 @@ export const documentRoutes = new Hono<AppEnv>()
     requirePermission('trips.view'),
     async (c) => {
       const id = idParam(c)
-      return sendFile(c, id === null ? undefined : await findOwnedDocumentFile(companyScope(c), id))
+      return await sendFile(
+        c,
+        id === null ? undefined : await findOwnedDocumentFile(companyScope(c), id)
+      )
     }
   )

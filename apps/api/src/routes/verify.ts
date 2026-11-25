@@ -6,7 +6,7 @@ import { rateLimit } from '../http/rateLimit'
 import { doc } from '../http/validate'
 
 // Generous for officers scanning at a checkpoint, too slow for guessing tokens
-const VERIFY_LIMIT = rateLimit(60, 60 * 1000)
+const VERIFY_LIMIT = rateLimit('verify', 60, 60 * 1000)
 
 export const verifyRoutes = new Hono<AppEnv>().get(
   '/:token',

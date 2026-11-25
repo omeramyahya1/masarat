@@ -48,7 +48,7 @@ import { createCompany } from './companies'
 import { pricing } from './pricing'
 import { config } from '../config'
 import { certificateNoFor, manifestNoFor, validUntilFor } from './billing'
-import { removeTripFolder } from './documents'
+import { removeStoredObjects } from './documents'
 import { personKey, upsertPeople } from './trips'
 import { isSummaryStale, markSummaryStale, rebuildDailyRevenue } from './dailyRevenue'
 import { newBillId } from './esali'
@@ -1109,7 +1109,7 @@ async function deleteDemoCompanies(): Promise<void> {
   // the roles
 
   // Folders of demo trips that had attachments, removed once the rows are gone for good
-  const folders = await getDb().transaction(async (tx) => {
+  const files = await getDb().transaction(async (tx) => {
     // On a big database these deletes outlast the API's statement timeout
     await tx.execute(sql`SET LOCAL statement_timeout = 0`)
     const demoVehicles = tx
@@ -1133,10 +1133,9 @@ async function deleteDemoCompanies(): Promise<void> {
     await tx.delete(manifestTrailers).where(inArray(manifestTrailers.manifestId, demoManifests))
     // Files attached by hand to a demo company's trips go too
     const attached = await tx
-      .selectDistinct({ manifestId: tripDocuments.manifestId })
-      .from(tripDocuments)
+      .delete(tripDocuments)
       .where(inArray(tripDocuments.manifestId, demoManifests))
-    await tx.delete(tripDocuments).where(inArray(tripDocuments.manifestId, demoManifests))
+      .returning({ key: tripDocuments.storedName })
     await tx.delete(payments).where(inArray(payments.manifestId, demoManifests))
     await tx.delete(manifests).where(inArray(manifests.vehicleId, demoVehicles))
     await tx.delete(tripTemplates).where(inArray(tripTemplates.companyId, companyIds))
@@ -1146,16 +1145,10 @@ async function deleteDemoCompanies(): Promise<void> {
     await tx.delete(roles).where(inArray(roles.companyId, companyIds))
     await tx.delete(branches).where(inArray(branches.companyId, companyIds))
     await tx.delete(companies).where(inArray(companies.id, companyIds))
-    return attached.map((a) => a.manifestId)
+    return attached.map((a) => a.key)
   })
-  // A folder that can't be removed now is picked up by removeOrphanFolders on the next startup
-  for (const manifestId of folders) {
-    try {
-      removeTripFolder(manifestId)
-    } catch (err) {
-      log.error('Removing demo trip documents failed', err)
-    }
-  }
+  // Their files, once the rows are gone
+  await removeStoredObjects(files)
 }
 
 // On startup: seed once if there are no demo companies yet, and make sure the demo government

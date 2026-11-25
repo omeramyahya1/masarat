@@ -89,7 +89,7 @@ export const govtRoutes = new Hono<AppEnv>()
     requirePermission('govt.search', 'govt.dashboard'),
     async (c) => {
       const id = idParam(c)
-      return sendFile(c, id === null ? undefined : await findOwnedDocumentFile(null, id))
+      return await sendFile(c, id === null ? undefined : await findOwnedDocumentFile(null, id))
     }
   )
   // The validity margin and average speeds

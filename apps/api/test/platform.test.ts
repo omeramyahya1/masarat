@@ -196,3 +196,46 @@ describe('OpenAPI', () => {
     )
   })
 })
+
+describe('shared state: object storage and Redis', () => {
+  test('attachments live in the bucket; saving keeps the key, the sweep removes unsaved uploads', async () => {
+    const { stageDocument, findStaged, consumeStaged, sweepUnusedUploads, uploadPrefix } =
+      await import('../src/services/documents')
+    const { objectStore } = await import('../src/services/storage')
+    const pdf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31])
+
+    const staged = await stageDocument(42, 'commercial_invoice', 'invoice.pdf', pdf)
+    expect(staged.ok).toBe(true)
+    if (!staged.ok) return
+    const found = await findStaged(42, staged.data.token)
+    expect(found?.storedName).toStartWith(uploadPrefix(new Date()))
+    expect(await objectStore.exists(found!.storedName)).toBe(true)
+    // Only the uploader can use the token, and only until a trip consumes it
+    expect(await findStaged(43, staged.data.token)).toBeUndefined()
+    await consumeStaged([found!])
+    expect(await findStaged(42, staged.data.token)).toBeUndefined()
+
+    // An upload of two days ago that no trip uses goes; the sweep looks at that day only
+    const old = new Date()
+    old.setDate(old.getDate() - 2)
+    const orphan = `${uploadPrefix(old)}${'a'.repeat(32)}.pdf`
+    await objectStore.put(orphan, pdf, 'application/pdf')
+    expect(await sweepUnusedUploads()).toBeGreaterThanOrEqual(1)
+    expect(await objectStore.exists(orphan)).toBe(false)
+    expect(await objectStore.exists(found!.storedName)).toBe(true)
+    await objectStore.delete([found!.storedName])
+  })
+
+  test('the verify page limit is counted in Redis, so every API instance shares it', async () => {
+    const { getRedis } = await import('../src/services/redis')
+    const statuses: number[] = []
+    for (let i = 0; i < 61; i++) {
+      statuses.push((await app.request('/verify/' + '0'.repeat(32))).status)
+    }
+    expect(statuses.slice(0, 60).every((s) => s !== 429)).toBe(true)
+    expect(statuses[60]).toBe(429)
+    // Leave the window clean for the other test files
+    const keys = (await getRedis().send('KEYS', ['rate:verify:*'])) as string[]
+    if (keys.length) await getRedis().del(...keys)
+  })
+})

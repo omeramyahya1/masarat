@@ -7,13 +7,14 @@ import { config } from './config'
 import { closeDb } from './db'
 import { flushLogs, log, removeOldLogs } from './log'
 import { checkDbRole } from './services/dbRole'
-import { clearStaging, removeOrphanFolders } from './services/documents'
+import { sweepUnusedUploads } from './services/documents'
 import { clearStaleExports } from './services/exports'
 import { ensureDemoData } from './services/demoData'
 import { markStopping } from './services/health'
 import { scheduleJob, stopJobs } from './services/jobs'
 import { assertPricingAllowed } from './services/pricing'
 import { purgeExpired } from './services/sessions'
+import { closeRedis } from './services/redis'
 
 const HOUR_MS = 60 * 60 * 1000
 
@@ -38,18 +39,22 @@ if (role.problems.length) {
   log.warn(message)
 }
 
-// Uploads staged for trips that were never saved, and folders of deleted trips, don't outlive a
-// restart. The demo companies are seeded only in demo mode.
-clearStaging()
-// Exports half-built when the API stopped
+// Exports half-built when the API stopped (local scratch space). The demo companies are seeded
+// only in demo mode.
 clearStaleExports(0)
-await removeOrphanFolders()
 if (config.demoMode) {
   await ensureDemoData()
   log.info('Demo mode: demo accounts and data are seeded')
 }
 
 scheduleJob({ name: 'sessions.purge', everyMs: HOUR_MS, exclusive: true, run: purgeExpired })
+// Uploads that were never attached to a saved trip
+scheduleJob({
+  name: 'uploads.sweep',
+  everyMs: 24 * HOUR_MS,
+  exclusive: true,
+  run: sweepUnusedUploads
+})
 // Each instance deletes its own old log files
 scheduleJob({
   name: 'logs.cleanup',
@@ -87,6 +92,7 @@ async function shutdown(signal: string): Promise<void> {
   }
   await stopJobs()
   await closeDb()
+  closeRedis()
   log.info('Stopped')
   await flushLogs()
   process.exit(0)

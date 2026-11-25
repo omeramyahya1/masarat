@@ -1,5 +1,4 @@
 import { and, asc, desc, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm'
-import { log } from '../log'
 import {
   branches,
   cities,
@@ -61,11 +60,11 @@ import {
   type TripCategory
 } from '@masarat/shared/tax'
 import {
+  consumeStaged,
   findStaged,
   isDocumentType,
-  moveStaged,
-  removeStoredFiles,
-  removeTripFolder
+  removeStoredObjects,
+  type Staged
 } from './documents'
 import { tripScopeCondition, type CompanyScope } from './access'
 import { listCharges } from './charges'
@@ -381,7 +380,7 @@ function parseTrailers(value: unknown, headPlate: string): string[] | null {
   return unique.size === plates.length + 1 ? (plates as string[]) : null
 }
 
-type StagedFile = NonNullable<ReturnType<typeof findStaged>>
+type StagedFile = Staged
 
 // The trip's attachments after the save: saved ones it keeps (by id) and staged ones it adds
 interface DocumentChanges {
@@ -439,7 +438,7 @@ async function parseDocuments(
       if (!saved.some((d) => d.id === raw.id && d.docType === raw.docType)) return null
       changes.keep.push(raw.id)
     } else {
-      const file = findStaged(userId, raw.token)
+      const file = await findStaged(userId, raw.token)
       if (!file || file.docType !== raw.docType) return null
       changes.add.push(file)
     }
@@ -768,7 +767,7 @@ export async function createTrip(
     await insertDocuments(tx, id, documents.add)
     return id
   })
-  moveStaged(id, documents.add)
+  await consumeStaged(documents.add)
   const row = await findOwnedTripRow(scope, id)
   return row ? { ok: true, data: await toTripRecord(row) } : failure('unknown')
 }
@@ -819,8 +818,8 @@ export async function updateTrip(
   })
   if (removed === 'not_found') return failure('manifest_not_found')
   if (removed) {
-    removeStoredFiles(existing.id, removed)
-    moveStaged(existing.id, documents.add)
+    await removeStoredObjects(removed)
+    await consumeStaged(documents.add)
   }
   const row = await findOwnedTripRow(scope, existing.id)
   if (!row) return failure('manifest_not_found')
@@ -847,18 +846,17 @@ export async function deleteTrip(
     await tx.delete(tripPassengers).where(eq(tripPassengers.manifestId, existing.id))
     await tx.delete(manifestCharges).where(eq(manifestCharges.manifestId, existing.id))
     await tx.delete(manifestTrailers).where(eq(manifestTrailers.manifestId, existing.id))
-    await tx.delete(tripDocuments).where(eq(tripDocuments.manifestId, existing.id))
+    const files = await tx
+      .delete(tripDocuments)
+      .where(eq(tripDocuments.manifestId, existing.id))
+      .returning({ key: tripDocuments.storedName })
     await tx.delete(manifests).where(eq(manifests.id, existing.id))
-    return true
+    return files.map((f) => f.key)
   })
   if (deleted === 'not_found') return failure('manifest_not_found')
   if (!deleted) return failure('not_draft')
-  // The trip is gone either way; a folder left behind is removed on the next startup
-  try {
-    removeTripFolder(existing.id)
-  } catch (err) {
-    log.error('Removing trip documents failed', err)
-  }
+  // The trip is gone; then its files
+  await removeStoredObjects(deleted)
   return { ok: true, data: null }
 }
 

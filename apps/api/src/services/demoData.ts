@@ -457,6 +457,20 @@ async function createGovtAccounts(): Promise<void> {
       .from(roles)
       .where(and(isNull(roles.companyId), eq(roles.key, account.role)))
       .limit(1)
+    // There is one government admin: when the deployment's own admin exists, the demo one isn't made
+    if (account.role === 'govt_admin') {
+      const [admin] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.roleId, role.id))
+        .limit(1)
+      if (admin) {
+        log.warn('Demo government admin not created: a government admin already exists', {
+          username: account.username
+        })
+        continue
+      }
+    }
     await db.insert(users).values({
       kind: 'govt',
       roleId: role.id,
@@ -1139,7 +1153,7 @@ async function deleteDemoCompanies(): Promise<void> {
     try {
       removeTripFolder(manifestId)
     } catch (err) {
-      log.error('Removing demo trip documents failed:', err)
+      log.error('Removing demo trip documents failed', err)
     }
   }
 }

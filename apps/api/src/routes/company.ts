@@ -69,7 +69,14 @@ export const roleRoutes = new Hono<AppEnv>()
 export const memberRoutes = (sideOf: (c: AppContext) => Side): Hono<AppEnv> =>
   new Hono<AppEnv>()
     .get('/', async (c) => send(c, { ok: true, data: await listMembers(sideOf(c)) }))
-    .get('/roles', async (c) => send(c, { ok: true, data: await listRoles(sideOf(c)) }))
+    // The roles an account can be given; the government admin is the one account created at
+    // deployment, so its role isn't offered
+    .get('/roles', async (c) => {
+      const side = sideOf(c)
+      const all = await listRoles(side)
+      const data = side.kind === 'govt' ? all.filter((r) => r.key !== 'govt_admin') : all
+      return send(c, { ok: true, data })
+    })
     .post('/', async (c) =>
       send(c, await createMember(sideOf(c), (await readJson(c)) as unknown as NewMemberInput))
     )

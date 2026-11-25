@@ -1342,6 +1342,7 @@
       "username_taken": "This username is already taken.",
       "user_not_found": "This account could not be found.",
       "last_admin": "There must always be at least one active admin.",
+      "admin_exists": "There is already a government admin. Only one government admin account can exist.",
       "cannot_change_self": "You can't change your own account here.",
       "not_signed_in": "Your session has ended. Please log in again.",
       "forbidden": "You don't have permission to do this.",

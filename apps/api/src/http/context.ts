@@ -12,6 +12,8 @@ export interface AppEnv {
     user: AuthUser | null
     // The session cookie's token, '' when there is none
     token: string
+    // This request's id (X-Request-Id), on every log line it causes
+    requestId: string
   }
 }
 
@@ -45,6 +47,9 @@ const STATUS: Record<string, ContentfulStatusCode> = {
   cannot_change_self: 403,
   too_many_attempts: 429,
   query_timeout: 503,
+  not_ready: 503,
+  admin_exists: 409,
+  invalid_request: 400,
   unknown: 500
 }
 

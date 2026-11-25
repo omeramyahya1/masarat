@@ -78,6 +78,8 @@ export type MemberErrorCode =
   | 'user_not_found'
   // The action would leave no active admin
   | 'last_admin'
+  // There is one government admin; the role can't be given to another account
+  | 'admin_exists'
   // Admins can't disable, reassign or reset themselves here
   | 'cannot_change_self'
   | 'role_not_found'

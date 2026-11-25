@@ -71,6 +71,13 @@
       "when": 1795598013577,
       "tag": "0009_drop_passenger_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1795617326457,
+      "tag": "0010_app_role",
+      "breakpoints": true
     }
   ]
 }

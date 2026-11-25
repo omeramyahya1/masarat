@@ -1,23 +1,16 @@
 // The government's trip search: by E-Sali bill ID, receipt or manifest number, trip number,
 // plate, company or city name, and by route
 import { and, count, desc, eq, or, sql, type SQL, type SQLWrapper } from 'drizzle-orm'
-import {
-  certificates,
-  cities,
-  companies,
-  getDb,
-  manifests,
-  payments,
-  tripPassengers,
-  people,
-  vehicles
-} from '../db'
+import { cities, companies, getDb, people, tripViews, vehicles } from '../db'
 import type { GovtSearchInput, GovtSearchResult } from '@masarat/shared/billing'
 import { DEFAULT_PAGE_SIZE, isPageSize, type Page } from '@masarat/shared/paging'
 import type { FleetResult } from '@masarat/shared/fleet'
 import { idSearchKey } from '@masarat/shared/passengers'
 import { plateSearchKey } from '@masarat/shared/plate'
 import { contains, escapeLike, plateKeyOf } from './sqlText'
+
+// Reads live and archived trips alike (the all_* views)
+const { certificates, manifests, payments, tripPassengers } = tripViews
 
 // A government search can match a large share of all trips ("Khartoum", a common name), and
 // counting them exactly takes seconds: the count stops past this many, and the pages reach it

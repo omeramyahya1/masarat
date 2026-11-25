@@ -11,6 +11,7 @@ import {
   tripPassengers,
   people,
   tripDocuments,
+  tripViews,
   vehicles
 } from '../db'
 import {
@@ -109,43 +110,48 @@ export async function getReferenceData(): Promise<TripReferenceData> {
   }
 }
 
-// Columns of a TripRecord except its items and taxes; select from manifests joined with vehicles
+// Reads of whole trips go through the views (live and archived trips alike); writes use the live
+// tables
+const v = tripViews
+
+// Columns of a TripRecord except its items and taxes; select from v.manifests (all_manifests)
+// joined with vehicles
 export const tripColumns = {
-  id: manifests.id,
-  vehicleId: manifests.vehicleId,
-  branchId: manifests.branchId,
-  branchName: sql<string>`(select ${branches.name} from ${branches} where ${branches.id} = ${manifests.branchId})`,
+  id: v.manifests.id,
+  vehicleId: v.manifests.vehicleId,
+  branchId: v.manifests.branchId,
+  branchName: sql<string>`(select ${branches.name} from ${branches} where ${branches.id} = ${v.manifests.branchId})`,
   plateNumber: vehicles.plateNumber,
   vehicleType: vehicles.vehicleType,
   registrationNo: vehicles.registrationNo,
-  originCityId: manifests.originCityId,
-  destinationCityId: manifests.destinationCityId,
-  cargoType: manifests.cargoType,
-  cargoQuantity: manifests.cargoQuantity,
-  cargoUnit: manifests.cargoUnit,
-  category: manifests.category,
-  departureAt: manifests.departureAt,
-  arrivalAt: manifests.arrivalAt,
-  distanceKm: manifests.distanceKm,
-  ratePerKm: manifests.ratePerKm,
-  ticketPrice: manifests.ticketPrice,
-  tripCost: manifests.tripCost,
-  taxAmount: manifests.taxAmount,
-  status: manifests.status,
-  createdAt: manifests.createdAt,
-  tripKind: manifests.tripKind,
-  driverId: manifests.driverId,
-  driverName: manifests.driverName,
-  driverPhone: manifests.driverPhone,
-  shipperName: manifests.shipperName,
-  shipperAddress: manifests.shipperAddress,
-  shipperPhone: manifests.shipperPhone,
-  receiverName: manifests.receiverName,
-  receiverAddress: manifests.receiverAddress,
-  receiverPhone: manifests.receiverPhone,
-  carrierName: manifests.carrierName,
-  carrierAddress: manifests.carrierAddress,
-  carrierTin: manifests.carrierTin
+  originCityId: v.manifests.originCityId,
+  destinationCityId: v.manifests.destinationCityId,
+  cargoType: v.manifests.cargoType,
+  cargoQuantity: v.manifests.cargoQuantity,
+  cargoUnit: v.manifests.cargoUnit,
+  category: v.manifests.category,
+  departureAt: v.manifests.departureAt,
+  arrivalAt: v.manifests.arrivalAt,
+  distanceKm: v.manifests.distanceKm,
+  ratePerKm: v.manifests.ratePerKm,
+  ticketPrice: v.manifests.ticketPrice,
+  tripCost: v.manifests.tripCost,
+  taxAmount: v.manifests.taxAmount,
+  status: v.manifests.status,
+  createdAt: v.manifests.createdAt,
+  tripKind: v.manifests.tripKind,
+  driverId: v.manifests.driverId,
+  driverName: v.manifests.driverName,
+  driverPhone: v.manifests.driverPhone,
+  shipperName: v.manifests.shipperName,
+  shipperAddress: v.manifests.shipperAddress,
+  shipperPhone: v.manifests.shipperPhone,
+  receiverName: v.manifests.receiverName,
+  receiverAddress: v.manifests.receiverAddress,
+  receiverPhone: v.manifests.receiverPhone,
+  carrierName: v.manifests.carrierName,
+  carrierAddress: v.manifests.carrierAddress,
+  carrierTin: v.manifests.carrierTin
 }
 
 type NestedFields =
@@ -179,38 +185,38 @@ export async function toTripRecords(rows: readonly TripRow[]): Promise<TripRecor
   const [itemRows, passengerRows, lineRows, trailerRows, documentRows] = await Promise.all([
     db
       .select()
-      .from(manifestCargoItems)
-      .where(inArray(manifestCargoItems.manifestId, ids))
-      .orderBy(asc(manifestCargoItems.position)),
+      .from(v.manifestCargoItems)
+      .where(inArray(v.manifestCargoItems.manifestId, ids))
+      .orderBy(asc(v.manifestCargoItems.position)),
     db
       .select({
-        manifestId: tripPassengers.manifestId,
-        fullName: tripPassengers.fullName,
+        manifestId: v.tripPassengers.manifestId,
+        fullName: v.tripPassengers.fullName,
         idType: people.idType,
         idNumber: people.idNumber,
-        seatNo: tripPassengers.seatNo,
-        isInfant: tripPassengers.isInfant,
-        notes: tripPassengers.notes
+        seatNo: v.tripPassengers.seatNo,
+        isInfant: v.tripPassengers.isInfant,
+        notes: v.tripPassengers.notes
       })
-      .from(tripPassengers)
-      .leftJoin(people, eq(people.id, tripPassengers.personId))
-      .where(inArray(tripPassengers.manifestId, ids))
-      .orderBy(asc(tripPassengers.position)),
+      .from(v.tripPassengers)
+      .leftJoin(people, eq(people.id, v.tripPassengers.personId))
+      .where(inArray(v.tripPassengers.manifestId, ids))
+      .orderBy(asc(v.tripPassengers.position)),
     db
       .select()
-      .from(manifestCharges)
-      .where(inArray(manifestCharges.manifestId, ids))
-      .orderBy(asc(manifestCharges.position), asc(manifestCharges.id)),
+      .from(v.manifestCharges)
+      .where(inArray(v.manifestCharges.manifestId, ids))
+      .orderBy(asc(v.manifestCharges.position), asc(v.manifestCharges.id)),
     db
       .select()
-      .from(manifestTrailers)
-      .where(inArray(manifestTrailers.manifestId, ids))
-      .orderBy(asc(manifestTrailers.position)),
+      .from(v.manifestTrailers)
+      .where(inArray(v.manifestTrailers.manifestId, ids))
+      .orderBy(asc(v.manifestTrailers.position)),
     db
       .select()
-      .from(tripDocuments)
-      .where(inArray(tripDocuments.manifestId, ids))
-      .orderBy(asc(tripDocuments.id))
+      .from(v.tripDocuments)
+      .where(inArray(v.tripDocuments.manifestId, ids))
+      .orderBy(asc(v.tripDocuments.id))
   ])
   const items = new Map<number, CargoItemRecord[]>()
   for (const item of itemRows) {
@@ -315,10 +321,10 @@ export async function listTrips(scope: CompanyScope): Promise<TripRecord[]> {
   return toTripRecords(
     await getDb()
       .select(tripColumns)
-      .from(manifests)
-      .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-      .where(tripScopeCondition(scope))
-      .orderBy(desc(manifests.createdAt), desc(manifests.id))
+      .from(v.manifests)
+      .innerJoin(vehicles, eq(v.manifests.vehicleId, vehicles.id))
+      .where(tripScopeCondition(scope, v.manifests))
+      .orderBy(desc(v.manifests.createdAt), desc(v.manifests.id))
   )
 }
 
@@ -719,9 +725,9 @@ async function findOwnedTripRow(
   if (typeof manifestId !== 'number') return undefined
   const [row] = await getDb()
     .select(tripColumns)
-    .from(manifests)
-    .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-    .where(and(eq(manifests.id, manifestId), tripScopeCondition(scope)))
+    .from(v.manifests)
+    .innerJoin(vehicles, eq(v.manifests.vehicleId, vehicles.id))
+    .where(and(eq(v.manifests.id, manifestId), tripScopeCondition(scope, v.manifests)))
     .limit(1)
   return row
 }

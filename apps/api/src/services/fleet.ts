@@ -1,5 +1,5 @@
 import { and, count, eq, ne } from 'drizzle-orm'
-import { getDb, manifests, vehicles, type Vehicle } from '../db'
+import { getDb, tripViews, vehicles, type Vehicle } from '../db'
 import {
   MAX_REGISTRATION_LENGTH,
   QUANTITY_UNITS,
@@ -11,6 +11,9 @@ import {
   type VehicleType
 } from '@masarat/shared/fleet'
 import { normalizePlate } from '@masarat/shared/plate'
+
+// Reads live and archived trips alike (the all_* views)
+const { manifests } = tripViews
 
 // Input comes from the browser, so treat every field as untrusted
 const isVehicleType = (value: unknown): value is VehicleType =>

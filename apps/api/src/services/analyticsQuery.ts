@@ -2,9 +2,12 @@
 // dashboard, the report, the raw data export and the government search
 import { and, eq, exists, inArray, or, type SQL, type SQLWrapper } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
-import { cities, companies, getDb, manifestCargoItems, manifests, states, vehicles } from '../db'
+import { cities, companies, getDb, states, tripViews, vehicles } from '../db'
 import type { AnalyticsFilters } from '@masarat/shared/analytics'
 import type { CompanyOption } from '@masarat/shared/analytics'
+
+// Reads live and archived trips alike (the all_* views)
+const { manifestCargoItems, manifests } = tripViews
 
 // The trip's cities as the filters refer to them; a query using tripConditions joins these
 export const originCity = alias(cities, 'filter_origin')

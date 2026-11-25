@@ -228,14 +228,21 @@ describe('shared state: object storage and Redis', () => {
 
   test('the verify page limit is counted in Redis, so every API instance shares it', async () => {
     const { getRedis } = await import('../src/services/redis')
-    const statuses: number[] = []
-    for (let i = 0; i < 61; i++) {
-      statuses.push((await app.request('/verify/' + '0'.repeat(32))).status)
+    // The window starts clean, and is left clean for the other test files
+    const clear = async (): Promise<void> => {
+      const keys = (await getRedis().send('KEYS', ['rate:verify:*'])) as string[]
+      if (keys.length) await getRedis().del(...keys)
     }
-    expect(statuses.slice(0, 60).every((s) => s !== 429)).toBe(true)
-    expect(statuses[60]).toBe(429)
-    // Leave the window clean for the other test files
-    const keys = (await getRedis().send('KEYS', ['rate:verify:*'])) as string[]
-    if (keys.length) await getRedis().del(...keys)
+    await clear()
+    try {
+      const statuses: number[] = []
+      for (let i = 0; i < 61; i++) {
+        statuses.push((await app.request('/verify/' + '0'.repeat(32))).status)
+      }
+      expect(statuses.slice(0, 60).every((s) => s !== 429)).toBe(true)
+      expect(statuses[60]).toBe(429)
+    } finally {
+      await clear()
+    }
   })
 })

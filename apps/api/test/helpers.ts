@@ -15,7 +15,10 @@ export async function resetData(): Promise<void> {
   await owner.execute(sql`
     truncate sessions, login_attempts, esali_sim_bills, certificates, payments, manifest_charges,
       trip_documents, manifest_trailers, manifest_cargo_items, manifests, vehicles, drivers,
-      charge_changes, daily_revenue, people, users restart identity cascade
+      charge_changes, daily_revenue, people, users,
+      archive.certificates, archive.payments, archive.manifest_charges, archive.trip_documents,
+      archive.trip_passengers, archive.manifest_trailers, archive.manifest_cargo_items,
+      archive.manifests restart identity cascade
   `)
   await getDb().execute(sql`delete from roles where company_id is not null`)
   await getDb().execute(sql`delete from branches`)

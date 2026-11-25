@@ -13,6 +13,7 @@ import { ensureDemoData } from './services/demoData'
 import { markStopping } from './services/health'
 import { scheduleJob, stopJobs } from './services/jobs'
 import { assertPricingAllowed } from './services/pricing'
+import { nightlyArchive } from './services/archive'
 import { purgeExpired } from './services/sessions'
 import { closeRedis } from './services/redis'
 
@@ -55,6 +56,8 @@ scheduleJob({
   exclusive: true,
   run: sweepUnusedUploads
 })
+// Finished trips older than HOT_DAYS move to the archive, in the quiet hours (services/archive.ts)
+scheduleJob({ name: 'trips.archive', everyMs: HOUR_MS, exclusive: true, run: nightlyArchive })
 // Each instance deletes its own old log files
 scheduleJob({
   name: 'logs.cleanup',

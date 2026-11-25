@@ -6,14 +6,11 @@
 import { and, count, desc, eq, gte, lt, ne, sql, sum, type SQL } from 'drizzle-orm'
 import { type PgSelect } from 'drizzle-orm/pg-core'
 import {
-  certificates,
   companies,
   dailyRevenue,
   getDb,
-  manifestCharges,
-  manifests,
-  payments,
   states,
+  tripViews,
   vehicles,
   type RevenueDimension
 } from '../db'
@@ -38,6 +35,9 @@ import {
 } from '@masarat/shared/dashboard'
 import { destinationCity, inFilteredTrips, originCity, tripConditions } from './analyticsQuery'
 import { cargoSharesSql, dayOf, isSummaryStale } from './dailyRevenue'
+
+// Reads live and archived trips alike (the all_* views)
+const { certificates, manifestCharges, manifests, payments } = tripViews
 
 const RECENT_BILLS = 10
 

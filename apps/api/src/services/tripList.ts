@@ -20,15 +20,7 @@ import {
   type SQLWrapper
 } from 'drizzle-orm'
 import { alias, type PgSelect } from 'drizzle-orm/pg-core'
-import {
-  cities,
-  getDb,
-  manifestCargoItems,
-  manifests,
-  people,
-  tripPassengers,
-  vehicles
-} from '../db'
+import { cities, getDb, people, tripViews, vehicles } from '../db'
 import { idSearchKey } from '@masarat/shared/passengers'
 import { TRIP_CATEGORIES } from '@masarat/shared/tax'
 import {
@@ -47,6 +39,10 @@ import { plateSearchKey } from '@masarat/shared/plate'
 import { tripScopeCondition, type CompanyScope } from './access'
 import { escapeLike, plateKeyOf } from './sqlText'
 import { toTripRecords, tripColumns } from './trips'
+
+// The list reads live and archived trips alike (the all_* views): an older period's trips have
+// moved to the archive
+const { manifests, manifestCargoItems, tripPassengers } = tripViews
 
 const origin = alias(cities, 'list_origin')
 const destination = alias(cities, 'list_destination')
@@ -216,7 +212,7 @@ function filterConditions(
   period: { from: Date; to: Date }
 ): SQL | undefined {
   return and(
-    tripScopeCondition(scope),
+    tripScopeCondition(scope, manifests),
     gte(manifests.departureAt, period.from),
     lt(manifests.departureAt, period.to),
     q.status === 'billed'
@@ -258,7 +254,7 @@ export async function listTripsPage(
   const period = resolvePeriod(q)
   if (!period) return { ok: false, error: 'invalid_period' }
   const inPeriod = and(
-    tripScopeCondition(scope),
+    tripScopeCondition(scope, manifests),
     gte(manifests.departureAt, period.from),
     lt(manifests.departureAt, period.to)
   )

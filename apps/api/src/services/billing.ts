@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto'
-import { and, eq, ne } from 'drizzle-orm'
+import { and, eq, ne, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 // The Node build: the package's root export has no condition TypeScript's bundler resolution picks
 import bwipjs from 'bwip-js/node'
@@ -10,6 +10,7 @@ import {
   getDb,
   manifests,
   payments,
+  tripViews,
   users,
   vehicles,
   type Payment
@@ -35,18 +36,25 @@ import { toTripRecord, tripColumns, writeCharges, type TripRow } from './trips'
 // Who booked the trip
 const booker = alias(users, 'booker')
 
+// A trip's page reads live and archived trips alike (the all_* views); billing writes go to the
+// live tables, which an archived trip isn't in, so it can't be billed or changed
+const v = tripViews
+
 const ownedTripColumns = {
   ...tripColumns,
   vehicleCapacity: vehicles.capacity,
   company: companies,
   bookerName: booker.fullName,
-  bookerPhone: booker.phone
+  bookerPhone: booker.phone,
+  // Moved to the archive: shown read-only
+  archived: sql<boolean>`NOT EXISTS (SELECT 1 FROM ${manifests} WHERE ${manifests.id} = ${v.manifests.id})`
 }
 type OwnedTrip = TripRow & {
   vehicleCapacity: number
   company: typeof companies.$inferSelect
   bookerName: string | null
   bookerPhone: string | null
+  archived: boolean
 }
 
 // The manifest with its vehicle and company, if the scope may see it. A null scope is the
@@ -58,11 +66,11 @@ async function findOwnedTrip(
   if (typeof manifestId !== 'number') return undefined
   const [trip] = await getDb()
     .select(ownedTripColumns)
-    .from(manifests)
-    .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
+    .from(v.manifests)
+    .innerJoin(vehicles, eq(v.manifests.vehicleId, vehicles.id))
     .innerJoin(companies, eq(vehicles.companyId, companies.id))
-    .leftJoin(booker, eq(manifests.createdBy, booker.id))
-    .where(and(eq(manifests.id, manifestId), tripScopeCondition(scope)))
+    .leftJoin(booker, eq(v.manifests.createdBy, booker.id))
+    .where(and(eq(v.manifests.id, manifestId), tripScopeCondition(scope, v.manifests)))
     .limit(1)
   return trip
 }
@@ -70,8 +78,8 @@ async function findOwnedTrip(
 async function paymentOf(manifestId: number): Promise<Payment | undefined> {
   const [payment] = await getDb()
     .select()
-    .from(payments)
-    .where(eq(payments.manifestId, manifestId))
+    .from(v.payments)
+    .where(eq(v.payments.manifestId, manifestId))
     .limit(1)
   return payment
 }
@@ -116,13 +124,13 @@ export async function getTripDetails(
 ): Promise<FleetResult<TripDetails>> {
   const row = await findOwnedTrip(scope, manifestId)
   if (!row) return { ok: false, error: 'manifest_not_found' }
-  const { vehicleCapacity, company, bookerName, bookerPhone, ...trip } = row
+  const { vehicleCapacity, company, bookerName, bookerPhone, archived, ...trip } = row
 
   const payment = await paymentOf(trip.id)
   const [certificate] = await getDb()
     .select()
-    .from(certificates)
-    .where(eq(certificates.manifestId, trip.id))
+    .from(v.certificates)
+    .where(eq(v.certificates.manifestId, trip.id))
     .limit(1)
 
   const paymentRecord: PaymentRecord | null = payment
@@ -166,7 +174,8 @@ export async function getTripDetails(
           : null,
       vehicleCapacity,
       payment: paymentRecord,
-      certificate: certificateRecord
+      certificate: certificateRecord,
+      archived
     }
   }
 }

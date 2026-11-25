@@ -9,7 +9,7 @@
 import { randomBytes } from 'crypto'
 import { basename, extname } from 'path'
 import { and, eq, inArray } from 'drizzle-orm'
-import { getDb, manifests, tripDocuments, vehicles, type TripDocument } from '../db'
+import { getDb, tripViews, vehicles, type TripDocument } from '../db'
 import { log } from '../log'
 import { tripScopeCondition, type TripScope } from './access'
 import { getRedis } from './redis'
@@ -22,6 +22,9 @@ import {
   type FleetResult,
   type StagedDocument
 } from '@masarat/shared/fleet'
+
+// Reads live and archived trips alike (the all_* views)
+const { manifests, tripDocuments } = tripViews
 
 const TOKEN_PATTERN = /^[0-9a-f]{32}$/
 // How long an upload waits for its trip to be saved
@@ -140,14 +143,16 @@ export async function sweepUnusedUploads(now = new Date()): Promise<number> {
 async function findOwnedDocument(
   scope: TripScope,
   documentId: unknown
-): Promise<TripDocument | undefined> {
+): Promise<Pick<TripDocument, 'storedName' | 'fileName'> | undefined> {
   if (typeof documentId !== 'number') return undefined
   const [row] = await getDb()
-    .select({ document: tripDocuments })
+    .select({
+      document: { storedName: tripDocuments.storedName, fileName: tripDocuments.fileName }
+    })
     .from(tripDocuments)
     .innerJoin(manifests, eq(tripDocuments.manifestId, manifests.id))
     .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-    .where(and(eq(tripDocuments.id, documentId), tripScopeCondition(scope)))
+    .where(and(eq(tripDocuments.id, documentId), tripScopeCondition(scope, manifests)))
     .limit(1)
   return row?.document
 }

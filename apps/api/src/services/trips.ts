@@ -857,7 +857,7 @@ export async function deleteTrip(
   try {
     removeTripFolder(existing.id)
   } catch (err) {
-    log.error('Removing trip documents failed:', err)
+    log.error('Removing trip documents failed', err)
   }
   return { ok: true, data: null }
 }

@@ -509,7 +509,8 @@
       "bookedBy": "Booked by",
       "arrivalAt": "Estimated arrival",
       "category": "Trip type",
-      "passengers": "Passengers"
+      "passengers": "Passengers",
+      "archived": "This trip is in the archive (older than a month): it can be viewed and printed, not changed."
     },
     "backToTrip": "Back to trip",
     "items": {

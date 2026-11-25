@@ -103,10 +103,12 @@ function TripDetails({
   const mounted = useMountedRef()
   const { company } = useAccount()
   const can = useCan()
-  // What the member's role lets them do here (the government's view changes nothing)
-  const canEdit = !readOnly && can('trips.edit')
-  const canBill = !readOnly && can('trips.bill')
   const [details, setDetails] = useState<TripDetailsData | null>(null)
+  // A trip older than the live window has moved to the archive: it can only be looked at
+  const archived = details?.archived ?? false
+  // What the member's role lets them do here (the government's view changes nothing)
+  const canEdit = !readOnly && !archived && can('trips.edit')
+  const canBill = !readOnly && !archived && can('trips.bill')
   const [error, setError] = useState<FleetErrorCode | null>(null)
   const [pending, setPending] = useState<Action | null>(null)
   const [notPaid, setNotPaid] = useState(false)
@@ -194,7 +196,9 @@ function TripDetails({
     pending === action && <LoaderCircle size={16} className="animate-spin" />
   // What the draft still needs before its bill can be generated
   const missing =
-    !readOnly && company && trip.status === 'draft' ? missingForBilling(trip, company) : []
+    !readOnly && !archived && company && trip.status === 'draft'
+      ? missingForBilling(trip, company)
+      : []
   const missingProfile = missing.some((m) => m === 'carrier_address' || m === 'carrier_tin')
   const missingTrip = missing.some((m) => m !== 'carrier_address' && m !== 'carrier_tin')
 
@@ -264,6 +268,11 @@ function TripDetails({
       </div>
 
       {error && <FormAlert message={t(`fleet.errors.${error}`)} />}
+      {archived && (
+        <p className="rounded-lg border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-600">
+          {t('trips.details.archived')}
+        </p>
+      )}
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="card p-6">

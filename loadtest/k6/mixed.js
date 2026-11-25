@@ -45,7 +45,10 @@ export const options = {
           timeUnit: '1m',
           duration: DURATION,
           preAllocatedVUs: Math.max(2, Math.ceil(rate * vusPerUnit)),
-          maxVUs: Math.max(20, Math.ceil(rate * vusPerUnit * 20))
+          // Room for responses up to ~4× slower than expected, and no more: past that the server is
+          // past its limit, and k6 drops the late iterations (a failure, see dropped_iterations in
+          // lib.js) instead of piling up VUs until the machine runs out of memory
+          maxVUs: Math.max(10, Math.ceil(rate * vusPerUnit * 4))
         }
       ]
     })

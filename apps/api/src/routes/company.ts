@@ -1,12 +1,12 @@
 // A company's own administration: its details (Company), branches, roles and members (Team)
 import { Hono } from 'hono'
-import type { CompanyInput } from '@masarat/shared/auth'
-import type {
-  BranchInput,
-  MemberRoleInput,
-  NewMemberInput,
-  RoleInput
-} from '@masarat/shared/members'
+import {
+  branchSchema,
+  companySchema,
+  memberRoleSchema,
+  newMemberSchema,
+  roleSchema
+} from '@masarat/shared/schemas'
 import { createBranch, listBranches, updateBranch } from '../services/branches'
 import { updateCompany } from '../services/companies'
 import {
@@ -18,92 +18,137 @@ import {
   type Side
 } from '../services/members'
 import { createRole, deleteRole, listRoles, updateRole } from '../services/roles'
-import { fail, idParam, readJson, send, type AppContext, type AppEnv } from '../http/context'
+import { fail, idParam, send, type AppContext, type AppEnv } from '../http/context'
 import { companyId, requireCompany, userId } from '../http/company'
 import { requirePermission } from '../http/middleware'
+import { body, doc } from '../http/validate'
 
 const side = (c: AppContext): Side => ({ kind: 'company', companyId: companyId(c) })
 
 export const companyRoutes = new Hono<AppEnv>()
   .use(...requireCompany)
-  .put('/', requirePermission('company.profile'), async (c) =>
-    send(c, await updateCompany(companyId(c), (await readJson(c)) as unknown as CompanyInput))
+  .put(
+    '/',
+    doc('Company', 'Update the company’s details (carrier details on its manifests)'),
+    requirePermission('company.profile'),
+    body(companySchema, 'missing_fields'),
+    async (c) => send(c, await updateCompany(companyId(c), c.req.valid('json')))
   )
 
 export const branchRoutes = new Hono<AppEnv>()
   .use(...requireCompany)
   // Every member sees the branches (trip forms, lists and the Team section name them)
-  .get('/', async (c) => send(c, { ok: true, data: await listBranches(companyId(c)) }))
-  .post('/', requirePermission('branches.manage'), async (c) =>
-    send(c, await createBranch(companyId(c), (await readJson(c)) as unknown as BranchInput))
+  .get('/', doc('Branches', 'The company’s branches'), async (c) =>
+    send(c, { ok: true, data: await listBranches(companyId(c)) })
   )
-  .put('/:id', requirePermission('branches.manage'), async (c) => {
-    const id = idParam(c)
-    if (id === null) return fail(c, 'branch_not_found')
-    return send(
-      c,
-      await updateBranch(companyId(c), id, (await readJson(c)) as unknown as BranchInput)
-    )
-  })
+  .post(
+    '/',
+    doc('Branches', 'Add a branch'),
+    requirePermission('branches.manage'),
+    body(branchSchema),
+    async (c) => send(c, await createBranch(companyId(c), c.req.valid('json')))
+  )
+  .put(
+    '/:id',
+    doc('Branches', 'Edit, close or reopen a branch'),
+    requirePermission('branches.manage'),
+    body(branchSchema),
+    async (c) => {
+      const id = idParam(c)
+      if (id === null) return fail(c, 'branch_not_found')
+      return send(c, await updateBranch(companyId(c), id, c.req.valid('json')))
+    }
+  )
 
 export const roleRoutes = new Hono<AppEnv>()
   .use(...requireCompany)
   // The Team section picks roles too
-  .get('/', requirePermission('roles.manage', 'members.manage'), async (c) =>
-    send(c, { ok: true, data: await listRoles(side(c)) })
+  .get(
+    '/',
+    doc('Roles', 'The company’s roles'),
+    requirePermission('roles.manage', 'members.manage'),
+    async (c) => send(c, { ok: true, data: await listRoles(side(c)) })
   )
-  .post('/', requirePermission('roles.manage'), async (c) =>
-    send(c, await createRole(companyId(c), (await readJson(c)) as unknown as RoleInput))
+  .post(
+    '/',
+    doc('Roles', 'Add a role'),
+    requirePermission('roles.manage'),
+    body(roleSchema, 'invalid_role'),
+    async (c) => send(c, await createRole(companyId(c), c.req.valid('json')))
   )
-  .put('/:id', requirePermission('roles.manage'), async (c) => {
-    const id = idParam(c)
-    if (id === null) return fail(c, 'role_not_found')
-    return send(c, await updateRole(companyId(c), id, (await readJson(c)) as unknown as RoleInput))
-  })
-  .delete('/:id', requirePermission('roles.manage'), async (c) => {
-    const id = idParam(c)
-    return id === null ? fail(c, 'role_not_found') : send(c, await deleteRole(companyId(c), id))
-  })
+  .put(
+    '/:id',
+    doc('Roles', 'Edit a role'),
+    requirePermission('roles.manage'),
+    body(roleSchema, 'invalid_role'),
+    async (c) => {
+      const id = idParam(c)
+      if (id === null) return fail(c, 'role_not_found')
+      return send(c, await updateRole(companyId(c), id, c.req.valid('json')))
+    }
+  )
+  .delete(
+    '/:id',
+    doc('Roles', 'Delete a role nobody has'),
+    requirePermission('roles.manage'),
+    async (c) => {
+      const id = idParam(c)
+      return id === null ? fail(c, 'role_not_found') : send(c, await deleteRole(companyId(c), id))
+    }
+  )
 
 // The Team section, and the government's Users section: the same routes on each side
 export const memberRoutes = (sideOf: (c: AppContext) => Side): Hono<AppEnv> =>
   new Hono<AppEnv>()
-    .get('/', async (c) => send(c, { ok: true, data: await listMembers(sideOf(c)) }))
+    .get('/', doc('Members', 'The accounts'), async (c) =>
+      send(c, { ok: true, data: await listMembers(sideOf(c)) })
+    )
     // The roles an account can be given; the government admin is the one account created at
     // deployment, so its role isn't offered
-    .get('/roles', async (c) => {
+    .get('/roles', doc('Members', 'The roles an account can be given'), async (c) => {
       const side = sideOf(c)
       const all = await listRoles(side)
       const data = side.kind === 'govt' ? all.filter((r) => r.key !== 'govt_admin') : all
       return send(c, { ok: true, data })
     })
-    .post('/', async (c) =>
-      send(c, await createMember(sideOf(c), (await readJson(c)) as unknown as NewMemberInput))
+    .post(
+      '/',
+      doc('Members', 'Create an account with a temporary password'),
+      body(newMemberSchema),
+      async (c) => send(c, await createMember(sideOf(c), c.req.valid('json')))
     )
-    .post('/:id/disable', async (c) => {
+    .post('/:id/disable', doc('Members', 'Disable an account'), async (c) => {
       const id = idParam(c)
       return id === null
         ? fail(c, 'user_not_found')
         : send(c, await setDisabled(sideOf(c), userId(c), id, true))
     })
-    .post('/:id/enable', async (c) => {
+    .post('/:id/enable', doc('Members', 'Enable an account'), async (c) => {
       const id = idParam(c)
       return id === null
         ? fail(c, 'user_not_found')
         : send(c, await setDisabled(sideOf(c), userId(c), id, false))
     })
-    .post('/:id/reset-password', async (c) => {
-      const id = idParam(c)
-      return id === null
-        ? fail(c, 'user_not_found')
-        : send(c, await resetPassword(sideOf(c), userId(c), id))
-    })
-    .put('/:id/role', async (c) => {
-      const id = idParam(c)
-      if (id === null) return fail(c, 'user_not_found')
-      const input = (await readJson(c)) as unknown as MemberRoleInput
-      return send(c, await changeRole(sideOf(c), userId(c), id, input))
-    })
+    .post(
+      '/:id/reset-password',
+      doc('Members', 'Give an account a new temporary password'),
+      async (c) => {
+        const id = idParam(c)
+        return id === null
+          ? fail(c, 'user_not_found')
+          : send(c, await resetPassword(sideOf(c), userId(c), id))
+      }
+    )
+    .put(
+      '/:id/role',
+      doc('Members', 'Change an account’s role or branch'),
+      body(memberRoleSchema),
+      async (c) => {
+        const id = idParam(c)
+        if (id === null) return fail(c, 'user_not_found')
+        return send(c, await changeRole(sideOf(c), userId(c), id, c.req.valid('json')))
+      }
+    )
 
 export const companyMemberRoutes = new Hono<AppEnv>()
   .use(...requireCompany, requirePermission('members.manage'))

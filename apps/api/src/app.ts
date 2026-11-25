@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { cors } from 'hono/cors'
 import { secureHeaders } from 'hono/secure-headers'
+import { openAPIRouteHandler } from 'hono-openapi'
 import { config } from './config'
 import { log } from './log'
 import { fail, type AppEnv } from './http/context'
@@ -79,6 +80,26 @@ export const app = new Hono<AppEnv>()
   .route('/templates', templateRoutes)
   .route('/documents', documentRoutes)
   .route('/verify', verifyRoutes)
+
+// The API's description (OpenAPI 3.1), built from the routes' schemas; development only
+if (!config.production) {
+  app.get(
+    '/openapi.json',
+    openAPIRouteHandler(app, {
+      documentation: {
+        info: {
+          title: 'Masarat API',
+          version: '1',
+          description:
+            'Every endpoint answers JSON `{ ok: true, data }` or `{ ok: false, error }`. A body or ' +
+            'query that does not match its schema answers 400 `invalid_request` (some routes keep ' +
+            'their own code). Requests that change something must come from one of the three web ' +
+            'apps (Origin) with the session cookie.'
+        }
+      }
+    })
+  )
+}
 
 app.notFound((c) => fail(c, 'not_found'))
 app.onError((err, c) => {

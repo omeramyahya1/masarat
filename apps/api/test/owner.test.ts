@@ -101,7 +101,15 @@ describe('access', () => {
     const ids = await setup(b)
     const trip = await b.call('POST', '/trips', tripInput(ids))
     const { b: other } = await signedIn('owner.two', 'company_admin')
-    expect((await other.call('PUT', `/vehicles/${ids.vehicleId}`, {})).status).toBe(404)
+    // A well-formed edit still finds nothing: the vehicle isn't theirs
+    const edit = {
+      plateNumber: 'KH 1/1',
+      registrationNo: 'R-1',
+      vehicleType: 'lorry',
+      capacity: 10,
+      capacityUnit: 'ton'
+    }
+    expect((await other.call('PUT', `/vehicles/${ids.vehicleId}`, edit)).status).toBe(404)
     expect((await other.call('GET', `/trips/${trip.body.data.id}`)).status).toBe(404)
     expect((await other.call('POST', `/trips/${trip.body.data.id}/bill`)).status).toBe(404)
     expect((await other.call('GET', `/trips?${NOV}`)).body.data.total).toBe(0)

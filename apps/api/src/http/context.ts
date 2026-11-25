@@ -62,16 +62,6 @@ export const send = <T extends Result>(c: AppContext, result: T): Response =>
 
 export const fail = (c: AppContext, error: string): Response => send(c, { ok: false, error })
 
-// The request's JSON body, or an empty object when it's missing or not JSON
-export async function readJson(c: AppContext): Promise<Record<string, unknown>> {
-  try {
-    const body = await c.req.json()
-    return body && typeof body === 'object' ? body : {}
-  } catch {
-    return {}
-  }
-}
-
 export function clientInfo(c: AppContext): ClientInfo {
   let ip: string | null = null
   if (config.trustProxy) ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || null

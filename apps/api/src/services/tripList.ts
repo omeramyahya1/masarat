@@ -36,16 +36,13 @@ import {
   MANIFEST_STATUSES,
   MAX_PERIOD_DAYS,
   monthPeriod,
-  TRIP_GROUPS,
   TRIP_KINDS,
-  TRIP_SORTS,
-  TRIP_STATUS_FILTERS,
   type FleetResult,
   type TripGroup,
   type TripListQuery,
   type TripRecord
 } from '@masarat/shared/fleet'
-import { DEFAULT_PAGE_SIZE, isPageSize, type GroupSummary, type Page } from '@masarat/shared/paging'
+import type { GroupSummary, Page } from '@masarat/shared/paging'
 import { plateSearchKey } from '@masarat/shared/plate'
 import { tripScopeCondition, type CompanyScope } from './access'
 import { escapeLike, plateKeyOf } from './sqlText'
@@ -53,15 +50,6 @@ import { toTripRecords, tripColumns } from './trips'
 
 const origin = alias(cities, 'list_origin')
 const destination = alias(cities, 'list_destination')
-
-const MAX_QUERY_LENGTH = 80
-
-const oneOf = <T extends string>(list: readonly T[], value: unknown): T | undefined =>
-  (list as readonly unknown[]).includes(value) ? (value as T) : undefined
-const positiveInt = (value: unknown): number | undefined => {
-  const n = Number(value)
-  return Number.isInteger(n) && n > 0 ? n : undefined
-}
 
 // "YYYY-MM-DD" as local midnight (Sudan time, see config.ts), or undefined
 function day(value: unknown): Date | undefined {
@@ -71,29 +59,6 @@ function day(value: unknown): Date | undefined {
   const [y, m, d] = match.slice(1).map(Number)
   const date = new Date(y, m - 1, d)
   return date.getMonth() === m - 1 && date.getDate() === d ? date : undefined
-}
-
-// Query string values from the portal, checked; anything unknown is dropped
-export function parseTripListQuery(raw: Record<string, string | undefined>): TripListQuery {
-  const pageSize = Number(raw.pageSize)
-  return {
-    page: positiveInt(raw.page) ?? 1,
-    pageSize: isPageSize(pageSize) ? pageSize : DEFAULT_PAGE_SIZE,
-    query: raw.query?.trim().slice(0, MAX_QUERY_LENGTH) || undefined,
-    status: oneOf(TRIP_STATUS_FILTERS, raw.status),
-    category: oneOf(TRIP_CATEGORIES, raw.category),
-    tripKind: oneOf(TRIP_KINDS, raw.tripKind),
-    cargoType: oneOf(CARGO_TYPES, raw.cargoType),
-    vehicleId: positiveInt(raw.vehicleId),
-    driverId: positiveInt(raw.driverId),
-    branchId: positiveInt(raw.branchId),
-    from: day(raw.from) ? raw.from : undefined,
-    to: day(raw.to) ? raw.to : undefined,
-    sort: oneOf(TRIP_SORTS, raw.sort) ?? 'departureAt',
-    direction: raw.direction === 'asc' ? 'asc' : 'desc',
-    group: oneOf(TRIP_GROUPS, raw.group),
-    lang: raw.lang === 'ar' ? 'ar' : 'en'
-  }
 }
 
 // Position in a fixed list, for ordering statuses, trip kinds and cargo types as the app lists them

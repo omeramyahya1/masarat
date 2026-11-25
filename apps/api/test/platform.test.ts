@@ -1,6 +1,6 @@
 // What every deployment relies on: production configuration, readiness, security headers, request
 // ids in replies and logs, the least-privileged database role, and the jobs' single-instance lock.
-import { describe, expect, test } from 'bun:test'
+import { beforeAll, describe, expect, test } from 'bun:test'
 import { sql } from 'drizzle-orm'
 import { app } from '../src/app'
 import { ConfigError, buildConfig } from '../src/config'
@@ -8,6 +8,7 @@ import { getDb } from '../src/db'
 import { checkDbRole } from '../src/services/dbRole'
 import { addReadinessCheck } from '../src/services/health'
 import { runJob } from '../src/services/jobs'
+import { resetData, signedIn, type Browser } from './helpers'
 
 const PRODUCTION = {
   APP_ENV: 'production',
@@ -131,5 +132,67 @@ describe('jobs', () => {
     release()
     await first
     expect(runs).toBe(1)
+  })
+})
+
+describe('request validation', () => {
+  let owner: Browser
+  let govt: Browser
+  beforeAll(async () => {
+    await resetData()
+    owner = (await signedIn('validation.owner', 'company_admin')).b
+    govt = (await signedIn('validation.govt', 'govt_agent')).b
+  })
+
+  test('a body of the wrong shape is refused before any service runs', async () => {
+    const wrongType = await owner.call('POST', '/vehicles', {
+      plateNumber: 'KH 1/1',
+      registrationNo: 'R-1',
+      vehicleType: 'lorry',
+      capacity: 'ten',
+      capacityUnit: 'ton'
+    })
+    expect(wrongType).toMatchObject({ status: 400, body: { ok: false, error: 'invalid_request' } })
+    const unknownValue = await owner.call('POST', '/drivers', { name: 'x'.repeat(201), phone: '1' })
+    expect(unknownValue.body.error).toBe('invalid_request')
+    // Some routes keep the code their portal already shows
+    expect((await govt.call('POST', '/govt/dashboard', { filters: {} })).body.error).toBe(
+      'missing_fields'
+    )
+    expect(
+      (await owner.call('POST', '/roles', { name: 'x', scope: 'galaxy', permissions: [] })).body
+        .error
+    ).toBe('invalid_role')
+  })
+
+  test('unknown fields are dropped', async () => {
+    const created = await owner.call('POST', '/drivers', {
+      name: 'Driver One',
+      phone: '0912000111',
+      companyId: 999
+    })
+    expect(created.status).toBe(200)
+    expect(created.body.data.name).toBe('Driver One')
+  })
+
+  test('query strings fall back to defaults instead of failing', async () => {
+    const page = await owner.call('GET', '/trips?page=-3&pageSize=7&sort=nonsense&status=lost')
+    expect(page.status).toBe(200)
+    expect(page.body.data).toMatchObject({ page: 1, pageSize: 50 })
+  })
+})
+
+describe('OpenAPI', () => {
+  test('development serves the API description, built from the schemas', async () => {
+    const res = await app.request('/openapi.json')
+    expect(res.status).toBe(200)
+    const spec = await res.json()
+    expect(spec.openapi).toBe('3.1.0')
+    expect(Object.keys(spec.paths).length).toBeGreaterThan(40)
+    const createVehicle = spec.paths['/vehicles'].post
+    expect(createVehicle.summary).toBe('Add a vehicle')
+    expect(createVehicle.requestBody.content['application/json'].schema.properties).toHaveProperty(
+      'plateNumber'
+    )
   })
 })

@@ -73,7 +73,8 @@
       "password_change_required": "Please choose your own password first.",
       "forbidden": "You don't have access to this.",
       "invalid_phone": "Enter a Sudanese mobile number, e.g. 0912 345 678 or +249 91 234 5678.",
-      "phone_taken": "Another account already uses this phone number."
+      "phone_taken": "Another account already uses this phone number.",
+      "invalid_request": "The request is incomplete or not in the expected form. Reload the page and try again."
     },
     "demoAccounts": {
       "title": "Demo accounts",
@@ -326,7 +327,8 @@
       "template_not_found": "This template could not be found.",
       "invalid_template": "A template needs a bus, a departure time (HH:MM) and a duration.",
       "invalid_settings": "Enter a margin from 0 to 720 hours and a speed from 10 to 150 km/h.",
-      "invalid_period": "Choose a period of at most 92 days that ends after it starts."
+      "invalid_period": "Choose a period of at most 92 days that ends after it starts.",
+      "invalid_request": "The request is incomplete or not in the expected form. Reload the page and try again."
     },
     "groupSummary": "{{count}} vehicles",
     "list": {
@@ -1358,7 +1360,8 @@
       "branch_required": "Choose the member's branch.",
       "branch_not_found": "This branch could not be found, or it is closed.",
       "branch_name_taken": "A branch with this name already exists.",
-      "city_not_found": "Choose the branch's city."
+      "city_not_found": "Choose the branch's city.",
+      "invalid_request": "The request is incomplete or not in the expected form. Reload the page and try again."
     },
     "empty": "No accounts yet.",
     "scopes": {

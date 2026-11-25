@@ -6,8 +6,8 @@
 // It's kept exact: recording a payment as paid adds that trip's rows in the same transaction
 // (addPaidTrip), and bulk writers (demo seeding, the load-test seeder) rebuild it afterwards
 // (rebuildDailyRevenue). Migration 0006 filled it from the history with the same SQL.
-import { sql, type SQL } from 'drizzle-orm'
-import { getDb, type AppDatabase } from '../db'
+import { eq, sql, type SQL } from 'drizzle-orm'
+import { getDb, systemSettings, type AppDatabase } from '../db'
 import { PASSENGERS_SLICE } from '@masarat/shared/dashboard'
 
 type Executor = Pick<AppDatabase, 'execute'>
@@ -97,15 +97,40 @@ export async function addPaidTrip(tx: Executor, manifestId: number): Promise<voi
   await tx.execute(summarySql(sql`p.manifest_id = ${manifestId}`))
 }
 
-// Recomputes the whole summary from the payments (after bulk writes: demo seeding, regenerating,
-// the load-test seeder). Locks the table meanwhile, so a payment recorded at the same time waits
-// and is counted once.
+// While bulk writes change the payments (demo seeding and regenerating, the load-test seeder), the
+// summary doesn't match them. This marker (a system_settings row) says so: it's set before such
+// writes, and cleared only in the transaction that rebuilds the summary. While it's set, the
+// dashboard computes its figures from the payments themselves, and the API's startup rebuilds the
+// summary (a rebuild that failed is retried).
+const STALE_KEY = 'daily_revenue.stale'
+
+export async function markSummaryStale(db: Executor = getDb()): Promise<void> {
+  await db.execute(sql`
+    INSERT INTO system_settings (key, value) VALUES (${STALE_KEY}, 1)
+    ON CONFLICT (key) DO UPDATE SET value = 1, updated_at = now()`)
+}
+
+export async function isSummaryStale(db: AppDatabase = getDb()): Promise<boolean> {
+  const [row] = await db
+    .select({ value: systemSettings.value })
+    .from(systemSettings)
+    .where(eq(systemSettings.key, STALE_KEY))
+    .limit(1)
+  return (row?.value ?? 0) !== 0
+}
+
+// Recomputes the whole summary from the payments (after bulk writes) and clears the stale marker,
+// together. Locks the table meanwhile, so a payment recorded at the same time waits and is
+// counted once.
 export async function rebuildDailyRevenue(db: AppDatabase = getDb()): Promise<void> {
   await db.transaction(async (tx) => {
     await tx.execute(sql`SET LOCAL statement_timeout = 0`)
     await tx.execute(sql`LOCK TABLE daily_revenue IN EXCLUSIVE MODE`)
     await tx.execute(sql`DELETE FROM daily_revenue`)
     await tx.execute(summarySql(sql`true`))
+    await tx.execute(sql`
+      INSERT INTO system_settings (key, value) VALUES (${STALE_KEY}, 0)
+      ON CONFLICT (key) DO UPDATE SET value = 0, updated_at = now()`)
   })
 }
 

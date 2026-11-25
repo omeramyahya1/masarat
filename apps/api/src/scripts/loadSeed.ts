@@ -19,7 +19,7 @@ import { config } from '../config'
 import { closeDb, openUnlimitedDb } from '../db'
 import { hashPassword } from '../services/auth'
 import { ensureDemoData } from '../services/demoData'
-import { rebuildDailyRevenue } from '../services/dailyRevenue'
+import { markSummaryStale, rebuildDailyRevenue } from '../services/dailyRevenue'
 
 const { values: args } = parseArgs({
   args: process.argv.slice(2),
@@ -92,6 +92,8 @@ if (existing > 0) {
 
 // The demo companies first, as the API would seed them in demo mode (its plates and phones never
 // collide with the ones below)
+// The bulk inserts below skip the payment flow: the summary is stale until it's rebuilt at the end
+await markSummaryStale()
 step('Seeding the demo data')
 await ensureDemoData()
 await closeDb()

@@ -4,6 +4,12 @@ import { beforeAll, describe, expect, test } from 'bun:test'
 import { strFromU8, unzipSync } from 'fflate'
 import { ensureDemoData } from '../src/services/demoData'
 import { getDashboard } from '../src/services/dashboard'
+import {
+  dayOf,
+  isSummaryStale,
+  markSummaryStale,
+  rebuildDailyRevenue
+} from '../src/services/dailyRevenue'
 import { exportLimits } from '../src/services/exports'
 import { SEARCH_CAP } from '../src/services/govtTrips'
 import { BREAKDOWNS } from '@masarat/shared/analytics'
@@ -108,6 +114,52 @@ describe('dashboard', () => {
       }
     }
   }, 120_000)
+
+  test('nothing paid after now counts, though it is in today’s summary row', async () => {
+    const view = { bucket: null, breakdown: 'route' as const, sort: 'revenue' as const }
+    const [paid] = await getDb()
+      .select({ id: payments.id, paidAt: payments.paidAt })
+      .from(payments)
+      .where(eq(payments.status, 'paid'))
+      .limit(1)
+    const later = new Date(Date.now() + 60_000)
+    // Only meaningful while a minute from now is still today
+    if (dayOf(later) !== dayOf(new Date())) return
+    await getDb().update(payments).set({ paidAt: later }).where(eq(payments.id, paid.id))
+    try {
+      await rebuildDailyRevenue()
+      const fromSummary = await getDashboard({ range: { preset: '7d' } }, view)
+      const live = await getDashboard({ range: { preset: '7d' } }, view, 'live')
+      expect(fromSummary.kpis.revenue).toBe(live.kpis.revenue)
+      expect(fromSummary.revenueSeries).toEqual(live.revenueSeries)
+      expect(fromSummary.byTax).toEqual(live.byTax)
+    } finally {
+      await getDb().update(payments).set({ paidAt: paid.paidAt }).where(eq(payments.id, paid.id))
+      await rebuildDailyRevenue()
+    }
+  })
+
+  test('a stale summary is not read until it has been rebuilt', async () => {
+    const view = { bucket: null, breakdown: 'route' as const, sort: 'revenue' as const }
+    const before = await getDashboard({ range: { preset: '30d' } }, view)
+    await markSummaryStale()
+    // A summary that no longer matches the payments: emptied, as if a rebuild had failed midway
+    await getDb().execute(sql`delete from daily_revenue`)
+    try {
+      expect(await isSummaryStale()).toBe(true)
+      expect((await getDashboard({ range: { preset: '30d' } }, view)).kpis.revenue).toBe(
+        before.kpis.revenue
+      )
+      // The next startup rebuilds it
+      await ensureDemoData()
+      expect(await isSummaryStale()).toBe(false)
+      expect((await getDashboard({ range: { preset: '30d' } }, view)).kpis.revenue).toBe(
+        before.kpis.revenue
+      )
+    } finally {
+      await rebuildDailyRevenue()
+    }
+  })
 
   test('bad filters are refused', async () => {
     expect((await govt.call('POST', '/govt/dashboard', { filters: {}, view: {} })).status).toBe(400)

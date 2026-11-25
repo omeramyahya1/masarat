@@ -37,7 +37,7 @@ import {
   type TaxSlice
 } from '@masarat/shared/dashboard'
 import { destinationCity, inFilteredTrips, originCity, tripConditions } from './analyticsQuery'
-import { cargoSharesSql, dayOf } from './dailyRevenue'
+import { cargoSharesSql, dayOf, isSummaryStale } from './dailyRevenue'
 
 const RECENT_BILLS = 10
 
@@ -222,25 +222,38 @@ function liveFigures(f: AnalyticsFilters): RevenueFigures {
   }
 }
 
-// Revenue figures from the daily summary. A range covers whole Sudan days, except that a preset
-// runs up to now (today so far is in the summary) and the previous period of a preset starts
-// mid-day: that first partial day is added from the payments themselves.
+// Revenue figures from the daily summary, which holds whole Sudan days. A range is split into the
+// whole days it covers, read from the summary, and the partial days at either end, computed from
+// the payments with the exact bounds: a preset runs up to now (today so far, and nothing paid
+// after now), and the previous period of a preset starts mid-day.
 function summaryFigures(): RevenueFigures {
   const db = getDb()
   const live = liveFigures({ range: { preset: '30d' } })
-  // Whole days from the day `from` falls on to the day before `to` ends ([from, to) as days)
-  const days = (from: Date, to: Date): SQL | undefined => {
-    const first = dayOf(from)
-    const last = dayOf(new Date(to.getTime() - 1))
-    return and(gte(dailyRevenue.day, first), sql`${dailyRevenue.day} <= ${last}`)
+  const midnightOf = (date: Date): Date => parseDay(dayOf(date))!
+  const nextMidnight = (date: Date): Date => {
+    const next = midnightOf(date)
+    next.setDate(next.getDate() + 1)
+    return next
   }
+  // [from, to) as whole days for the summary, and the partial pieces at the ends
+  const split = (
+    from: Date,
+    to: Date
+  ): { whole: { first: string; last: string } | null; partial: [Date, Date][] } => {
+    const wholeFrom = midnightOf(from).getTime() === from.getTime() ? from : nextMidnight(from)
+    const wholeTo = midnightOf(to)
+    if (wholeFrom >= wholeTo) return { whole: null, partial: from < to ? [[from, to]] : [] }
+    const partial: [Date, Date][] = []
+    if (from < wholeFrom) partial.push([from, wholeFrom])
+    if (wholeTo < to) partial.push([wholeTo, to])
+    return {
+      whole: { first: dayOf(wholeFrom), last: dayOf(new Date(wholeTo.getTime() - 1)) },
+      partial
+    }
+  }
+  const inDays = (whole: { first: string; last: string }): SQL | undefined =>
+    and(gte(dailyRevenue.day, whole.first), sql`${dailyRevenue.day} <= ${whole.last}`)
   const dimension = (name: RevenueDimension): SQL => eq(dailyRevenue.dimension, name)
-  // Where `from` isn't midnight, the part of its day before `from` must be left out: it is in the
-  // summary's row for that day. Split it off and compute it live.
-  const split = (from: Date): { midnight: Date; partial: boolean } => {
-    const day = parseDay(dayOf(from))!
-    return { midnight: day, partial: day.getTime() !== from.getTime() }
-  }
   type SummaryRow = {
     key: string
     revenue: number
@@ -248,96 +261,172 @@ function summaryFigures(): RevenueFigures {
     name: string | null
     nameAr: string | null
   }
-  const grouped = async (name: RevenueDimension, from: Date, to: Date): Promise<SummaryRow[]> =>
-    db
-      .select({
-        key: dailyRevenue.key,
-        revenue: sql<number>`sum(${dailyRevenue.revenue})`.mapWith(Number),
-        trips: sql<number>`sum(${dailyRevenue.trips})`.mapWith(Number),
-        name: sql<
-          string | null
-        >`(array_agg(${dailyRevenue.name} order by ${dailyRevenue.day} desc))[1]`,
-        nameAr: sql<
-          string | null
-        >`(array_agg(${dailyRevenue.nameAr} order by ${dailyRevenue.day} desc))[1]`
-      })
-      .from(dailyRevenue)
-      .where(and(dimension(name), days(from, to)))
-      .groupBy(dailyRevenue.key)
-      .orderBy(desc(sql`sum(${dailyRevenue.revenue})`))
-  const rows = (list: { key: string; revenue: number; trips: number }[]): BreakdownRow[] =>
-    list.map((r) => ({ key: r.key, revenue: Math.round(r.revenue), trips: r.trips }))
+  const grouped = async (
+    name: RevenueDimension,
+    whole: { first: string; last: string } | null
+  ): Promise<SummaryRow[]> =>
+    whole
+      ? db
+          .select({
+            key: dailyRevenue.key,
+            revenue: sql<number>`sum(${dailyRevenue.revenue})`.mapWith(Number),
+            trips: sql<number>`sum(${dailyRevenue.trips})`.mapWith(Number),
+            name: sql<
+              string | null
+            >`(array_agg(${dailyRevenue.name} order by ${dailyRevenue.day} desc))[1]`,
+            nameAr: sql<
+              string | null
+            >`(array_agg(${dailyRevenue.nameAr} order by ${dailyRevenue.day} desc))[1]`
+          })
+          .from(dailyRevenue)
+          .where(and(dimension(name), inDays(whole)))
+          .groupBy(dailyRevenue.key)
+      : []
+  // Rows of the same key added together (whole days and partial ones), by revenue; the later
+  // piece's name wins (a charge's name on its latest bill)
+  const merge = <T extends { key: string; revenue: number; trips: number }>(lists: T[][]): T[] => {
+    const byKey = new Map<string, T>()
+    for (const row of lists.flat()) {
+      const found = byKey.get(row.key)
+      byKey.set(
+        row.key,
+        found
+          ? {
+              ...found,
+              ...row,
+              revenue: found.revenue + row.revenue,
+              trips: found.trips + row.trips
+            }
+          : { ...row }
+      )
+    }
+    return [...byKey.values()].sort((a, b) => b.revenue - a.revenue)
+  }
 
   return {
     async revenue(from, to) {
-      const { midnight, partial } = split(from)
-      if (partial) {
-        // The first day's row covers it from midnight: take off what came before `from`
-        const before = await live.revenue(midnight, from)
+      const { whole, partial } = split(from, to)
+      let value = 0
+      if (whole) {
         const [row] = await db
           .select({ value: sql<number>`coalesce(sum(${dailyRevenue.revenue}), 0)`.mapWith(Number) })
           .from(dailyRevenue)
-          .where(and(dimension('total'), days(midnight, to)))
-        return Math.round((row?.value ?? 0) - before)
+          .where(and(dimension('total'), inDays(whole)))
+        value += row?.value ?? 0
       }
-      const [row] = await db
-        .select({ value: sql<number>`coalesce(sum(${dailyRevenue.revenue}), 0)`.mapWith(Number) })
-        .from(dailyRevenue)
-        .where(and(dimension('total'), days(from, to)))
-      return Math.round(row?.value ?? 0)
+      for (const [a, b] of partial) value += await live.revenue(a, b)
+      return Math.round(value)
     },
 
     async series(from, to, bucket) {
-      const perDay = await db
-        .select({ day: dailyRevenue.day, revenue: dailyRevenue.revenue, trips: dailyRevenue.trips })
-        .from(dailyRevenue)
-        .where(and(dimension('total'), days(from, to)))
+      const { whole, partial } = split(from, to)
       const points = new Map<number, RevenuePoint>()
-      for (const row of perDay) {
-        const start = bucketStart(parseDay(row.day)!, bucket).getTime()
+      const add = (start: number, revenue: number, trips: number): void => {
         const point = points.get(start) ?? { start, revenue: 0, trips: 0 }
-        point.revenue += row.revenue
-        point.trips += row.trips
+        point.revenue += revenue
+        point.trips += trips
         points.set(start, point)
+      }
+      if (whole) {
+        for (const row of await db
+          .select({
+            day: dailyRevenue.day,
+            revenue: dailyRevenue.revenue,
+            trips: dailyRevenue.trips
+          })
+          .from(dailyRevenue)
+          .where(and(dimension('total'), inDays(whole)))) {
+          add(bucketStart(parseDay(row.day)!, bucket).getTime(), row.revenue, row.trips)
+        }
+      }
+      for (const [a, b] of partial) {
+        for (const point of (await live.series(a, b, bucket)).values()) {
+          add(point.start, point.revenue, point.trips)
+        }
       }
       for (const point of points.values()) point.revenue = Math.round(point.revenue)
       return points
     },
 
     async byCargo(from, to) {
-      return cargoSlices(await grouped('cargo', from, to))
+      const { whole, partial } = split(from, to)
+      const pieces = [
+        (await grouped('cargo', whole)) as { key: string; revenue: number; trips: number }[]
+      ]
+      for (const [a, b] of partial) {
+        pieces.push(
+          (await live.byCargo(a, b)).map((c) => ({
+            key: c.cargoType,
+            revenue: c.revenue,
+            trips: c.trips
+          }))
+        )
+      }
+      return cargoSlices(merge(pieces))
     },
 
     async byTax(from, to) {
-      return (await grouped('charge', from, to)).map((r) => ({
+      const { whole, partial } = split(from, to)
+      const pieces = [
+        (await grouped('charge', whole)).map((r) => ({
+          key: r.key,
+          name: r.name ?? r.key,
+          nameAr: r.nameAr ?? r.name ?? r.key,
+          revenue: r.revenue,
+          trips: 0
+        }))
+      ]
+      for (const [a, b] of partial) {
+        pieces.push(
+          (await live.byTax(a, b)).map((t) => ({
+            key: t.code,
+            name: t.name,
+            nameAr: t.nameAr,
+            revenue: t.revenue,
+            trips: 0
+          }))
+        )
+      }
+      return merge(pieces).map((r) => ({
         code: r.key,
-        name: r.name ?? r.key,
-        nameAr: r.nameAr ?? r.name ?? r.key,
+        name: r.name,
+        nameAr: r.nameAr,
         revenue: Math.round(r.revenue)
       }))
     },
 
     async breakdown(from, to, by) {
-      const of = async (name: RevenueDimension): Promise<BreakdownRow[]> =>
-        rows(await grouped(name, from, to))
-      switch (by) {
-        case 'route':
-          return withRouteCities(await of('route'))
-        case 'originState':
-          return of('origin_state')
-        case 'destinationState':
-          return of('destination_state')
-        case 'cargoType':
-          return of('cargo')
-        case 'vehicleType':
-          return of('vehicle_type')
-        case 'tripKind':
-          return of('trip_kind')
-        case 'category':
-          return of('category')
-        case 'company':
-          return withCompanyNames(await of('company'))
+      const { whole, partial } = split(from, to)
+      const dimensionOf: Record<Breakdown, RevenueDimension> = {
+        route: 'route',
+        originState: 'origin_state',
+        destinationState: 'destination_state',
+        cargoType: 'cargo',
+        vehicleType: 'vehicle_type',
+        tripKind: 'trip_kind',
+        category: 'category',
+        company: 'company'
       }
+      const pieces: BreakdownRow[][] = [
+        (await grouped(dimensionOf[by], whole)).map((r) => ({
+          key: r.key,
+          revenue: r.revenue,
+          trips: r.trips
+        }))
+      ]
+      for (const [a, b] of partial) {
+        pieces.push(
+          (await live.breakdown(a, b, by)).map((r) => ({
+            key: r.key,
+            revenue: r.revenue,
+            trips: r.trips
+          }))
+        )
+      }
+      const rows = merge(pieces).map((r) => ({ ...r, revenue: Math.round(r.revenue) }))
+      if (by === 'route') return withRouteCities(rows)
+      if (by === 'company') return withCompanyNames(rows)
+      return rows
     }
   }
 }
@@ -383,8 +472,11 @@ export async function getDashboard(
   const { from, to } = resolveRange(filters.range, now)
   const previousFrom = new Date(from.getTime() - (to.getTime() - from.getTime()))
   const bucket = resolveBucket(from, to, view.bucket)
+  // The summary answers unfiltered views, unless bulk writes have left it stale (dailyRevenue.ts)
   const figures =
-    source === 'auto' && !tripConditions(filters) ? summaryFigures() : liveFigures(filters)
+    source === 'auto' && !tripConditions(filters) && !(await isSummaryStale())
+      ? summaryFigures()
+      : liveFigures(filters)
   // Trips matching the route / cargo / vehicle / company filters, for the non-revenue counts
   const inTrips = (column: Parameters<typeof inFilteredTrips>[0]): SQL | undefined =>
     inFilteredTrips(column, filters)

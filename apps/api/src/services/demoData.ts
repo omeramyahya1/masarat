@@ -49,7 +49,7 @@ import { pricing } from './pricing'
 import { config } from '../config'
 import { certificateNoFor, manifestNoFor, validUntilFor } from './billing'
 import { removeTripFolder } from './documents'
-import { rebuildDailyRevenue } from './dailyRevenue'
+import { isSummaryStale, markSummaryStale, rebuildDailyRevenue } from './dailyRevenue'
 import { newBillId } from './esali'
 
 const DAY_MS = 86_400_000
@@ -1137,10 +1137,12 @@ async function withDemoDataLock(work: () => Promise<void>): Promise<void> {
 export async function ensureDemoData(): Promise<void> {
   await withDemoDataLock(async () => {
     if ((await demoCompanyIds()).length === 0) {
+      // The seeded payments skip the payment flow, so the summary is rebuilt from them; until
+      // then it's marked stale, and a rebuild that fails is retried on the next startup
+      await markSummaryStale()
       await seedCompanies()
-      // The seeded payments skipped the payment flow, so the summary is rebuilt from them
-      await rebuildDailyRevenue()
     }
+    if (await isSummaryStale()) await rebuildDailyRevenue()
     await createGovtAccounts()
   })
 }
@@ -1150,6 +1152,8 @@ export async function ensureDemoData(): Promise<void> {
 export async function regenerateDemoData(): Promise<void> {
   if (!config.demoMode) throw new Error('Demo data can only be regenerated in demo mode')
   await withDemoDataLock(async () => {
+    // The dashboard reads the payments themselves until the summary is rebuilt
+    await markSummaryStale()
     await deleteDemoCompanies()
     await seedCompanies()
     await rebuildDailyRevenue()

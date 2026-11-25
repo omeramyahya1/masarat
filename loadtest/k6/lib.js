@@ -120,6 +120,9 @@ const ENDPOINTS = [
 ]
 export const thresholds = {
   http_req_failed: ['rate<0.001'],
+  // An arrival-rate run that couldn't start its iterations on time (no VU free) didn't send the
+  // load it claims: no iteration may be dropped
+  dropped_iterations: ['count==0'],
   checks: ['rate>0.999'],
   'http_req_duration{kind:read}': ['p(95)<500'],
   'http_req_duration{kind:write}': ['p(95)<1000'],

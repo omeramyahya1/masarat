@@ -1,6 +1,9 @@
-// The company's trips list (a branch member's: their branch's), paged: search, filters, sort, and grouping across pages. Rows are ordered
-// by their group first, so each page carries the headers of the groups on it, with each group's
-// count and total due over every page.
+// The company's trips list (a branch member's: their branch's), one period at a time (a month by
+// default, at most MAX_PERIOD_DAYS), paged within it: search, filters, sort, and grouping across
+// the period's pages. Everything (the counts, the groups, the search) covers the period only, so
+// a query reads one range of the company's (or branch's) index, never the whole history. Rows are
+// ordered by their group first, so each page carries the headers of the groups on it, with each
+// group's count and total due over the period.
 import {
   and,
   asc,
@@ -17,12 +20,22 @@ import {
   type SQLWrapper
 } from 'drizzle-orm'
 import { alias, type PgSelect } from 'drizzle-orm/pg-core'
-import { cities, getDb, manifestCargoItems, manifests, tripPassengers, vehicles } from '../db'
+import {
+  cities,
+  getDb,
+  manifestCargoItems,
+  manifests,
+  people,
+  tripPassengers,
+  vehicles
+} from '../db'
 import { idSearchKey } from '@masarat/shared/passengers'
 import { TRIP_CATEGORIES } from '@masarat/shared/tax'
 import {
   CARGO_TYPES,
   MANIFEST_STATUSES,
+  MAX_PERIOD_DAYS,
+  monthPeriod,
   TRIP_GROUPS,
   TRIP_KINDS,
   TRIP_SORTS,
@@ -35,7 +48,7 @@ import {
 import { DEFAULT_PAGE_SIZE, isPageSize, type GroupSummary, type Page } from '@masarat/shared/paging'
 import { plateSearchKey } from '@masarat/shared/plate'
 import { tripScopeCondition, type CompanyScope } from './access'
-import { contains, escapeLike, plateKeyOf } from './sqlText'
+import { escapeLike, plateKeyOf } from './sqlText'
 import { toTripRecords, tripColumns } from './trips'
 
 const origin = alias(cities, 'list_origin')
@@ -157,24 +170,32 @@ const SORT_COLUMNS: Record<TripListQuery['sort'], SQLWrapper> = {
   status: positionIn(MANIFEST_STATUSES, manifests.status)
 }
 
-// What the search box matches: the trip number ("#12"), the plate (either script and digits),
-// a city, the driver, sender or receiver, or a cargo item's name
+// What the search box matches, within the period: the trip number ("#12" or "12"), the plate
+// (either script and digits, as part of it), or a whole name: a city, the driver, sender or
+// receiver, a passenger, or a cargo item. Names are compared whole, by masarat_name_key (migration
+// 0008: case, spaces and Arabic spelling variants don't matter), never as part of a name. A
+// passenger is also found by their exact ID number.
 function searchCondition(text: string): SQL | undefined {
   const plate = plateSearchKey(text)
   const idKey = idSearchKey(text)
+  const tripNo = /^#?(\d{1,9})$/.exec(
+    text.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+  )
+  const key = sql`masarat_name_key(${text})`
+  const sameName = (column: SQLWrapper): SQL => sql`masarat_name_key(${column}) = ${key}`
   return or(
-    contains(sql`'#' || ${manifests.id}::text`, text),
+    tripNo ? eq(manifests.id, Number(tripNo[1])) : undefined,
     plate.length >= 2
       ? sql`${plateKeyOf(vehicles.plateNumber)} LIKE ${`%${escapeLike(plate)}%`} ESCAPE '\\'`
       : undefined,
-    contains(origin.name, text),
-    contains(origin.nameAr, text),
-    contains(destination.name, text),
-    contains(destination.nameAr, text),
-    contains(manifests.driverName, text),
-    contains(manifests.shipperName, text),
-    contains(manifests.receiverName, text),
-    // A passenger by name, or by their exact ID number
+    sameName(origin.name),
+    sameName(origin.nameAr),
+    sameName(destination.name),
+    sameName(destination.nameAr),
+    sameName(manifests.driverName),
+    sameName(manifests.shipperName),
+    sameName(manifests.receiverName),
+    // A passenger by their name as booked, or by their exact ID number (through the registry)
     exists(
       getDb()
         .select({ id: tripPassengers.id })
@@ -183,8 +204,13 @@ function searchCondition(text: string): SQL | undefined {
           and(
             eq(tripPassengers.manifestId, manifests.id),
             or(
-              contains(tripPassengers.fullName, text),
-              idKey ? eq(tripPassengers.idNumber, idKey) : undefined
+              sameName(tripPassengers.fullName),
+              idKey
+                ? inArray(
+                    tripPassengers.personId,
+                    getDb().select({ id: people.id }).from(people).where(eq(people.idNumber, idKey))
+                  )
+                : undefined
             )
           )
         )
@@ -194,21 +220,40 @@ function searchCondition(text: string): SQL | undefined {
         .select({ id: manifestCargoItems.id })
         .from(manifestCargoItems)
         .where(
-          and(
-            eq(manifestCargoItems.manifestId, manifests.id),
-            contains(manifestCargoItems.name, text)
-          )
+          and(eq(manifestCargoItems.manifestId, manifests.id), sameName(manifestCargoItems.name))
         )
     )
   )
 }
 
-function filterConditions(scope: CompanyScope, q: TripListQuery): SQL | undefined {
-  const from = q.from ? day(q.from) : undefined
-  const to = q.to ? day(q.to) : undefined
-  const nextDay = to ? new Date(to.getFullYear(), to.getMonth(), to.getDate() + 1) : undefined
+// The period a query covers, as [from, to) local midnights and its days; the current month when
+// it's missing; null when it isn't a valid range of at most MAX_PERIOD_DAYS days
+export function resolvePeriod(
+  q: Pick<TripListQuery, 'from' | 'to'>,
+  now = new Date()
+): { from: Date; to: Date; days: { from: string; to: string } } | null {
+  const days =
+    q.from === undefined && q.to === undefined
+      ? monthPeriod(now.getFullYear(), now.getMonth())
+      : { from: q.from ?? '', to: q.to ?? '' }
+  const from = day(days.from)
+  const last = day(days.to)
+  if (!from || !last || last < from) return null
+  const to = new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1)
+  const span = Math.round((to.getTime() - from.getTime()) / 86_400_000)
+  if (span > MAX_PERIOD_DAYS) return null
+  return { from, to, days }
+}
+
+function filterConditions(
+  scope: CompanyScope,
+  q: TripListQuery,
+  period: { from: Date; to: Date }
+): SQL | undefined {
   return and(
     tripScopeCondition(scope),
+    gte(manifests.departureAt, period.from),
+    lt(manifests.departureAt, period.to),
     q.status === 'billed'
       ? inArray(manifests.status, ['billed', 'paid'])
       : q.status
@@ -236,8 +281,6 @@ function filterConditions(scope: CompanyScope, q: TripListQuery): SQL | undefine
     q.vehicleId ? eq(manifests.vehicleId, q.vehicleId) : undefined,
     q.driverId ? eq(manifests.driverId, q.driverId) : undefined,
     q.branchId ? eq(manifests.branchId, q.branchId) : undefined,
-    from ? gte(manifests.departureAt, from) : undefined,
-    nextDay ? lt(manifests.departureAt, nextDay) : undefined,
     q.query ? searchCondition(q.query) : undefined
   )
 }
@@ -247,7 +290,14 @@ export async function listTripsPage(
   q: TripListQuery
 ): Promise<FleetResult<Page<TripRecord>>> {
   const db = getDb()
-  const where = filterConditions(scope, q)
+  const period = resolvePeriod(q)
+  if (!period) return { ok: false, error: 'invalid_period' }
+  const inPeriod = and(
+    tripScopeCondition(scope),
+    gte(manifests.departureAt, period.from),
+    lt(manifests.departureAt, period.to)
+  )
+  const where = filterConditions(scope, q, period)
   // Only a search reads the vehicle's plate and the cities' names; without one, the counts and
   // the group totals read manifests alone, through the company's (or branch's) index
   const searchJoins = <T extends PgSelect>(query: T): T =>
@@ -259,7 +309,8 @@ export async function listTripsPage(
       : query
   const [[{ total }], [{ overall }]] = await Promise.all([
     searchJoins(db.select({ total: count() }).from(manifests).$dynamic()).where(where),
-    db.select({ overall: count() }).from(manifests).where(tripScopeCondition(scope))
+    // Every trip of the period, before the search and filters
+    db.select({ overall: count() }).from(manifests).where(inPeriod)
   ])
 
   // A page past the end shows the last one
@@ -318,7 +369,8 @@ export async function listTripsPage(
       overall,
       page,
       pageSize: q.pageSize,
-      groups
+      groups,
+      period: period.days
     }
   }
 }

@@ -1,7 +1,7 @@
 // The signed-in account as the rest of the API sees it: its company, role, branch and permissions,
 // loaded with every request (services/sessions.ts finds the user, the session middleware calls
 // accountOf). The scope helpers turn it into what the trip services filter by.
-import { and, eq, type SQL } from 'drizzle-orm'
+import { eq, type SQL } from 'drizzle-orm'
 import {
   branches,
   companies,
@@ -105,13 +105,14 @@ export function scopeOf(account: AuthUser): CompanyScope {
   return { companyId: account.company.id, branchId }
 }
 
-// The trips a scope may see, as a condition on manifests alone: the company's trips, and the
-// member's branch when they're branch-scoped (both served by an index with the departure, so a
-// list's count reads only that company's or branch's rows). Null (the government) sees every trip.
+// The trips a scope may see, as a condition on manifests alone: a branch-scoped member's branch,
+// or the company's trips. A branch is one company's (createTrip books only at the company's own
+// branches), so the branch alone is enough, and a count reads only the (branch_id, departure_at)
+// index; a company-wide member's reads (company_id, departure_at). Null (the government) sees
+// every trip.
 export function tripScopeCondition(scope: TripScope): SQL | undefined {
   if (scope === null) return undefined
-  return and(
-    eq(manifests.companyId, scope.companyId),
-    scope.branchId === null ? undefined : eq(manifests.branchId, scope.branchId)
-  )
+  return scope.branchId === null
+    ? eq(manifests.companyId, scope.companyId)
+    : eq(manifests.branchId, scope.branchId)
 }

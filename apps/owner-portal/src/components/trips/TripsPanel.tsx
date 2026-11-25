@@ -352,6 +352,22 @@ function TripsPanel({
       </div>
 
       {(error ?? list.error) && <FormAlert message={t(`fleet.errors.${error ?? list.error}`)} />}
+      {/* A period kept from before that the API refuses: one click back to this month */}
+      {list.error === 'invalid_period' && (
+        <div>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              const { from, to, ...others } = list.state.filters
+              list.update({ filters: others })
+            }}
+          >
+            {t('trips.period.reset')}
+          </button>
+        </div>
+      )}
       {deleted !== null && (
         <FormAlert tone="success" message={t('trips.deleted', { id: format.number(deleted) })} />
       )}

@@ -628,7 +628,8 @@
       "to": "To",
       "apply": "Show",
       "range": "{{from}} – {{to}}",
-      "limit": "A period of up to 92 days."
+      "limit": "A period of up to 92 days.",
+      "reset": "Show this month"
     }
   },
   "billing": {

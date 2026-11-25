@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CalendarRange, ChevronLeft, ChevronRight } from 'lucide-react'
-import { monthPeriod } from '@masarat/shared/fleet'
+import { MAX_PERIOD_DAYS, monthPeriod } from '@masarat/shared/fleet'
 import { useFormat } from '@masarat/ui/lib/format'
 
 type Period = { from: string; to: string }
@@ -33,6 +33,8 @@ function PeriodBar({
   const { t } = useTranslation()
   const format = useFormat()
   const [custom, setCustom] = useState<Period | null>(null)
+  // A range the API would refuse is caught here, so the list never loses its period bar
+  const [invalid, setInvalid] = useState(false)
   const from = parse(period.from)
   const month = isMonth(period)
   const monthName = new Intl.DateTimeFormat(format.isArabic ? 'ar-SD-u-nu-latn' : 'en-US', {
@@ -86,6 +88,9 @@ function PeriodBar({
           className="flex flex-wrap items-end gap-2"
           onSubmit={(e) => {
             e.preventDefault()
+            const days = (parse(custom.to).getTime() - parse(custom.from).getTime()) / 86_400_000
+            if (!(days >= 0 && days < MAX_PERIOD_DAYS)) return setInvalid(true)
+            setInvalid(false)
             onChange(custom)
             setCustom(null)
           }}
@@ -113,10 +118,22 @@ function PeriodBar({
           <button type="submit" className="btn btn-primary">
             {t('trips.period.apply')}
           </button>
-          <button type="button" className="btn btn-secondary" onClick={() => setCustom(null)}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              setCustom(null)
+              setInvalid(false)
+            }}
+          >
             {t('common.cancel')}
           </button>
-          <span className="w-full text-xs text-stone-500">{t('trips.period.limit')}</span>
+          <span
+            role={invalid ? 'alert' : undefined}
+            className={`w-full text-xs ${invalid ? 'text-red-700' : 'text-stone-500'}`}
+          >
+            {t(invalid ? 'fleet.errors.invalid_period' : 'trips.period.limit')}
+          </span>
         </form>
       )}
     </div>

@@ -161,6 +161,29 @@ describe('dashboard', () => {
     }
   })
 
+  test('filtered counts count the matching trips only', async () => {
+    const view = { bucket: null, breakdown: 'route' as const, sort: 'revenue' as const }
+    const data = await getDashboard({ range: { preset: '30d' }, category: 'passenger' }, view)
+    const from = new Date(data.from).toISOString()
+    const to = new Date(data.to).toISOString()
+    const [expected] = await getDb().execute<{
+      pending: number
+      issued: number
+      created: number
+    }>(sql`
+      select
+        (select count(*)::int from payments p join manifests m on m.id = p.manifest_id
+          where p.status = 'pending' and m.category = 'passenger') as pending,
+        (select count(*)::int from certificates c join manifests m on m.id = c.manifest_id
+          where c.issued_at >= ${from} and c.issued_at < ${to} and m.category = 'passenger') as issued,
+        (select count(*)::int from manifests m
+          where m.created_at >= ${from} and m.created_at < ${to} and m.category = 'passenger') as created`)
+    expect(data.kpis.pendingBills).toBe(expected.pending)
+    expect(data.kpis.certificatesIssued).toBe(expected.issued)
+    expect(Object.values(data.statusCounts).reduce((a, b) => a + b, 0)).toBe(expected.created)
+    expect(expected.created).toBeGreaterThan(0)
+  })
+
   test('bad filters are refused', async () => {
     expect((await govt.call('POST', '/govt/dashboard', { filters: {}, view: {} })).status).toBe(400)
   })

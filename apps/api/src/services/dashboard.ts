@@ -477,26 +477,51 @@ export async function getDashboard(
     source === 'auto' && !tripConditions(filters) && !(await isSummaryStale())
       ? summaryFigures()
       : liveFigures(filters)
-  // Trips matching the route / cargo / vehicle / company filters, for the non-revenue counts
+  // Trips matching the route / cargo / vehicle / company filters, for the latest bills
   const inTrips = (column: Parameters<typeof inFilteredTrips>[0]): SQL | undefined =>
     inFilteredTrips(column, filters)
+  // The counts below read their indexes alone when no trip filter is set; with one, each row is
+  // joined to its trip by the trip's primary key and the filter applied there (an IN over every
+  // matching trip would read them all). `manifestId` is the column to join on, or null when the
+  // query already has the trip.
+  const tripFilter = tripConditions(filters)
+  const withTrips = <T extends PgSelect>(
+    query: T,
+    manifestId: typeof payments.manifestId | typeof certificates.manifestId | null,
+    where: SQL | undefined
+  ): T => {
+    if (!tripFilter) return query.where(where) as unknown as T
+    let joined = query as unknown as PgSelect
+    if (manifestId) joined = joined.innerJoin(manifests, eq(manifestId, manifests.id)) as never
+    joined = joined
+      .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
+      .innerJoin(originCity, eq(manifests.originCityId, originCity.id))
+      .innerJoin(destinationCity, eq(manifests.destinationCityId, destinationCity.id)) as never
+    return joined.where(and(where, tripFilter)) as unknown as T
+  }
 
-  const [pending] = await db
-    .select({ bills: count(), amount: sum(payments.amount) })
-    .from(payments)
-    .where(and(eq(payments.status, 'pending'), inTrips(payments.manifestId)))
+  const [pending] = await withTrips(
+    db
+      .select({ bills: count(), amount: sum(payments.amount) })
+      .from(payments)
+      .$dynamic(),
+    payments.manifestId,
+    eq(payments.status, 'pending')
+  )
 
-  const [billed] = await db
-    .select({
-      amount: sum(payments.amount),
-      paid: sql<number>`coalesce(sum(case when ${payments.status} = 'paid' then ${payments.amount} else 0 end), 0)`.mapWith(
-        Number
-      )
-    })
-    .from(payments)
-    .where(
-      and(gte(payments.createdAt, from), lt(payments.createdAt, to), inTrips(payments.manifestId))
-    )
+  const [billed] = await withTrips(
+    db
+      .select({
+        amount: sum(payments.amount),
+        paid: sql<number>`coalesce(sum(case when ${payments.status} = 'paid' then ${payments.amount} else 0 end), 0)`.mapWith(
+          Number
+        )
+      })
+      .from(payments)
+      .$dynamic(),
+    payments.manifestId,
+    and(gte(payments.createdAt, from), lt(payments.createdAt, to))
+  )
   const billedAmount = total(billed?.amount ?? null)
 
   const [first] = await db
@@ -510,11 +535,11 @@ export async function getDashboard(
     ManifestStatus,
     number
   >
-  for (const row of await db
-    .select({ status: manifests.status, value: count() })
-    .from(manifests)
-    .where(and(gte(manifests.createdAt, from), lt(manifests.createdAt, to), inTrips(manifests.id)))
-    .groupBy(manifests.status)) {
+  for (const row of await withTrips(
+    db.select({ status: manifests.status, value: count() }).from(manifests).$dynamic(),
+    null,
+    and(gte(manifests.createdAt, from), lt(manifests.createdAt, to))
+  ).groupBy(manifests.status)) {
     statusCounts[row.status] = row.value
   }
 
@@ -591,31 +616,24 @@ export async function getDashboard(
           ? await figures.revenue(previousFrom, from)
           : null,
       activeTrips: countOf(
-        await db
-          .select({ value: count() })
-          .from(certificates)
-          .innerJoin(manifests, eq(certificates.manifestId, manifests.id))
-          .where(
-            and(
-              eq(manifests.status, 'certified'),
-              gte(certificates.validUntil, now),
-              inTrips(manifests.id)
-            )
-          )
+        await withTrips(
+          db
+            .select({ value: count() })
+            .from(certificates)
+            .innerJoin(manifests, eq(certificates.manifestId, manifests.id))
+            .$dynamic(),
+          null,
+          and(eq(manifests.status, 'certified'), gte(certificates.validUntil, now))
+        )
       ),
       pendingBills: pending?.bills ?? 0,
       pendingAmount: total(pending?.amount ?? null),
       certificatesIssued: countOf(
-        await db
-          .select({ value: count() })
-          .from(certificates)
-          .where(
-            and(
-              gte(certificates.issuedAt, from),
-              lt(certificates.issuedAt, to),
-              inTrips(certificates.manifestId)
-            )
-          )
+        await withTrips(
+          db.select({ value: count() }).from(certificates).$dynamic(),
+          certificates.manifestId,
+          and(gte(certificates.issuedAt, from), lt(certificates.issuedAt, to))
+        )
       ),
       collectionRate: billedAmount > 0 ? total(billed?.paid ?? 0) / billedAmount : null,
       vehicles: countOf(await db.select({ value: count() }).from(vehicles).where(vehicleScope)),

@@ -49,6 +49,7 @@ import {
   manifestTrailers,
   manifests,
   tripPassengers,
+  people,
   payments,
   states,
   vehicles,
@@ -356,8 +357,18 @@ async function buildRows(
   }
   for (const p of wanted.has('passengers')
     ? await db
-        .select()
+        .select({
+          manifestId: tripPassengers.manifestId,
+          position: tripPassengers.position,
+          seatNo: tripPassengers.seatNo,
+          fullName: tripPassengers.fullName,
+          isInfant: tripPassengers.isInfant,
+          idType: people.idType,
+          idNumber: people.idNumber,
+          notes: tripPassengers.notes
+        })
         .from(tripPassengers)
+        .leftJoin(people, eq(people.id, tripPassengers.personId))
         .where(inArray(tripPassengers.manifestId, ids))
         .then(inTripOrder)
     : []) {

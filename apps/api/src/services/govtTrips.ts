@@ -9,6 +9,7 @@ import {
   manifests,
   payments,
   tripPassengers,
+  people,
   vehicles
 } from '../db'
 import type { GovtSearchInput, GovtSearchResult } from '@masarat/shared/billing'
@@ -51,7 +52,8 @@ function textConditions(raw: string): SQL | undefined {
         )
       : undefined
 
-  // A passenger's national ID or passport number, exactly: one lookup in its index
+  // A passenger's national ID or passport number, exactly: the person (one lookup in the
+  // registry's index), then their trips
   const idKey = idSearchKey(text)
   const passenger = idKey
     ? anyOf(
@@ -59,7 +61,12 @@ function textConditions(raw: string): SQL | undefined {
         db
           .select({ id: tripPassengers.manifestId })
           .from(tripPassengers)
-          .where(eq(tripPassengers.idNumber, idKey))
+          .where(
+            anyOf(
+              tripPassengers.personId,
+              db.select({ id: people.id }).from(people).where(eq(people.idNumber, idKey))
+            )
+          )
       )
     : undefined
 

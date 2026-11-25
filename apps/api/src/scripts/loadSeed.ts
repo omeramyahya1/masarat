@@ -367,16 +367,29 @@ trailers AS (
   SELECT m.id, 1, 'KH ' || (1 + m.id % 99) || '/' || (1 + m.id % 99999)
   FROM m WHERE m.category = 'cargo' AND m.id % 4 = 0
 ),
-pax AS (
-  INSERT INTO trip_passengers (manifest_id, position, full_name, id_type, id_number, seat_no, is_infant, notes)
-  SELECT m.id, s, (ARRAY['محمد','فاطمة','أحمد','آمنة','عثمان','مريم','الطيب','هالة','إبراهيم','سلمى'])[1 + floor(random() * 10)::int] || ' ' ||
-                  (ARRAY['عبدالله','الحسن','آدم','موسى','الأمين','بابكر','يوسف','علي'])[1 + floor(random() * 8)::int],
-         CASE WHEN r < 0.05 THEN 'passport' ELSE 'national_id' END,
+pgen AS (
+  SELECT m.id AS manifest_id, s,
+         (ARRAY['محمد','فاطمة','أحمد','آمنة','عثمان','مريم','الطيب','هالة','إبراهيم','سلمى'])[1 + floor(random() * 10)::int] || ' ' ||
+         (ARRAY['عبدالله','الحسن','آدم','موسى','الأمين','بابكر','يوسف','علي'])[1 + floor(random() * 8)::int] AS full_name,
+         CASE WHEN r < 0.05 THEN 'passport' ELSE 'national_id' END AS id_type,
          CASE WHEN r < 0.05 THEN 'P' || lpad(floor(random() * 1e8)::text, 8, '0')
-              ELSE (10000000000 + floor(random() * 89999999999))::bigint::text END,
-         s, false, NULL
-  FROM m CROSS JOIN LATERAL generate_series(1, m.cargo_quantity::int) s CROSS JOIN LATERAL (SELECT random() AS r) rr
+              ELSE (10000000000 + floor(random() * 89999999999))::bigint::text END AS id_number
+  FROM m CROSS JOIN LATERAL generate_series(1, m.cargo_quantity::int) s
+  CROSS JOIN LATERAL (SELECT random() + 0 * s AS r) rr
   WHERE m.category = 'passenger'
+),
+-- Each passenger's person in the registry (one row per ID, the latest name)
+ppl AS (
+  INSERT INTO people (id_type, id_number, full_name)
+  SELECT DISTINCT ON (id_type, id_number) id_type, id_number, full_name FROM pgen
+  ORDER BY id_type, id_number
+  ON CONFLICT (id_type, id_number) DO UPDATE SET full_name = EXCLUDED.full_name, updated_at = now()
+  RETURNING id, id_type, id_number
+),
+pax AS (
+  INSERT INTO trip_passengers (manifest_id, position, full_name, person_id, seat_no, is_infant, notes)
+  SELECT g.manifest_id, g.s, g.full_name, ppl.id, g.s, false, NULL
+  FROM pgen g JOIN ppl ON ppl.id_type = g.id_type AND ppl.id_number = g.id_number
 ),
 lines AS (
   INSERT INTO manifest_charges (manifest_id, position, code, name, name_ar, rate_bps, amount)
@@ -480,7 +493,7 @@ write('search.json', {
   billIds: await sample('bill_id', 'payments'),
   manifestNos: await sample('manifest_no', 'certificates'),
   plates: await column(`SELECT plate_number AS v FROM vehicles ORDER BY random() LIMIT 1000`),
-  idNumbers: await sample('id_number', 'trip_passengers', 'id_number IS NOT NULL'),
+  idNumbers: await sample('id_number', 'people'),
   tripIds: await sample('id::text', 'manifests')
 })
 const [size] = await sql<

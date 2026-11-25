@@ -438,7 +438,8 @@ export const manifests = pgTable(
     index('manifests_origin_departure_idx').on(t.originCityId, t.departureAt),
     index('manifests_destination_departure_idx').on(t.destinationCityId, t.departureAt),
     index('manifests_driver_id_idx').on(t.driverId),
-    index('manifests_created_at_idx').on(t.createdAt),
+    // Trips by status in a period (the dashboard), answered from the index alone
+    index('manifests_created_status_idx').on(t.createdAt, t.status),
     // Substring search on names (pg_trgm, created by the migration)
     index('manifests_shipper_name_trgm_idx').using('gin', t.shipperName.op('gin_trgm_ops')),
     index('manifests_receiver_name_trgm_idx').using('gin', t.receiverName.op('gin_trgm_ops')),
@@ -517,9 +518,30 @@ export const manifestTrailers = pgTable(
   (t) => [index('manifest_trailers_manifest_id_idx').on(t.manifestId)]
 )
 
+// Everyone who has travelled with an ID, once (a registry shared by every company): a national ID
+// or passport number, and the name they were last booked under. A trip's passenger links to the
+// person and keeps the name as booked, since the passenger manifest is an official document.
+export const people = pgTable(
+  'people',
+  {
+    id,
+    idType: text('id_type', { enum: ID_TYPES }).notNull(),
+    // Normalized (packages/shared/src/passengers.ts normalizeIdNumber)
+    idNumber: text('id_number').notNull(),
+    fullName: text('full_name').notNull(),
+    ...timestamps
+  },
+  (t) => [
+    uniqueIndex('people_id_idx').on(t.idType, t.idNumber),
+    // The government search by ID number, whatever its type
+    index('people_id_number_idx').on(t.idNumber),
+    check('people_id_type_check', sql`${t.idType} IN (${inList(ID_TYPES)})`)
+  ]
+)
+
 // A passenger trip's passengers. Everyone with a seat has a ticket; an infant shares a passenger's
-// seat. The ID number is normalized (packages/shared/src/passengers.ts) and indexed, so the
-// government search finds a passenger's trips by it with one lookup.
+// seat. Their ID is the person's (people); the government search finds a person's trips through
+// person_id with one lookup each.
 export const tripPassengers = pgTable(
   'trip_passengers',
   {
@@ -528,9 +550,10 @@ export const tripPassengers = pgTable(
       .notNull()
       .references(() => manifests.id, { onDelete: 'restrict' }),
     position: integer('position').notNull(),
+    // The name as booked on this trip
     fullName: text('full_name').notNull(),
-    idType: text('id_type', { enum: ID_TYPES }),
-    idNumber: text('id_number'),
+    // The person (their ID type and number), or null for an infant without an ID
+    personId: integer('person_id').references(() => people.id, { onDelete: 'restrict' }),
     seatNo: integer('seat_no').notNull(),
     isInfant: boolean('is_infant').notNull().default(false),
     notes: text('notes'),
@@ -538,16 +561,11 @@ export const tripPassengers = pgTable(
   },
   (t) => [
     index('trip_passengers_manifest_id_idx').on(t.manifestId),
-    index('trip_passengers_id_number_idx').on(t.idNumber),
+    index('trip_passengers_person_id_idx').on(t.personId),
     // One ticket per seat
     uniqueIndex('trip_passengers_seat_idx')
       .on(t.manifestId, t.seatNo)
       .where(sql`NOT ${t.isInfant}`),
-    check(
-      'trip_passengers_id_type_check',
-      sql`${t.idType} IS NULL OR ${t.idType} IN (${inList(ID_TYPES)})`
-    ),
-    check('trip_passengers_id_check', sql`(${t.idType} IS NULL) = (${t.idNumber} IS NULL)`),
     check('trip_passengers_seat_check', sql`${t.seatNo} > 0`)
   ]
 )
@@ -658,6 +676,12 @@ export const payments = pgTable(
     index('payments_status_paid_at_idx').on(t.status, t.paidAt),
     // Billed in a period (collection rate, exports)
     index('payments_created_at_idx').on(t.createdAt),
+    // The collection rate (billed and paid in a period), answered from the index alone
+    index('payments_created_status_amount_idx').on(t.createdAt, t.status, t.amount),
+    // Pending bills
+    index('payments_pending_idx')
+      .on(t.manifestId, t.amount)
+      .where(sql`${t.status} = 'pending'`),
     // Bill ID prefixes in the government search (LIKE '2026…%')
     index('payments_bill_id_pattern_idx').on(t.billId.op('text_pattern_ops')),
     check('payments_status_check', sql`${t.status} IN (${inList(PAYMENT_STATUSES)})`),

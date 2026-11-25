@@ -49,6 +49,7 @@ import { pricing } from './pricing'
 import { config } from '../config'
 import { certificateNoFor, manifestNoFor, validUntilFor } from './billing'
 import { removeTripFolder } from './documents'
+import { personKey, upsertPeople } from './trips'
 import { isSummaryStale, markSummaryStale, rebuildDailyRevenue } from './dailyRevenue'
 import { newBillId } from './esali'
 
@@ -837,7 +838,11 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
 
     // Buses: one or two per company, each with a template for its usual route, and a year of
     // passenger trips
-    const passengerRows: (typeof tripPassengers.$inferInsert)[] = []
+    // Each passenger with the person they are (their ID), linked through the registry on insert
+    const passengerRows: {
+      row: typeof tripPassengers.$inferInsert
+      person: Pick<PassengerRecord, 'fullName' | 'idType' | 'idNumber'>
+    }[] = []
     const ticketRate = await pricing.ticketRatePerKm(tx)
     const nationalIds = new Set<string>()
     const nationalId = (): string => {
@@ -988,11 +993,17 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
           .returning({ id: manifests.id })
         passengerRows.push(
           ...passengers.map((p, position) => ({
-            manifestId,
-            position,
-            ...p,
-            createdAt,
-            updatedAt: createdAt
+            row: {
+              manifestId,
+              position,
+              fullName: p.fullName,
+              seatNo: p.seatNo,
+              isInfant: p.isInfant,
+              notes: p.notes,
+              createdAt,
+              updatedAt: createdAt
+            },
+            person: p
           }))
         )
         taxRows.push(
@@ -1043,7 +1054,21 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
       }
     }
 
-    await insertInBatches(passengerRows, (rows) => tx.insert(tripPassengers).values(rows))
+    await insertInBatches(passengerRows, async (batch) => {
+      const personIds = await upsertPeople(
+        tx,
+        batch.map((b) => b.person)
+      )
+      await tx.insert(tripPassengers).values(
+        batch.map(({ row, person }) => ({
+          ...row,
+          personId:
+            person.idType && person.idNumber
+              ? (personIds.get(personKey(person.idType, person.idNumber)) ?? null)
+              : null
+        }))
+      )
+    })
     await insertInBatches(itemRows, (rows) => tx.insert(manifestCargoItems).values(rows))
     await insertInBatches(trailerRows, (rows) => tx.insert(manifestTrailers).values(rows))
     await insertInBatches(taxRows, (rows) => tx.insert(manifestCharges).values(rows))

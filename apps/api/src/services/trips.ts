@@ -10,6 +10,7 @@ import {
   manifestTrailers,
   states,
   tripPassengers,
+  people,
   tripDocuments,
   vehicles
 } from '../db'
@@ -46,7 +47,12 @@ import {
   type TripSuggestions
 } from '@masarat/shared/fleet'
 import { normalizePlate } from '@masarat/shared/plate'
-import { checkPassengers, ticketCount, type PassengerRecord } from '@masarat/shared/passengers'
+import {
+  checkPassengers,
+  ticketCount,
+  type IdType,
+  type PassengerRecord
+} from '@masarat/shared/passengers'
 import { parseLocalDateTime } from '@masarat/shared/settings'
 import {
   calculateCharges,
@@ -178,8 +184,17 @@ export async function toTripRecords(rows: readonly TripRow[]): Promise<TripRecor
       .where(inArray(manifestCargoItems.manifestId, ids))
       .orderBy(asc(manifestCargoItems.position)),
     db
-      .select()
+      .select({
+        manifestId: tripPassengers.manifestId,
+        fullName: tripPassengers.fullName,
+        idType: people.idType,
+        idNumber: people.idNumber,
+        seatNo: tripPassengers.seatNo,
+        isInfant: tripPassengers.isInfant,
+        notes: tripPassengers.notes
+      })
       .from(tripPassengers)
+      .leftJoin(people, eq(people.id, tripPassengers.personId))
       .where(inArray(tripPassengers.manifestId, ids))
       .orderBy(asc(tripPassengers.position)),
     db
@@ -611,9 +626,49 @@ async function writePassengers(
 ): Promise<void> {
   await tx.delete(tripPassengers).where(eq(tripPassengers.manifestId, manifestId))
   if (passengers.length === 0) return
-  await tx
-    .insert(tripPassengers)
-    .values(passengers.map((p, position) => ({ manifestId, position, ...p })))
+  const personIds = await upsertPeople(tx, passengers)
+  await tx.insert(tripPassengers).values(
+    passengers.map((p, position) => ({
+      manifestId,
+      position,
+      fullName: p.fullName,
+      personId:
+        p.idType && p.idNumber ? (personIds.get(personKey(p.idType, p.idNumber)) ?? null) : null,
+      seatNo: p.seatNo,
+      isInfant: p.isInfant,
+      notes: p.notes
+    }))
+  )
+}
+
+export const personKey = (idType: string, idNumber: string): string => `${idType}:${idNumber}`
+
+// The people with these IDs, added to the registry if new; a person's name becomes the one they
+// were booked under now (each trip keeps its own copy as booked)
+export async function upsertPeople(
+  tx: Pick<Tx, 'insert'>,
+  passengers: readonly Pick<PassengerRecord, 'fullName' | 'idType' | 'idNumber'>[]
+): Promise<Map<string, number>> {
+  const byKey = new Map<string, { idType: IdType; idNumber: string; fullName: string }>()
+  for (const p of passengers) {
+    if (p.idType && p.idNumber) {
+      byKey.set(personKey(p.idType, p.idNumber), {
+        idType: p.idType,
+        idNumber: p.idNumber,
+        fullName: p.fullName
+      })
+    }
+  }
+  if (byKey.size === 0) return new Map()
+  const rows = await tx
+    .insert(people)
+    .values([...byKey.values()])
+    .onConflictDoUpdate({
+      target: [people.idType, people.idNumber],
+      set: { fullName: sql`excluded.full_name`, updatedAt: new Date() }
+    })
+    .returning({ id: people.id, idType: people.idType, idNumber: people.idNumber })
+  return new Map(rows.map((r) => [personKey(r.idType, r.idNumber), r.id]))
 }
 
 async function writeTrailers(

@@ -15,12 +15,12 @@ The targets: **5,000–20,000 trips a day**, **1,000–5,000 users online**, and
 | `verify`: a QR scan at a checkpoint                                                              | 100 a second                                      | Every trip scanned at 3–5 checkpoints, mostly in the morning. 9 in 10 scans are valid documents, 1 in 10 expired.                |
 | `login`: a fresh sign-in (Argon2id)                                                              | 6 a second                                        | The shift-start rush: 5,000 sign-ins in 15 minutes. Not in the mixed run by default; run it on its own with `FLOWS=login`.       |
 
-**The data.** The tables are seeded at production size, because the dashboard, the search and the lists slow down as they grow. At 20,000 trips a day, a year comes to:
+**The data.** The tables are seeded at production size, because the dashboard, the search and the lists slow down as they grow. Production keeps a month of history, so the seeder fills 30 days (`--days`). At 20,000 trips a day, with 10% of trips by bus (`--bus-share`), that comes to:
 
-- 7.3M trips
-- 13M cargo items
-- 95M passengers (30% of trips are buses with ~43 passengers each)
-- 29M tax lines, and a payment and a certificate for almost every trip
+- 600k trips
+- about 1.4M cargo items
+- about 2.6M passengers (2,000 bus trips a day with ~43 passengers each), who are about 1M people: passengers travel again, about 2.5 trips each in the month, the frequent travellers more often (`--people` sets the pool)
+- about 2.4M tax lines, and a payment and a certificate for almost every trip
 
 **The SLOs** are the k6 thresholds in `k6/lib.js`. Every run reports each endpoint's p95 too.
 
@@ -53,10 +53,10 @@ On top of that, errors must stay under 0.1% and checks above 99.9%.
 k6 is a single binary, from https://github.com/grafana/k6/releases. Put it on the PATH or at `~/.local/bin/k6`.
 
 ```sh
-# 1. Database and data (a year at 20,000 trips a day takes ~15 minutes and ~40 GB)
+# 1. Database and data (a month at 20,000 trips a day)
 loadtest/stack.sh db-up 4-11 8g
 loadtest/stack.sh migrate
-taskset -c 12-19 loadtest/stack.sh seed --trips-per-day 20000 --days 365
+taskset -c 12-19 loadtest/stack.sh seed --trips-per-day 20000 --days 30 --bus-share 0.1
 
 # 2. Smoke test: every flow, briefly, with no errors
 loadtest/stack.sh api-up 0-1 20
@@ -89,6 +89,7 @@ The seeder (`apps/api/src/scripts/loadSeed.ts`) refuses any database whose name 
 The first run (24 Nov 2026) found six application problems. Branch `scale-fixes` fixes them: the missing indexes, the dashboard's daily summary, streamed exports, trip lists without joins, indexed government search capped at 1,000, and time limits.
 
 The tests were not run again after those fixes. Before the next run:
+
 - `loadtest/stack.sh migrate` adds migrations 0006 and 0007 to the seeded database. That takes a while on 37 GB.
 - Drop the six `lt_*` indexes added by hand during the first run; the migration creates its own.
 

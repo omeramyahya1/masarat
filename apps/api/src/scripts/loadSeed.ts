@@ -3,7 +3,7 @@
 // so the load test runs against tables the size production will reach. See loadtest/README.md.
 //
 //   DATABASE_URL=postgres://…/masarat_load bun run --filter @masarat/api load:seed \
-//     --trips-per-day 20000 --days 365 --out ../../loadtest/data
+//     --trips-per-day 20000 --days 30 --bus-share 0.1 --out ../../loadtest/data
 //
 // Only for a database whose name contains "load" (it is never the dev or production one). The
 // rows are generated in Postgres with set-based SQL, one day of trips per statement, several days
@@ -25,7 +25,10 @@ const { values: args } = parseArgs({
   args: process.argv.slice(2),
   options: {
     'trips-per-day': { type: 'string', default: '20000' },
-    days: { type: 'string', default: '365' },
+    days: { type: 'string', default: '30' },
+    'bus-share': { type: 'string', default: '0.1' },
+    // How many different people the passengers are; empty = about 2.5 trips each in a month
+    people: { type: 'string' },
     'clerks-per-branch': { type: 'string', default: '4' },
     'govt-users': { type: 'string', default: '300' },
     workers: { type: 'string', default: '6' },
@@ -43,8 +46,8 @@ const OUT_DIR = resolve(args.out!)
 export const LOAD_PASSWORD = 'load2026'
 
 // The shape of the fleet: about 65 trips a day per company, 3 branches each, a bus does one trip
-// a day and a truck one every day and a half; 30% of trips carry passengers
-const BUS_SHARE = 0.3
+// a day and a truck one every day and a half; --bus-share of trips (10%) carry passengers
+const BUS_SHARE = Number(args['bus-share'])
 const COMPANIES = Math.max(4, Math.round(TRIPS_PER_DAY / 65))
 const BRANCHES_PER_COMPANY = 3
 const TRUCKS_PER_COMPANY = Math.max(
@@ -53,6 +56,13 @@ const TRUCKS_PER_COMPANY = Math.max(
 )
 const BUSES_PER_COMPANY = Math.max(1, Math.ceil((TRIPS_PER_DAY * BUS_SHARE) / COMPANIES))
 const DRIVERS_PER_COMPANY = TRUCKS_PER_COMPANY + BUSES_PER_COMPANY
+// Passengers travel again: each one is drawn from a pool of people, the frequent travellers more
+// often (random()² leans to the low numbers). By default the pool makes each person take about
+// 2.5 trips in a month (a bus carries ~43).
+const PEOPLE = Math.max(
+  1000,
+  Math.round(Number(args.people ?? (TRIPS_PER_DAY * BUS_SHARE * 43 * 30) / 2.5))
+)
 // The demo uses the first 6 plate codes; these never collide with it
 const LOAD_PLATE_CODES = PLATE_CODES.slice(6)
 
@@ -100,7 +110,8 @@ await closeDb()
 
 step(
   `${COMPANIES} companies × (${BRANCHES_PER_COMPANY} branches, ${TRUCKS_PER_COMPANY} trucks, ` +
-    `${BUSES_PER_COMPANY} buses, ${DRIVERS_PER_COMPANY} drivers); ${TRIPS_PER_DAY} trips a day for ${DAYS} days`
+    `${BUSES_PER_COMPANY} buses, ${DRIVERS_PER_COMPANY} drivers); ${TRIPS_PER_DAY} trips a day for ${DAYS} days, ` +
+    `${Math.round(BUS_SHARE * 100)}% by bus, passengers from ${PEOPLE} people`
 )
 
 const passwordHash = await hashPassword(LOAD_PASSWORD)
@@ -368,14 +379,15 @@ trailers AS (
   FROM m WHERE m.category = 'cargo' AND m.id % 4 = 0
 ),
 pgen AS (
-  SELECT m.id AS manifest_id, s,
-         (ARRAY['محمد','فاطمة','أحمد','آمنة','عثمان','مريم','الطيب','هالة','إبراهيم','سلمى'])[1 + floor(random() * 10)::int] || ' ' ||
-         (ARRAY['عبدالله','الحسن','آدم','موسى','الأمين','بابكر','يوسف','علي'])[1 + floor(random() * 8)::int] AS full_name,
-         CASE WHEN r < 0.05 THEN 'passport' ELSE 'national_id' END AS id_type,
-         CASE WHEN r < 0.05 THEN 'P' || lpad(floor(random() * 1e8)::text, 8, '0')
-              ELSE (10000000000 + floor(random() * 89999999999))::bigint::text END AS id_number
+  SELECT m.id AS manifest_id, s, k,
+         (ARRAY['محمد','فاطمة','أحمد','آمنة','عثمان','مريم','الطيب','هالة','إبراهيم','سلمى'])[1 + k % 10] || ' ' ||
+         (ARRAY['عبدالله','الحسن','آدم','موسى','الأمين','بابكر','يوسف','علي'])[1 + (k / 10) % 8] AS full_name,
+         CASE WHEN k % 20 = 0 THEN 'passport' ELSE 'national_id' END AS id_type,
+         CASE WHEN k % 20 = 0 THEN 'P' || lpad(k::text, 8, '0')
+              ELSE (10000000000 + k)::text END AS id_number
   FROM m CROSS JOIN LATERAL generate_series(1, m.cargo_quantity::int) s
-  CROSS JOIN LATERAL (SELECT random() + 0 * s AS r) rr
+  -- The person: one of the pool, the same ID and name every time they travel
+  CROSS JOIN LATERAL (SELECT floor(power(random() + 0 * s, 2) * ${PEOPLE})::bigint AS k) kk
   WHERE m.category = 'passenger'
 ),
 -- Each passenger's person in the registry (one row per ID, the latest name)
@@ -442,7 +454,16 @@ const worker = async (): Promise<void> => {
   for (;;) {
     const offset = offsets.shift()
     if (offset === undefined) return
-    await sql.unsafe(daySql(offset))
+    // Days run in parallel and share the people, so two may wait on each other's rows; Postgres
+    // then cancels one (a deadlock), and that day (one statement, all or nothing) runs again
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await sql.unsafe(daySql(offset))
+        break
+      } catch (e) {
+        if ((e as { code?: string }).code !== '40P01' || attempt === 5) throw e
+      }
+    }
     done++
     if (done % 10 === 0 || done === DAYS + 1) step(`${done} / ${DAYS + 1} days of trips`)
   }

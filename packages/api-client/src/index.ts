@@ -156,7 +156,7 @@ export interface GovtAPI {
     input: ExportInput
   ) => Promise<
     | FleetResult<DownloadedFile & { rows: ExportRows }>
-    | { ok: false; error: 'export_too_large_for_excel'; rows: ExportRows }
+    | { ok: false; error: 'export_too_large_for_excel' | 'export_too_large'; rows: ExportRows }
   >
   // The validity margin and average speeds (government admins)
   settings: () => Promise<FleetResult<SystemSettings>>

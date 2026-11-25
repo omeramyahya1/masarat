@@ -8,7 +8,17 @@
 // route streams the finished file (or a ZIP of several) from disk. An Excel sheet holds at most
 // 1,048,576 rows; an export that would pass that is refused up front, with the counts, so the
 // user picks CSV or a shorter period.
-import { closeSync, mkdirSync, openSync, readdirSync, rmSync, statSync, writeSync } from 'fs'
+import {
+  closeSync,
+  createWriteStream,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeSync
+} from 'fs'
+import { finished } from 'stream/promises'
 import { join } from 'path'
 import { randomBytes } from 'crypto'
 import ExcelJS from 'exceljs'
@@ -71,12 +81,17 @@ const destination = alias(cities, 'export_destination')
 export const exportLimits = {
   // Trip ids per batch: each dataset query takes them as parameters (Postgres allows 65,534)
   batch: 5_000,
-  excelRows: EXCEL_MAX_ROWS
+  excelRows: EXCEL_MAX_ROWS,
+  // What a classic ZIP holds (4 GiB less one byte), with room for its headers
+  zipBytes: 0xffffffff - 64 * 1024 * 1024
 }
 
+// The export's period, resolved once: a preset runs up to now, so resolving it again during a long
+// export would move its end (or its start, past midnight) between the counts and the batches
+type Range = { from: Date; to: Date }
+
 // The trips the export covers: the filters, the period on the chosen date, and the status
-function tripSelection(input: ExportInput): SQL | undefined {
-  const { from, to } = resolveRange(input.filters.range, new Date())
+function tripSelection(input: ExportInput, { from, to }: Range): SQL | undefined {
   const period: SQL | undefined =
     input.dateBasis === 'trip'
       ? and(gte(manifests.departureAt, from), lt(manifests.departureAt, to))
@@ -94,8 +109,12 @@ function tripSelection(input: ExportInput): SQL | undefined {
 
 // The covered trips' ids, in departure order, one batch after another (keyset paging: each
 // batch starts after the last one's departure and id)
-async function* tripIdBatches(db: AppDatabase, input: ExportInput): AsyncGenerator<number[]> {
-  const where = tripSelection(input)
+async function* tripIdBatches(
+  db: AppDatabase,
+  input: ExportInput,
+  range: Range
+): AsyncGenerator<number[]> {
+  const where = tripSelection(input, range)
   let after: { departureAt: Date; id: number } | null = null
   for (;;) {
     const rows: { id: number; departureAt: Date }[] = await db
@@ -123,12 +142,12 @@ async function* tripIdBatches(db: AppDatabase, input: ExportInput): AsyncGenerat
 }
 
 // How many rows each requested dataset will have, counted by Postgres before anything is written
-async function countRows(db: AppDatabase, input: ExportInput): Promise<ExportRows> {
+async function countRows(db: AppDatabase, input: ExportInput, range: Range): Promise<ExportRows> {
   const trips = db
     .select({ id: manifests.id })
     .from(manifests)
     .leftJoin(payments, eq(payments.manifestId, manifests.id))
-    .where(tripSelection(input))
+    .where(tripSelection(input, range))
   const countIn = async (
     table: typeof manifestCargoItems | typeof tripPassengers | typeof manifestCharges
   ): Promise<number> => {
@@ -146,7 +165,10 @@ async function countRows(db: AppDatabase, input: ExportInput): Promise<ExportRow
         .from(manifests)
         .leftJoin(payments, eq(payments.manifestId, manifests.id))
         .where(
-          and(tripSelection(input), dataset === 'bills' ? isNotNull(payments.billId) : undefined)
+          and(
+            tripSelection(input, range),
+            dataset === 'bills' ? isNotNull(payments.billId) : undefined
+          )
         )
       rows[dataset] = row?.value ?? 0
     } else if (dataset === 'items') rows.items = await countIn(manifestCargoItems)
@@ -499,12 +521,15 @@ export type ExportResult =
     }
   // Over Excel's limit: the counts say which dataset
   | { ok: false; error: 'export_too_large_for_excel'; rows: ExportRows }
+  // Too big to send as one ZIP: a shorter period, or fewer datasets or formats
+  | { ok: false; error: 'export_too_large'; rows: ExportRows }
 
 // Builds the export's files: an Excel workbook and/or one CSV per dataset, and a ZIP of them when
 // there are several. Every query gets the export's own statement timeout.
 export async function exportData(input: ExportInput): Promise<ExportResult> {
   clearStaleExports()
-  const { from, to } = resolveRange(input.filters.range, new Date())
+  const range = resolveRange(input.filters.range, new Date())
+  const { from, to } = range
   const span = `${formatDay(from)}-${formatDay(new Date(to.getTime() - 1))}`
   const folder = join(EXPORTS_DIR(), randomBytes(12).toString('hex'))
   const cleanup = (): void => rmSync(folder, { recursive: true, force: true })
@@ -513,7 +538,7 @@ export async function exportData(input: ExportInput): Promise<ExportResult> {
     await tx.execute(
       sql`SET LOCAL statement_timeout = ${sql.raw(String(Math.round(config.exportStatementTimeoutMs)))}`
     )
-    const rows = await countRows(tx, input)
+    const rows = await countRows(tx, input, range)
     if (
       input.formats.includes('xlsx') &&
       input.datasets.some((d) => (rows[d] ?? 0) > exportLimits.excelRows)
@@ -528,20 +553,21 @@ export async function exportData(input: ExportInput): Promise<ExportResult> {
 
       // CSV: every dataset in one pass over the trips, each to its own file
       if (input.formats.includes('csv')) {
-        const csv = input.datasets.map((dataset) => {
-          const file = {
-            name: `masarat-${dataset}-${span}.csv`,
-            path: join(folder, `${dataset}.csv`)
-          }
-          const fd = openSync(file.path, 'w')
-          writeSync(fd, csvHeader(input, dataset))
-          return { dataset, file, fd }
-        })
+        // Each file's descriptor is kept as soon as it's opened, so a failure further on (another
+        // open, a write) still closes every one
+        const csv: { dataset: ExportDataset; file: ExportFile; fd: number }[] = []
         try {
-          for await (const ids of tripIdBatches(tx, input)) {
+          for (const dataset of input.datasets) {
+            const file = {
+              name: `masarat-${dataset}-${span}.csv`,
+              path: join(folder, `${dataset}.csv`)
+            }
+            csv.push({ dataset, file, fd: openSync(file.path, 'w') })
+            writeAll(csv[csv.length - 1].fd, csvHeader(input, dataset))
+          }
+          for await (const ids of tripIdBatches(tx, input, range)) {
             const data = await buildRows(tx, input, ids, wantedAll)
-            for (const out of csv)
-              writeSync(out.fd, csvLines(input, out.dataset, data[out.dataset]))
+            for (const out of csv) writeAll(out.fd, csvLines(input, out.dataset, data[out.dataset]))
           }
         } finally {
           for (const out of csv) closeSync(out.fd)
@@ -553,32 +579,48 @@ export async function exportData(input: ExportInput): Promise<ExportResult> {
       // pass over the trips
       if (input.formats.includes('xlsx')) {
         const file = { name: `masarat-data-${span}.xlsx`, path: join(folder, 'data.xlsx') }
+        // The workbook writes into a stream this export owns, so a failure can close it
+        const out = createWriteStream(file.path)
         const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
-          filename: file.path,
+          stream: out,
           useStyles: true,
           useSharedStrings: false
         })
         workbook.creator = 'Masarat'
         workbook.created = new Date()
-        for (const dataset of input.datasets) {
-          const sheet = addSheet(workbook, input, dataset)
-          for await (const ids of tripIdBatches(tx, input)) {
-            const data = await buildRows(tx, input, ids, new Set([dataset]))
-            for (const row of shaped(input, dataset, data[dataset]).rows) {
-              sheet
-                .addRow(row.map((cell) => (cell instanceof Date ? asSudanWallClock(cell) : cell)))
-                .commit()
+        try {
+          for (const dataset of input.datasets) {
+            const sheet = addSheet(workbook, input, dataset)
+            for await (const ids of tripIdBatches(tx, input, range)) {
+              const data = await buildRows(tx, input, ids, new Set([dataset]))
+              for (const row of shaped(input, dataset, data[dataset]).rows) {
+                sheet
+                  .addRow(row.map((cell) => (cell instanceof Date ? asSudanWallClock(cell) : cell)))
+                  .commit()
+              }
             }
+            sheet.commit()
           }
-          sheet.commit()
+          await workbook.commit()
+          // The file is complete once the stream has flushed and closed
+          await finished(out)
+        } catch (err) {
+          out.destroy()
+          throw err
         }
-        await workbook.commit()
         files.unshift(file)
       }
 
       if (files.length === 1)
         return { ok: true as const, data: { download: files[0], files, rows, cleanup } }
-      // Several files go to the browser as one ZIP, written to disk as it's built
+      // Several files go to the browser as one ZIP, written to disk as it's built. The ZIP writer
+      // makes classic ZIPs, which can't hold 4 GiB or more: refuse an export that might pass that
+      // (the files' own sizes bound the compressed ones, plus a margin for headers)
+      const bytes = files.reduce((sum, f) => sum + statSync(f.path).size, 0)
+      if (bytes > exportLimits.zipBytes) {
+        cleanup()
+        return { ok: false as const, error: 'export_too_large' as const, rows }
+      }
       const zip = { name: `masarat-export-${span}.zip`, path: join(folder, 'export.zip') }
       await writeZip(zip.path, files)
       return { ok: true as const, data: { download: zip, files, rows, cleanup } }
@@ -589,6 +631,18 @@ export async function exportData(input: ExportInput): Promise<ExportResult> {
   })
 }
 
+// Writes all of `data` to the file, however many calls it takes (writeSync may write fewer bytes
+// than asked), and fails if a write makes no progress
+function writeAll(fd: number, data: string | Uint8Array): void {
+  const bytes = typeof data === 'string' ? Buffer.from(data, 'utf8') : data
+  let offset = 0
+  while (offset < bytes.length) {
+    const written = writeSync(fd, bytes, offset, bytes.length - offset)
+    if (written <= 0) throw new Error('Writing the export file made no progress')
+    offset += written
+  }
+}
+
 // A ZIP of the files, streamed into `path` (CSV compressed; a workbook is compressed already)
 async function writeZip(path: string, files: ExportFile[]): Promise<void> {
   const fd = openSync(path, 'w')
@@ -596,7 +650,7 @@ async function writeZip(path: string, files: ExportFile[]): Promise<void> {
     let failure: Error | null = null
     const zip = new Zip((err, chunk) => {
       if (err) failure = err
-      else writeSync(fd, chunk)
+      else writeAll(fd, chunk)
     })
     for (const file of files) {
       const entry = file.name.endsWith('.xlsx')

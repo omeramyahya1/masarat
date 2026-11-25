@@ -312,6 +312,7 @@
       "zero_bill": "This trip's taxes and fees come to 0 SDG, so there is no bill to pay. The tax rates and fees need to be reviewed by the tax administration before this trip can be authorized.",
       "query_timeout": "This took too long. Narrow the search or choose a shorter period, then try again.",
       "export_too_large_for_excel": "Too many rows for Excel: {{rows}}. An Excel sheet holds at most {{limit}} rows. Choose CSV, or a shorter period.",
+      "export_too_large": "This export is too big to download as one archive. Choose a shorter period, fewer datasets, or one format.",
       "forbidden": "You don't have access to this.",
       "password_change_required": "Please choose your own password first.",
       "branch_required": "Choose the branch the trip is booked at.",

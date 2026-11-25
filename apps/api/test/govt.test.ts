@@ -374,6 +374,25 @@ describe('export', () => {
     }
   })
 
+  test('an export too big for one ZIP is refused; a single file still downloads', async () => {
+    const before = exportLimits.zipBytes
+    exportLimits.zipBytes = 10
+    try {
+      const both = await govt.call('POST', '/govt/exports', { ...input, formats: ['xlsx', 'csv'] })
+      expect(both.status).toBe(413)
+      expect(both.body.error).toBe('export_too_large')
+      const one = await govt.call('POST', '/govt/exports', {
+        ...input,
+        datasets: ['trips'],
+        formats: ['csv']
+      })
+      expect(one.status).toBe(200)
+      expect(one.headers.get('content-type')).toContain('text/csv')
+    } finally {
+      exportLimits.zipBytes = before
+    }
+  })
+
   test('malformed options are refused', async () => {
     const result = await govt.call('POST', '/govt/exports', {
       ...input,

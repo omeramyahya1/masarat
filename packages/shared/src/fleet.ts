@@ -411,6 +411,8 @@ export type FleetErrorCode =
   | 'query_timeout'
   // A dataset has more rows than an Excel sheet holds (choose CSV or a shorter period)
   | 'export_too_large_for_excel'
+  // An export too big to send as one ZIP (choose a shorter period, or fewer datasets or formats)
+  | 'export_too_large'
   | 'unknown'
 
 export type FleetResult<T> = { ok: true; data: T } | { ok: false; error: FleetErrorCode }

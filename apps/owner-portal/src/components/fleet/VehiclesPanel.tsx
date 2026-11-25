@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoaderCircle, Pencil, Plus, Trash2, Truck } from 'lucide-react'
 import {
@@ -11,6 +11,8 @@ import { plateSearchKey } from '@masarat/shared/plate'
 import { useListView, type ListViewConfig } from '@masarat/ui/lib/useListView'
 import ListToolbar from '@masarat/ui/components/ui/ListToolbar'
 import { useCan } from '@masarat/ui/lib/account'
+import { useVehicles } from '@masarat/ui/lib/queries'
+import { errorCode, queryClient, queryKeys } from '@masarat/ui/lib/query'
 import { useFormat } from '@masarat/ui/lib/format'
 import { FormAlert } from '@masarat/ui/components/form/fields'
 import Modal from '@masarat/ui/components/ui/Modal'
@@ -23,8 +25,10 @@ function VehiclesPanel(): React.JSX.Element {
   // Without it the list is read-only
   const canManage = useCan()('fleet.manage')
   const format = useFormat()
-  const [vehicles, setVehicles] = useState<VehicleRecord[] | null>(null)
-  const [error, setError] = useState<FleetErrorCode | null>(null)
+  // The cached list (lib/queries.ts), shared with the trips list and the trip form
+  const vehiclesQuery = useVehicles()
+  const vehicles = vehiclesQuery.data ?? null
+  const error = errorCode<FleetErrorCode>(vehiclesQuery.error)
   // 'new' opens the add dialog; a record opens it for editing
   const [editing, setEditing] = useState<VehicleRecord | 'new' | null>(null)
   const [deleting, setDeleting] = useState<VehicleRecord | null>(null)
@@ -73,20 +77,8 @@ function VehiclesPanel(): React.JSX.Element {
   )
   const list = useListView(vehicles, listConfig)
 
-  const load = useCallback(async (): Promise<void> => {
-    try {
-      const result = await api.fleet.listVehicles()
-      if (result.ok) setVehicles(result.data)
-      else setError(result.error)
-    } catch {
-      setError('unknown')
-    }
-  }, [])
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount
-    load()
-  }, [load])
+  // After a change: the list again (and the trips' filters with it)
+  const load = (): void => void queryClient.invalidateQueries({ queryKey: queryKeys.vehicles })
 
   const handleSaved = (): void => {
     setEditing(null)

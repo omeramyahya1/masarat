@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
   ArrowLeft,
@@ -28,6 +29,7 @@ import type { TripDetails as TripDetailsData } from '@masarat/shared/billing'
 import { formatSudanPhone } from '@masarat/shared/phone'
 import { useAccount, useCan } from '../../lib/account'
 import { useFormat } from '../../lib/format'
+import { errorCode, queryClient, queryKeys, unwrap } from '../../lib/query'
 import { useMountedRef } from '../../lib/useMountedRef'
 import { FormAlert } from '../form/fields'
 import PlateBadge from '../fleet/PlateBadge'
@@ -103,28 +105,29 @@ function TripDetails({
   const mounted = useMountedRef()
   const { company } = useAccount()
   const can = useCan()
-  const [details, setDetails] = useState<TripDetailsData | null>(null)
+  // The trip's page, cached (lib/query.ts): opening it again within a minute needs no request
+  const tripKey = queryKeys.trip(readOnly ? 'govt' : 'company', tripId)
+  const detailsQuery = useQuery({
+    queryKey: tripKey,
+    queryFn: () => unwrap(readOnly ? api.govt.getTrip(tripId) : api.billing.getTrip(tripId))
+  })
+  const details: TripDetailsData | null = detailsQuery.data ?? null
+  const setDetails = (next: TripDetailsData): void => {
+    queryClient.setQueryData(tripKey, next)
+  }
   // A trip older than the live window has moved to the archive: it can only be looked at
   const archived = details?.archived ?? false
   // What the member's role lets them do here (the government's view changes nothing)
   const canEdit = !readOnly && !archived && can('trips.edit')
   const canBill = !readOnly && !archived && can('trips.bill')
-  const [error, setError] = useState<FleetErrorCode | null>(null)
+  // An action's error (generate, refresh, pay), or the page's own when it couldn't load
+  const [actionError, setError] = useState<FleetErrorCode | null>(null)
+  const error = actionError ?? errorCode<FleetErrorCode>(detailsQuery.error)
   const [pending, setPending] = useState<Action | null>(null)
   const [notPaid, setNotPaid] = useState(false)
   const [copied, setCopied] = useState(false)
   const [showCertificate, setShowCertificate] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
-
-  useEffect(() => {
-    ;(readOnly ? api.govt.getTrip(tripId) : api.billing.getTrip(tripId))
-      .then((result) => {
-        if (!mounted.current) return
-        if (result.ok) setDetails(result.data)
-        else setError(result.error)
-      })
-      .catch(() => mounted.current && setError('unknown'))
-  }, [tripId, mounted, readOnly])
 
   const run = async (action: Action): Promise<void> => {
     setPending(action)
@@ -140,11 +143,12 @@ function TripDetails({
         action === 'generate'
           ? await api.billing.generate(tripId)
           : await api.billing.refresh(tripId)
-      // The list must hear about a status change even if the user has already left this page
+      // The cached page takes the new state even if the user has already left it, and the list
+      // hears about a status change
+      if (result.ok) setDetails(result.data)
       if (result.ok && result.data.trip.status !== details?.trip.status) onChanged()
       if (!mounted.current) return
       if (!result.ok) return setError(result.error)
-      setDetails(result.data)
       if (action === 'refresh' && result.data.payment?.status !== 'paid') setNotPaid(true)
     } catch {
       if (mounted.current) setError('unknown')

@@ -1,5 +1,7 @@
-import { useEffect, useId, useState, type FormEvent } from 'react'
+import { useId, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQuery } from '@tanstack/react-query'
+import { errorCode, queryClient, queryKeys, unwrap } from '@masarat/ui/lib/query'
 import { ArrowRight, Info, LoaderCircle, Pencil, Plus } from 'lucide-react'
 import type { FleetErrorCode } from '@masarat/shared/fleet'
 import {
@@ -220,22 +222,18 @@ function ChargeDialog({
 function TaxSettings(): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
-  const mounted = useMountedRef()
-  const [view, setView] = useState<ChargesView | null>(null)
-  const [error, setError] = useState<FleetErrorCode | null>(null)
+  // Cached (lib/query.ts); a saved change answers with the whole list, which replaces it
+  const chargesQuery = useQuery({
+    queryKey: queryKeys.charges,
+    queryFn: () => unwrap(api.govt.charges())
+  })
+  const view: ChargesView | null = chargesQuery.data ?? null
+  const setView = (next: ChargesView): void => {
+    queryClient.setQueryData(queryKeys.charges, next)
+  }
+  const error = errorCode<FleetErrorCode>(chargesQuery.error)
   const [editing, setEditing] = useState<ChargeRecord | 'new' | null>(null)
   const [saved, setSaved] = useState(false)
-
-  useEffect(() => {
-    api.govt
-      .charges()
-      .then((result) => {
-        if (!mounted.current) return
-        if (!result.ok) return setError(result.error)
-        setView(result.data)
-      })
-      .catch(() => mounted.current && setError('unknown'))
-  }, [mounted])
 
   if (!view) {
     return error ? (

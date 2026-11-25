@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, ArrowRight, Bus, LoaderCircle, Plus, Route } from 'lucide-react'
 import {
@@ -7,22 +7,28 @@ import {
   TRIP_KINDS,
   TRIP_SORTS,
   TRIP_STATUS_FILTERS,
+  monthPeriod,
   tripCargoTypes,
-  type DriverRecord,
   type FleetErrorCode,
   type TripGroup,
   type TripListQuery,
   type TripRecord,
-  type TripReferenceData,
-  type VehicleRecord
+  type TripReferenceData
 } from '@masarat/shared/fleet'
-import type { BranchRecord } from '@masarat/shared/members'
 import { TRIP_CATEGORIES } from '@masarat/shared/tax'
 import type { TemplateRecord } from '@masarat/shared/templates'
 import Menu from '@masarat/ui/components/ui/Menu'
 import { useAccount, useCan } from '@masarat/ui/lib/account'
 import { useFormat } from '@masarat/ui/lib/format'
 import { useServerList, type ServerListState } from '@masarat/ui/lib/useServerList'
+import {
+  useBranches,
+  useDrivers,
+  useReference,
+  useTemplates,
+  useVehicles
+} from '@masarat/ui/lib/queries'
+import { errorCode, queryKeys, tripChanged } from '@masarat/ui/lib/query'
 import ListToolbar from '@masarat/ui/components/ui/ListToolbar'
 import Pagination from '@masarat/ui/components/ui/Pagination'
 import { FormAlert } from '@masarat/ui/components/form/fields'
@@ -52,14 +58,16 @@ function TripsPanel({
   const [mode, setMode] = useState<
     'list' | 'new' | { tripId: number } | { editing: TripRecord } | { template: TemplateRecord }
   >('list')
-  const [reference, setReference] = useState<TripReferenceData | null>(null)
-  // For the filters and the group headers
-  const [vehicles, setVehicles] = useState<VehicleRecord[]>([])
-  const [drivers, setDrivers] = useState<DriverRecord[]>([])
-  const [branches, setBranches] = useState<BranchRecord[]>([])
+  // The cached lists (lib/queries.ts): the form's reference data, and for the filters and the
+  // group headers the vehicles, drivers and branches
+  const referenceQuery = useReference()
+  const reference = referenceQuery.data ?? null
+  const vehicles = useVehicles().data ?? []
+  const drivers = useDrivers().data ?? []
+  const branches = useBranches().data ?? []
   // Passenger trip templates, for "New trip from a template"
-  const [templates, setTemplates] = useState<TemplateRecord[]>([])
-  const [error, setError] = useState<FleetErrorCode | null>(null)
+  const templates = useTemplates(canUseTemplates).data ?? []
+  const error = errorCode<FleetErrorCode>(referenceQuery.error)
   const [created, setCreated] = useState<TripRecord | null>(null)
   const [deleted, setDeleted] = useState<number | null>(null)
 
@@ -91,6 +99,7 @@ function TripsPanel({
   )
   const list = useServerList(fetchTrips, {
     storageKey: 'masarat.list.trips',
+    queryKey: [...queryKeys.tripList(format.isArabic ? 'ar' : 'en')],
     defaultSort: 'departureAt',
     defaultDirection: 'desc'
   })
@@ -100,9 +109,17 @@ function TripsPanel({
   const periodBar = page?.period ? (
     <PeriodBar
       period={page.period}
-      onChange={(period) =>
-        list.update({ filters: { ...list.state.filters, from: period.from, to: period.to } })
-      }
+      onChange={(period) => {
+        // The current month is the default: asked for without dates, so it's the page already
+        // cached when the list first opened
+        const current = monthPeriod(new Date().getFullYear(), new Date().getMonth())
+        const isCurrent = period.from === current.from && period.to === current.to
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { from, to, ...others } = list.state.filters
+        list.update({
+          filters: isCurrent ? others : { ...others, from: period.from, to: period.to }
+        })
+      }}
     />
   ) : null
 
@@ -150,38 +167,8 @@ function TripsPanel({
     setMode({ tripId })
   }
 
-  const loadLists = useCallback(async (): Promise<void> => {
-    try {
-      const [ref, vehicleList, driverList, branchList] = await Promise.all([
-        api.trips.getReferenceData(),
-        api.fleet.listVehicles(),
-        api.fleet.listDrivers(),
-        api.company.branches()
-      ])
-      if (!ref.ok) return setError(ref.error)
-      setReference(ref.data)
-      if (vehicleList.ok) setVehicles(vehicleList.data)
-      if (driverList.ok) setDrivers(driverList.data)
-      if (branchList.ok) setBranches(branchList.data)
-      if (canUseTemplates) {
-        const templateList = await api.templates.list()
-        if (templateList.ok) setTemplates(templateList.data)
-      }
-    } catch {
-      setError('unknown')
-    }
-  }, [canUseTemplates])
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount
-    loadLists()
-  }, [loadLists])
-
-  // After a trip was saved, deleted or billed
-  const load = (): void => {
-    list.reload()
-    void loadLists()
-  }
+  // After a trip was saved, deleted or billed: the lists, the trip and the fleet's trip counts
+  const load = (): void => void tripChanged()
 
   if (typeof mode === 'object' && 'tripId' in mode && reference) {
     return (

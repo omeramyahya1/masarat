@@ -1,5 +1,7 @@
-import { useEffect, useId, useMemo, useState, type FormEvent } from 'react'
+import { useId, useMemo, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useDrivers, useReference, useTemplates, useVehicles } from '@masarat/ui/lib/queries'
+import { errorCode, queryClient, queryKeys } from '@masarat/ui/lib/query'
 import { ArrowRight, Bus, LoaderCircle, Pencil, Plus, Trash2 } from 'lucide-react'
 import type {
   DriverRecord,
@@ -217,37 +219,38 @@ function TemplatesPanel({ branches }: { branches: readonly BranchRecord[] }): Re
   const { t } = useTranslation()
   const format = useFormat()
   const mounted = useMountedRef()
-  const [templates, setTemplates] = useState<TemplateRecord[] | null>(null)
-  const [lists, setLists] = useState<Omit<Lists, 'branches'> | null>(null)
-  const [error, setError] = useState<FleetErrorCode | null>(null)
+  // The cached lists (lib/queries.ts): the templates, and for the form the cities, buses and
+  // drivers the other sections share
+  const templatesQuery = useTemplates()
+  const templates = templatesQuery.data ?? null
+  const reference = useReference().data
+  const vehicles = useVehicles().data
+  const drivers = useDrivers().data
+  const lists = useMemo<Omit<Lists, 'branches'> | null>(
+    () =>
+      reference && vehicles && drivers
+        ? {
+            cities: reference.cities,
+            buses: vehicles.filter((v) => v.vehicleType === 'bus'),
+            drivers
+          }
+        : null,
+    [reference, vehicles, drivers]
+  )
+  const [actionError, setError] = useState<FleetErrorCode | null>(null)
+  const error = actionError ?? errorCode<FleetErrorCode>(templatesQuery.error)
   const [editing, setEditing] = useState<TemplateRecord | 'new' | null>(null)
-  const [version, setVersion] = useState(0)
-
-  useEffect(() => {
-    Promise.all([
-      api.templates.list(),
-      api.trips.getReferenceData(),
-      api.fleet.listVehicles(),
-      api.fleet.listDrivers()
-    ])
-      .then(([list, reference, vehicles, drivers]) => {
-        if (!mounted.current) return
-        if (!list.ok) return setError(list.error)
-        setTemplates(list.data)
-        setLists({
-          cities: reference.ok ? reference.data.cities : [],
-          buses: vehicles.ok ? vehicles.data.filter((v) => v.vehicleType === 'bus') : [],
-          drivers: drivers.ok ? drivers.data : []
-        })
-      })
-      .catch(() => mounted.current && setError('unknown'))
-  }, [mounted, version])
+  const reload = (): void => void queryClient.invalidateQueries({ queryKey: queryKeys.templates })
 
   const remove = async (template: TemplateRecord): Promise<void> => {
-    const result = await api.templates.delete(template.id)
-    if (!mounted.current) return
-    if (!result.ok) return setError(result.error)
-    setVersion((v) => v + 1)
+    try {
+      const result = await api.templates.delete(template.id)
+      if (!mounted.current) return
+      if (!result.ok) return setError(result.error)
+      reload()
+    } catch {
+      if (mounted.current) setError('unknown')
+    }
   }
 
   const city = (id: number): string => format.city(lists?.cities.find((c) => c.id === id))
@@ -361,7 +364,7 @@ function TemplatesPanel({ branches }: { branches: readonly BranchRecord[] }): Re
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null)
-            setVersion((v) => v + 1)
+            reload()
           }}
         />
       )}

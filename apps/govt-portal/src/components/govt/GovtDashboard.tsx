@@ -1,18 +1,21 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { FileDown, LoaderCircle, RefreshCw } from 'lucide-react'
-import type { CityRecord, FleetErrorCode } from '@masarat/shared/fleet'
+import type { FleetErrorCode } from '@masarat/shared/fleet'
 import type { DashboardData } from '@masarat/shared/dashboard'
 import {
   DEFAULT_FILTERS,
   DEFAULT_VIEW,
   bucketsFor,
   type AnalyticsFilters,
-  type DashboardView,
-  type CompanyOption
+  type DashboardView
 } from '@masarat/shared/analytics'
 import { useFormat } from '@masarat/ui/lib/format'
 import { useMountedRef } from '@masarat/ui/lib/useMountedRef'
+import { useCompanies, useGovtReference } from '@masarat/ui/lib/queries'
+import { errorCode, queryClient, queryKeys, unwrap } from '@masarat/ui/lib/query'
+import { useSessionState } from '@masarat/ui/lib/useSessionState'
 import { FormAlert } from '@masarat/ui/components/form/fields'
 import Menu from '@masarat/ui/components/ui/Menu'
 import AnalyticsFilterFields from './AnalyticsFilterFields'
@@ -38,78 +41,48 @@ function GovtDashboard({
   const { t } = useTranslation()
   const format = useFormat()
   const mounted = useMountedRef()
-  const [filters, setFilters] = useState<AnalyticsFilters>(DEFAULT_FILTERS)
-  const [view, setView] = useState<DashboardView>(DEFAULT_VIEW)
-  const [companies, setCompanies] = useState<CompanyOption[]>([])
-  // What the main process needs; the breakdown's sort is applied here without asking it again
+  // Kept for the session, so leaving the dashboard and coming back finds the same view
+  const [filters, setFilters] = useSessionState<AnalyticsFilters>(
+    'masarat.govt.dashboard.filters',
+    DEFAULT_FILTERS
+  )
+  const [view, setView] = useSessionState<DashboardView>(
+    'masarat.govt.dashboard.view',
+    DEFAULT_VIEW
+  )
+  const companies = useCompanies().data ?? []
+  // What the API needs; the breakdown's sort is applied here without asking it again
   const request = useMemo<DashboardView>(
     () => ({ bucket: view.bucket, breakdown: view.breakdown, sort: 'revenue' }),
     [view.bucket, view.breakdown]
   )
-  const [data, setData] = useState<DashboardData | null>(null)
-  const [cities, setCities] = useState<CityRecord[]>([])
-  const [error, setError] = useState<FleetErrorCode | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [reloadKey, setReloadKey] = useState(0)
+  // Cached per filters and view (lib/query.ts); while another loads, the last one stays shown
+  const dashboard = useQuery({
+    queryKey: queryKeys.dashboard(filters, request),
+    queryFn: () => unwrap(api.govt.dashboard(filters, request)),
+    placeholderData: keepPreviousData
+  })
+  const data: DashboardData | null = dashboard.data ?? null
+  // City names only label routes; if they fail to load, the next refresh retries them
+  const referenceQuery = useGovtReference()
+  const cities = referenceQuery.data?.cities ?? []
+  const [actionError, setError] = useState<FleetErrorCode | null>(null)
+  const error = actionError ?? errorCode<FleetErrorCode>(dashboard.error)
+  const loading = dashboard.isFetching
   const [confirming, setConfirming] = useState(false)
   const [exporting, setExporting] = useState(false)
-  // City names only label routes; if they fail to load, the next refresh retries them
-  const [citiesFailed, setCitiesFailed] = useState(false)
-  const [citiesKey, setCitiesKey] = useState(0)
 
-  useEffect(() => {
-    api.govt
-      .listCompanies()
-      .then((result) => mounted.current && result.ok && setCompanies(result.data))
-      .catch(() => undefined)
-  }, [mounted])
-
-  useEffect(() => {
-    api.govt
-      .getReferenceData()
-      .then((result) => {
-        if (!mounted.current) return
-        if (result.ok) {
-          setCities(result.data.cities)
-          setCitiesFailed(false)
-        } else setCitiesFailed(true)
-      })
-      .catch(() => mounted.current && setCitiesFailed(true))
-  }, [mounted, citiesKey])
-
-  useEffect(() => {
-    let current = true
-    api.govt
-      .dashboard(filters, request)
-      .then((result) => {
-        if (!current) return
-        if (result.ok) {
-          setData(result.data)
-          setError(null)
-        } else setError(result.error)
-      })
-      .catch(() => current && setError('unknown'))
-      .finally(() => current && setLoading(false))
-    // A newer request (filter change or refresh) supersedes this one
-    return (): void => {
-      current = false
-    }
-  }, [filters, request, reloadKey])
-
-  // Loading is set here rather than in the effect, which would cost an extra render
   const reload = (): void => {
-    setLoading(true)
-    setReloadKey((key) => key + 1)
-    if (citiesFailed) setCitiesKey((key) => key + 1)
+    setError(null)
+    void dashboard.refetch()
+    if (referenceQuery.isError) void referenceQuery.refetch()
   }
   const changeFilters = (next: AnalyticsFilters): void => {
-    setLoading(true)
     // A new range picks its own bucket size again
     if (next.range !== filters.range) setView((v) => ({ ...v, bucket: null }))
     setFilters(next)
   }
   const changeView = (patch: Partial<DashboardView>): void => {
-    if (patch.bucket !== undefined || patch.breakdown !== undefined) setLoading(true)
     setView((v) => ({ ...v, ...patch }))
   }
   // "Last 30 days", or the custom dates
@@ -207,7 +180,8 @@ function GovtDashboard({
         if (!mounted.current) return
         setConfirming(false)
         if (failure) setError(failure)
-        else reload()
+        // Every company's data changed: everything cached goes
+        else void queryClient.invalidateQueries()
       }}
     />
   )

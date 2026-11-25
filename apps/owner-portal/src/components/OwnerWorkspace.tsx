@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Bus, IdCard, KeyRound, Route, Store, Truck, UserCog, UsersRound } from 'lucide-react'
 import type { AuthUser } from '@masarat/shared/auth'
-import type { TripReferenceData } from '@masarat/shared/fleet'
-import type { BranchRecord } from '@masarat/shared/members'
 import type { Permission } from '@masarat/shared/permissions'
 import TeamPanel from '@masarat/ui/components/members/TeamPanel'
 import SectionNav from '@masarat/ui/components/ui/SectionNav'
 import { useCan } from '@masarat/ui/lib/account'
+import ErrorBoundary from '@masarat/ui/components/ErrorBoundary'
+import { useBranches, useReference } from '@masarat/ui/lib/queries'
 import { api } from '@masarat/api-client'
 import BranchesPanel from './company/BranchesPanel'
 import RolesPanel from './company/RolesPanel'
@@ -56,22 +56,9 @@ function OwnerWorkspace({
   const can = useCan()
   const sections = SECTIONS.filter((s) => s.needs === null || can(s.needs))
   const [section, setSection] = useState<Section>(sections[0].id)
-  const [cities, setCities] = useState<TripReferenceData['cities']>([])
-  const [branches, setBranches] = useState<BranchRecord[]>([])
-
-  const loadBranches = useCallback(async (): Promise<void> => {
-    const result = await api.company.branches()
-    if (result.ok) setBranches(result.data)
-  }, [])
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount
-    void loadBranches()
-    api.trips
-      .getReferenceData()
-      .then((result) => result.ok && setCities(result.data.cities))
-      .catch(() => undefined)
-  }, [loadBranches])
+  // Cached and shared with the sections (lib/queries.ts); a branch saved in Branches refreshes them
+  const cities = useReference().data?.cities ?? []
+  const branches = useBranches().data ?? []
 
   return (
     <div className="flex flex-1 flex-col">
@@ -82,27 +69,30 @@ function OwnerWorkspace({
         onChange={setSection}
       />
 
+      {/* A section that fails to draw shows an error in its place; another section starts afresh */}
       <div className="mx-auto w-full max-w-6xl flex-1 p-6">
-        {section === 'vehicles' ? (
-          <VehiclesPanel />
-        ) : section === 'drivers' ? (
-          <DriversPanel />
-        ) : section === 'team' ? (
-          <TeamPanel side="company" members={api.company.members} branches={branches} />
-        ) : section === 'branches' ? (
-          <BranchesPanel cities={cities} onChanged={() => void loadBranches()} />
-        ) : section === 'templates' ? (
-          <TemplatesPanel branches={branches} />
-        ) : section === 'roles' ? (
-          <RolesPanel />
-        ) : section === 'profile' ? (
-          <ProfilePanel user={user} onUserChange={onUserChange} />
-        ) : (
-          <TripsPanel
-            onGoToVehicles={() => setSection('vehicles')}
-            onGoToCompany={() => setSection('profile')}
-          />
-        )}
+        <ErrorBoundary key={section}>
+          {section === 'vehicles' ? (
+            <VehiclesPanel />
+          ) : section === 'drivers' ? (
+            <DriversPanel />
+          ) : section === 'team' ? (
+            <TeamPanel side="company" members={api.company.members} branches={branches} />
+          ) : section === 'branches' ? (
+            <BranchesPanel cities={cities} onChanged={() => undefined} />
+          ) : section === 'templates' ? (
+            <TemplatesPanel branches={branches} />
+          ) : section === 'roles' ? (
+            <RolesPanel />
+          ) : section === 'profile' ? (
+            <ProfilePanel user={user} onUserChange={onUserChange} />
+          ) : (
+            <TripsPanel
+              onGoToVehicles={() => setSection('vehicles')}
+              onGoToCompany={() => setSection('profile')}
+            />
+          )}
+        </ErrorBoundary>
       </div>
     </div>
   )

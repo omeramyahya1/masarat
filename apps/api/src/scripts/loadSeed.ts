@@ -19,6 +19,7 @@ import { config } from '../config'
 import { closeDb, openUnlimitedDb } from '../db'
 import { hashPassword } from '../services/auth'
 import { ensureDemoData } from '../services/demoData'
+import { objectStore } from '../services/storage'
 import { markSummaryStale, rebuildDailyRevenue } from '../services/dailyRevenue'
 
 const { values: args } = parseArgs({
@@ -63,10 +64,14 @@ const PEOPLE = Math.max(
   1000,
   Math.round(Number(args.people ?? (TRIPS_PER_DAY * BUS_SHARE * 43 * 30) / 2.5))
 )
+// Every seeded attachment row points at this object (uploaded once, below)
+const SAMPLE_DOCUMENT = 'documents/load/sample.pdf'
+
 // The demo uses the first 6 plate codes; these never collide with it
 const LOAD_PLATE_CODES = PLATE_CODES.slice(6)
 
-const dbName = new URL(config.databaseUrl).pathname.slice(1)
+// Seeding creates working tables, so it connects as the owner (MIGRATION_DATABASE_URL)
+const dbName = new URL(config.migrationDatabaseUrl).pathname.slice(1)
 if (!dbName.includes('load')) {
   console.error(`Refusing to seed "${dbName}": the load-test database's name must contain "load".`)
   process.exit(1)
@@ -84,7 +89,7 @@ for (const [name, value] of Object.entries({
   }
 }
 
-const sql = postgres(config.databaseUrl, {
+const sql = postgres(config.migrationDatabaseUrl, {
   max: WORKERS + 1,
   onnotice: () => {},
   connection: { TimeZone: config.timeZone }
@@ -106,6 +111,11 @@ if (existing > 0) {
 await markSummaryStale()
 step('Seeding the demo data')
 await ensureDemoData()
+await objectStore.put(
+  SAMPLE_DOCUMENT,
+  new TextEncoder().encode('%PDF-1.4\n% Masarat load-test sample attachment\n%%EOF\n'),
+  'application/pdf'
+)
 await closeDb()
 
 step(
@@ -361,7 +371,19 @@ m AS (
          departure_at - make_interval(mins => 30)
   FROM q
   RETURNING id, category, cargo_type, cargo_quantity, cargo_unit, trip_cost, tax_amount, status,
-            departure_at, arrival_at, rate_per_km, created_at
+            departure_at, arrival_at, rate_per_km, created_at, trip_kind
+),
+-- Cargo trips' attachments: the invoice, a packing list on 2 in 3, and the trade authorization on
+-- imports and exports (1–3 files of about 2 MB). The rows point at one shared sample object: the
+-- tables and the preview path are what's tested here; storage is sized by arithmetic
+docs AS (
+  INSERT INTO trip_documents (manifest_id, doc_type, file_name, stored_name, size)
+  SELECT m.id, d.doc_type, d.doc_type || '.pdf', '${SAMPLE_DOCUMENT}', 2000000
+  FROM m CROSS JOIN LATERAL (VALUES ('commercial_invoice'), ('packing_list'), ('trade_authorization')) d(doc_type)
+  WHERE m.category = 'cargo'
+    AND (d.doc_type = 'commercial_invoice'
+      OR (d.doc_type = 'packing_list' AND m.id % 3 <> 0)
+      OR (d.doc_type = 'trade_authorization' AND m.trip_kind IN ('import', 'export')))
 ),
 items AS (
   INSERT INTO manifest_cargo_items (manifest_id, position, name, quantity, unit, cargo_type, rate_per_km,

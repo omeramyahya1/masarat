@@ -246,3 +246,36 @@ describe('shared state: object storage and Redis', () => {
     }
   })
 })
+
+describe('dashboard cache', () => {
+  test('a computed dashboard is reused from Redis until it expires or the cache is cleared', async () => {
+    const { config } = await import('../src/config')
+    const { getRedis } = await import('../src/services/redis')
+    const { cachedDashboard, clearDashboardCache } = await import('../src/services/dashboardCache')
+    const keys = async (): Promise<string[]> =>
+      (await getRedis().send('KEYS', ['dashboard:*:*'])) as string[]
+    const filters = { range: { preset: '30d' as const } }
+    const view = { bucket: null, breakdown: 'route' as const, sort: 'revenue' as const }
+    config.dashboardCacheS = 60
+    try {
+      const first = await cachedDashboard(filters, view)
+      const stored = await keys()
+      expect(stored.length).toBeGreaterThanOrEqual(1)
+      // Same filters: the stored copy, and no new key
+      expect(await cachedDashboard(filters, view)).toEqual(first)
+      expect((await keys()).length).toBe(stored.length)
+      // Concurrent requests for a new view share one computation (one more key)
+      const other = { ...view, breakdown: 'company' as const }
+      await Promise.all([cachedDashboard(filters, other), cachedDashboard(filters, other)])
+      expect((await keys()).length).toBe(stored.length + 1)
+      // Cleared: the next request computes again under a new generation
+      await clearDashboardCache()
+      await cachedDashboard(filters, view)
+      expect((await keys()).length).toBe(stored.length + 2)
+    } finally {
+      config.dashboardCacheS = 0
+      const all = await keys()
+      if (all.length) await getRedis().del(...all)
+    }
+  })
+})

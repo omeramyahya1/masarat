@@ -100,6 +100,8 @@ export function buildConfig(env: Env) {
     },
     // Trips stay in the live tables this many days after departure, then move to the archive
     hotDays: positiveNumber('HOT_DAYS', 30),
+    // How long a computed government dashboard is reused (Redis); 0 computes every visit
+    dashboardCacheS: env.DASHBOARD_CACHE_S === '0' ? 0 : positiveNumber('DASHBOARD_CACHE_S', 60),
     // Seeds the demo fleet companies and enables the demo-only actions; never in production
     demoMode,
     timeZone,

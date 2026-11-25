@@ -28,7 +28,7 @@ What a person does with Masarat, as scenarios and cases, from sign-in to the che
 | Id     | Case              | Steps                                   | Expected                                                           |
 | ------ | ----------------- | --------------------------------------- | ------------------------------------------------------------------ |
 | ADM-01 | Sign up a company | Register a company with its admin       | Signed in as its admin, on an empty Trips list                     |
-| ADM-02 | Company details   | Profile: change the address and TIN     | Saved; they're what the next manifest prints as the carrier        |
+| ADM-02 | Company details   | Profile: change the address             | Saved                                                              |
 | ADM-03 | Add a branch      | Branches: add a branch in a city        | It appears in Branches, and in the trip form's branch list         |
 | ADM-04 | A custom role     | Roles: add a role with some permissions | It can be given to a member in Team                                |
 | ADM-05 | Add a member      | Team: add a clerk at a branch           | A temporary password is shown once; the member appears in the list |
@@ -73,18 +73,18 @@ What a person does with Masarat, as scenarios and cases, from sign-in to the che
 
 ## Government (GOV)
 
-| Id     | Case                         | Steps                                                 | Expected                                                                                        |
-| ------ | ---------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| GOV-01 | The dashboard                | Log in as `ministry.agent`                            | Revenue collected, collection rate, the revenue chart and the breakdown, for the last 30 days   |
-| GOV-02 | Filters                      | Change the period and add a filter                    | The figures follow; leaving for another section and coming back keeps the filters               |
-| GOV-03 | Search                       | Search a city name; open a result; go back            | The results, then the trip read-only (company, branch, who booked it); back to the same results |
-| GOV-04 | Search by bill ID and number | Search a trip's E-Sali bill ID, then its MNF- number  | That trip is found each time                                                                    |
-| GOV-05 | Export data                  | Export → Data → CSV, with and without passengers' IDs | A file downloads; the ID columns only when asked for                                            |
-| GOV-06 | The report                   | Export → Report (PDF)                                 | **Manual** (printing): the preview opens with the letterhead                                    |
-| GOV-07 | Taxes and fees               | As `ministry.demo`: change a fee                      | Saved and listed; a new bill uses it                                                            |
-| GOV-08 | Settings                     | As `ministry.demo`: change the validity margin        | Saved                                                                                           |
-| GOV-09 | One government admin         | As `ministry.demo`: Users → add an account            | The government admin role isn't offered                                                         |
-| GOV-10 | An agent's limits            | As `ministry.agent`                                   | No Taxes and fees, Settings or Users                                                            |
+| Id     | Case                         | Steps                                                                                      | Expected                                                                                        |
+| ------ | ---------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| GOV-01 | The dashboard                | Log in as `ministry.agent`                                                                 | Revenue collected, collection rate, the revenue chart and the breakdown, for the last 30 days   |
+| GOV-02 | Filters                      | Change the period and add a filter                                                         | The figures follow; leaving for another section and coming back keeps the filters               |
+| GOV-03 | Search                       | Search a city name; open a result; go back                                                 | The results, then the trip read-only (company, branch, who booked it); back to the same results |
+| GOV-04 | Search by bill ID and number | Search a trip's E-Sali bill ID, then its MNF- number                                       | That trip is found each time                                                                    |
+| GOV-05 | Export data                  | Export passengers as CSV, with and without their IDs (through the API, as the dialog does) | The ID column only when asked for                                                               |
+| GOV-06 | The report                   | Export → Report (PDF)                                                                      | **Manual** (printing): the preview opens with the letterhead                                    |
+| GOV-07 | Taxes and fees               | As `ministry.demo`: open Taxes and fees                                                    | The charges are listed (editing them is covered by the API tests, `apps/api/test/govt.test.ts`) |
+| GOV-08 | Settings                     | As `ministry.demo`: change the validity margin                                             | Saved                                                                                           |
+| GOV-09 | One government admin         | As `ministry.demo`: Users → add an account                                                 | The government admin role isn't offered                                                         |
+| GOV-10 | An agent's limits            | As `ministry.agent`                                                                        | No Taxes and fees, Settings or Users                                                            |
 
 ## The verify page (VER)
 

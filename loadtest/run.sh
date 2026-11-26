@@ -43,7 +43,7 @@ sample() {
 
 run_one() {
   local label=$1 api_cpus=$2 db_cpus=$3 db_mem=$4 pool=$5 scale=$6 duration=${7:-5m}
-  local flows=${8:-booking,browse,govt,exportData,verify}
+  local flows=${8:-booking,browse,govtDashboard,govtReview,exportData,verify}
   local dir=loadtest/results/$label/scale-$scale
   mkdir -p "$dir"
   echo "== $label: API on CPUs $api_cpus (pool $pool), Postgres on $db_cpus with $db_mem; scale $scale for $duration"

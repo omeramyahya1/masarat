@@ -94,9 +94,7 @@ export function buildConfig(env: Env) {
       dir: env.LOG_DIR === '' ? null : resolve(env.LOG_DIR ?? 'logs'),
       retentionDays: positiveNumber('LOG_RETENTION_DAYS', 7),
       // Human-readable console output (development); production always writes JSON
-      pretty: !production && env.LOG_PRETTY !== 'false',
-      // Queries slower than this are logged with their request
-      slowQueryMs: positiveNumber('SLOW_QUERY_MS', 500)
+      pretty: !production && env.LOG_PRETTY !== 'false'
     },
     // Trips stay in the live tables this many days after departure, then move to the archive
     hotDays: positiveNumber('HOT_DAYS', 30),

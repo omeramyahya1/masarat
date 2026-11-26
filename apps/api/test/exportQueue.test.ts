@@ -204,7 +204,9 @@ describe('cancelling and failures', () => {
     const id = (await agent.call('POST', '/govt/exports', INPUT)).body.data.id
     await drainExports()
     expect(await objectStore.list(`exports/${id}/`)).toHaveLength(1)
-    expect(await sweepExportFiles(60 * 60 * 1000)).toBe(0)
+    // A fresh file stays (the test bucket may hold older runs' files, which go)
+    await sweepExportFiles(60 * 60 * 1000)
+    expect(await objectStore.list(`exports/${id}/`)).toHaveLength(1)
     expect(await sweepExportFiles(60 * 60 * 1000, Date.now() + 2 * 60 * 60 * 1000)).toBeGreaterThan(
       0
     )

@@ -15,7 +15,7 @@ export async function resetData(): Promise<void> {
   await owner.execute(sql`
     truncate sessions, login_attempts, esali_sim_bills, certificates, payments, manifest_charges,
       trip_documents, manifest_trailers, manifest_cargo_items, manifests, vehicles, drivers,
-      charge_changes, daily_revenue, people, users,
+      charge_changes, daily_revenue, people, trip_decisions, trip_reports, users,
       archive.certificates, archive.payments, archive.manifest_charges, archive.trip_documents,
       archive.trip_passengers, archive.manifest_trailers, archive.manifest_cargo_items,
       archive.manifests restart identity cascade
@@ -43,12 +43,7 @@ let phoneCounter = 0
 export const nextPhone = (): string => `+24991${String(++phoneCounter).padStart(7, '0')}`
 
 export type AccountRole =
-  | 'company_admin'
-  | 'clerk'
-  | 'accountant'
-  | 'govt_admin'
-  | 'govt_supervisor'
-  | 'govt_agent'
+  'company_admin' | 'clerk' | 'accountant' | 'govt_admin' | 'govt_supervisor' | 'govt_agent'
 
 const isGovtRole = (role: AccountRole): boolean => role.startsWith('govt_')
 

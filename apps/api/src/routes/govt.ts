@@ -2,6 +2,7 @@
 // read-only with its attachments, the tax settings, the data export, and the demo regenerate
 import { Hono } from 'hono'
 import {
+  cancelTripSchema,
   chargeSchema,
   dashboardRequestSchema,
   exportSchema,
@@ -24,12 +25,14 @@ import { findOwnedDocumentFile } from '../services/documents'
 import { exportData } from '../services/exports'
 import { searchTrips } from '../services/govtTrips'
 import { createCharge, getChargesView, updateCharge } from '../services/charges'
+import { cancelTrip } from '../services/reviews'
 import { getSettings, updateSettings } from '../services/settings'
 import { getReferenceData } from '../services/trips'
 import { fail, idParam, send, type AppEnv } from '../http/context'
 import { contentDisposition, sendFile } from '../http/files'
 import { requireKind, requirePermission, requireUser } from '../http/middleware'
 import { body, doc, query } from '../http/validate'
+import { sendTrip } from './reports'
 
 const EXPORT_TYPES: Record<string, string> = {
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -101,11 +104,11 @@ export const govtRoutes = new Hono<AppEnv>()
     query(govtSearchQuerySchema),
     async (c) => send(c, await searchTrips(c.req.valid('query')))
   )
-  // Opened from the search and from the dashboard's latest bills
+  // Opened from the search, the dashboard's latest bills and the Reports section
   .get(
     '/trips/:id',
     doc(G, 'Any trip, read-only'),
-    requirePermission('govt.search', 'govt.dashboard'),
+    requirePermission('govt.search', 'govt.dashboard', 'govt.reports.review'),
     async (c) => {
       const id = idParam(c)
       return id === null ? fail(c, 'manifest_not_found') : send(c, await getTripDetails(null, id))
@@ -114,10 +117,22 @@ export const govtRoutes = new Hono<AppEnv>()
   .get(
     '/documents/:id/file',
     doc(G, 'A trip attachment’s file'),
-    requirePermission('govt.search', 'govt.dashboard'),
+    requirePermission('govt.search', 'govt.dashboard', 'govt.reports.review'),
     async (c) => {
       const id = idParam(c)
       return await sendFile(c, id === null ? undefined : await findOwnedDocumentFile(null, id))
+    }
+  )
+  // A supervisor cancels a trip whose bill isn't paid yet (services/reviews.ts)
+  .post(
+    '/trips/:id/cancel',
+    doc(G, 'Cancel a trip whose bill isn’t paid yet'),
+    requirePermission('govt.reports.review'),
+    body(cancelTripSchema),
+    async (c) => {
+      const id = idParam(c)
+      if (id === null) return fail(c, 'manifest_not_found')
+      return sendTrip(c, await cancelTrip(c.get('user')!.id, id, c.req.valid('json')))
     }
   )
   // The validity margin and average speeds

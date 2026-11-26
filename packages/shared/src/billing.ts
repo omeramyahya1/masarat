@@ -1,5 +1,6 @@
 // E-Sali bills, payments and certificates, shared by the main process and the renderer
-import type { TripKind, TripRecord } from './fleet'
+import type { PaymentStatus, TripKind, TripRecord } from './fleet'
+import type { ReportRecord, TripDecision } from './reviews'
 
 // yyyy mm 0dd (day as 3 digits) + 13 digits, e.g. 2026110170000123456789
 export const ESALI_BILL_ID_RE = /^\d{4}(0[1-9]|1[0-2])0(0[1-9]|[12]\d|3[01])\d{13}$/
@@ -11,7 +12,7 @@ export interface PaymentRecord {
   billId: string
   amount: number
   currency: string
-  status: 'pending' | 'paid' | 'expired' | 'failed'
+  status: PaymentStatus
   paymentRef: string | null
   paidAt: number | null
   createdAt: number
@@ -43,6 +44,10 @@ export interface TripDetails {
   certificate: CertificateRecord | null
   // Older than the live window: moved to the archive, read-only
   archived: boolean
+  // A supervisor revoked its clearance or cancelled it (both portals), or null
+  decision: TripDecision | null
+  // Its reports, newest first: only the government sees them (empty for the company)
+  reports: ReportRecord[]
 }
 
 // What the documents' QR code encodes: the public verify page for this certificate, e.g.
@@ -56,8 +61,13 @@ export const QR_TOKEN_PATTERN = /^[0-9a-f]{32}$/
 // What the public verify page shows: enough for an officer to match the printed copy, and no
 // personal contacts (no sender, receiver or driver details)
 export interface ManifestVerification {
-  // Valid until the end of its validity date; expired after
-  status: 'valid' | 'expired'
+  // Valid until the end of its validity date, expired after; revoked once a supervisor revoked it
+  // (whatever the date)
+  status: 'valid' | 'expired' | 'revoked'
+  // When it was revoked
+  revokedAt: number | null
+  // Reported and waiting for a supervisor: still valid meanwhile, shown with a warning
+  underReview: boolean
   manifestNo: string
   certificateNo: string
   plateNumber: string

@@ -1,11 +1,13 @@
 // The public verify page's lookup: a certificate by its QR token, with only what an officer needs
 // to match the printed copy. Nothing personal (sender, receiver, driver, passengers' names or IDs)
-// leaves here: a passenger trip only gives its head count.
+// leaves here: a passenger trip only gives its head count. A revoked clearance says so (with the
+// date, not the reason); one with an open report stays valid, flagged as under review.
 import { and, count, eq } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { cities, getDb, tripViews, vehicles } from '../db'
 import { QR_TOKEN_PATTERN, type ManifestVerification } from '@masarat/shared/billing'
 import type { FleetResult } from '@masarat/shared/fleet'
+import { verifyReviewOf } from './reviews'
 
 // Reads live and archived trips alike (the all_* views)
 const { certificates, manifests, payments, tripPassengers } = tripViews
@@ -26,6 +28,7 @@ export async function verifyManifest(
       validUntil: certificates.validUntil,
       plateNumber: vehicles.plateNumber,
       tripKind: manifests.tripKind,
+      tripStatus: manifests.status,
       manifestId: manifests.id,
       category: manifests.category,
       departureAt: manifests.departureAt,
@@ -48,23 +51,28 @@ export async function verifyManifest(
     .limit(1)
   if (!row) return { ok: false, error: 'manifest_not_found' }
 
-  let passengers: ManifestVerification['passengers'] = null
-  if (row.category === 'passenger') {
-    const counts = await getDb()
-      .select({ isInfant: tripPassengers.isInfant, value: count() })
-      .from(tripPassengers)
-      .where(eq(tripPassengers.manifestId, row.manifestId))
-      .groupBy(tripPassengers.isInfant)
-    passengers = {
-      seated: counts.find((c) => !c.isInfant)?.value ?? 0,
-      infants: counts.find((c) => c.isInfant)?.value ?? 0
-    }
+  const [counts, review] = await Promise.all([
+    row.category === 'passenger'
+      ? getDb()
+          .select({ isInfant: tripPassengers.isInfant, value: count() })
+          .from(tripPassengers)
+          .where(eq(tripPassengers.manifestId, row.manifestId))
+          .groupBy(tripPassengers.isInfant)
+      : null,
+    verifyReviewOf(row.manifestId)
+  ])
+  const passengers: ManifestVerification['passengers'] = counts && {
+    seated: counts.find((c) => !c.isInfant)?.value ?? 0,
+    infants: counts.find((c) => c.isInfant)?.value ?? 0
   }
+  const revoked = row.tripStatus === 'revoked'
 
   return {
     ok: true,
     data: {
-      status: now <= row.validUntil ? 'valid' : 'expired',
+      status: revoked ? 'revoked' : now <= row.validUntil ? 'valid' : 'expired',
+      revokedAt: revoked ? (review.revokedAt?.getTime() ?? null) : null,
+      underReview: !revoked && review.underReview,
       manifestNo: row.manifestNo,
       certificateNo: row.certificateNo,
       plateNumber: row.plateNumber,

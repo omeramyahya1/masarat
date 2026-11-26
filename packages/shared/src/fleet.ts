@@ -435,6 +435,8 @@ export type FleetErrorCode =
   | 'password_change_required'
   // A query ran past the server's time limit (narrow the search or the period)
   | 'query_timeout'
+  // The server is handling as many requests as it can: try again in a moment
+  | 'server_busy'
   // A dataset has more rows than an Excel sheet holds (choose CSV or a shorter period)
   | 'export_too_large_for_excel'
   // An export too big to send as one ZIP (choose a shorter period, or fewer datasets or formats)

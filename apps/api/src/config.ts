@@ -72,6 +72,9 @@ export function buildConfig(env: Env) {
     // REQUEST_TIMEOUT_S (at most 255). Migrations and seeding have no limit.
     statementTimeoutMs: positiveNumber('STATEMENT_TIMEOUT_MS', 15_000),
     exportStatementTimeoutMs: positiveNumber('EXPORT_STATEMENT_TIMEOUT_MS', 120_000),
+    // Requests handled at once per instance; past that the API answers 503 server_busy at once
+    // (http/loadShed.ts). About ten times the Postgres pool: enough for bursts, short of a backlog.
+    maxInFlight: positiveNumber('MAX_IN_FLIGHT', 200),
     // Exports prepared at once by the export workers; unset: one per active government admin or
     // supervisor (services/exportQueue.ts)
     exportConcurrency: env.EXPORT_CONCURRENCY ? positiveNumber('EXPORT_CONCURRENCY', 1) : null,

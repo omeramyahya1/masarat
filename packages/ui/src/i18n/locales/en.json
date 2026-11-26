@@ -313,6 +313,7 @@
       "document_too_large": "The file is larger than 20 MB.",
       "zero_bill": "This trip's taxes and fees come to 0 SDG, so there is no bill to pay. The tax rates and fees need to be reviewed by the tax administration before this trip can be authorized.",
       "query_timeout": "This took too long. Narrow the search or choose a shorter period, then try again.",
+      "server_busy": "The system is very busy right now. Try again in a moment.",
       "export_too_large_for_excel": "Too many rows for Excel: {{rows}}. An Excel sheet holds at most {{limit}} rows. Choose CSV, or a shorter period.",
       "export_too_large": "This export is too big to download as one archive. Choose a shorter period, fewer datasets, or one format.",
       "export_in_progress": "You already have an export being prepared. Wait for it to finish, or cancel it first.",

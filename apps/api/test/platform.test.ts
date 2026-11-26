@@ -282,3 +282,38 @@ describe('dashboard cache', () => {
     }
   })
 })
+
+describe('overload', () => {
+  test('past MAX_IN_FLIGHT requests at once, the API answers 503 at once; health is never refused', async () => {
+    const { Hono } = await import('hono')
+    const { shedLoad, requestsInFlight } = await import('../src/http/loadShed')
+    const { config } = await import('../src/config')
+    let release: () => void = () => {}
+    const held = new Promise<void>((resolve) => (release = resolve))
+    const app = new Hono()
+      .use(shedLoad)
+      .get('/slow', async (c) => {
+        await held
+        return c.json({ ok: true })
+      })
+      .get('/health/ready', (c) => c.json({ ok: true }))
+    const before = config.maxInFlight
+    config.maxInFlight = 2
+    try {
+      const slow = [app.request('/slow'), app.request('/slow')]
+      await Bun.sleep(10)
+      expect(requestsInFlight()).toBe(2)
+      const refused = await app.request('/slow')
+      expect(refused.status).toBe(503)
+      expect(refused.headers.get('retry-after')).toBe('1')
+      expect(await refused.json()).toEqual({ ok: false, error: 'server_busy' })
+      expect((await app.request('/health/ready')).status).toBe(200)
+      release()
+      expect((await Promise.all(slow)).map((r) => r.status)).toEqual([200, 200])
+      expect(requestsInFlight()).toBe(0)
+      expect((await app.request('/slow')).status).toBe(200)
+    } finally {
+      config.maxInFlight = before
+    }
+  })
+})

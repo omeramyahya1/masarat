@@ -10,6 +10,7 @@ import { log } from './log'
 import { fail, type AppEnv } from './http/context'
 import { isQueryTimeout } from './db/errors'
 import { originCheck, session } from './http/middleware'
+import { shedLoad } from './http/loadShed'
 import { REQUEST_ID_HEADER, requestLog } from './http/requestLog'
 import { readiness } from './services/health'
 import { MAX_DOCUMENT_BYTES } from '@masarat/shared/fleet'
@@ -55,6 +56,8 @@ export const app = new Hono<AppEnv>()
       maxAge: 600
     })
   )
+  // Past MAX_IN_FLIGHT requests at once, answer 503 at once (before the session's query)
+  .use(shedLoad)
   .use(originCheck)
   .use((c, next) =>
     (c.req.method === 'POST' && c.req.path === '/documents' ? UPLOAD_LIMIT : JSON_LIMIT)(c, next)

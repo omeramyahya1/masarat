@@ -6,11 +6,13 @@
 #
 #   loadtest/stack.sh db-up   <cpus> <mem>     e.g. db-up 4-7 8g
 #   loadtest/stack.sh api-up  <cpus> [pool]    e.g. api-up 0-1 20
+#   loadtest/stack.sh worker-up <cpus>          the export worker, e.g. worker-up 2-3
 #   loadtest/stack.sh services-up                Redis and MinIO (compose.yaml) and the load bucket
 #   loadtest/stack.sh migrate | down | api-down | status
 #
 # CPU layout on the i7-12800H this was written on: 0-11 are the 6 performance cores (2 threads
-# each), 12-19 the 8 efficiency cores. The API gets 0-3, Postgres 4-11 and k6 12-19.
+# each), 12-19 the 8 efficiency cores. The API gets 0-1, the export worker 2-3, Postgres 4-11 and
+# k6 12-19.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -98,6 +100,33 @@ api_up() {
   echo "API up on CPUs $cpus, pool $pool, http://localhost:${API_PORT} (pid $(cat "$STATE/api.pid"))"
 }
 
+# The export worker (apps/api/src/exportWorker.ts): its own process on its own CPUs, as it would
+# be its own server, with a small pool (it holds one connection per export it prepares)
+worker_up() {
+  local cpus=$1
+  worker_down
+  api_env
+  export DB_POOL_MAX=8 INSTANCE_NAME=load-exports
+  (
+    cd apps/api
+    taskset -c "$cpus" bun src/exportWorker.ts >"$STATE/worker.log" 2>&1 &
+    echo $! >"$STATE/worker.pid"
+  )
+  for _ in $(seq 30); do
+    grep -q 'Export worker started' "$STATE/worker.log" 2>/dev/null && break
+    sleep 1
+  done
+  echo "Export worker up on CPUs $cpus (pid $(cat "$STATE/worker.pid"))"
+}
+
+worker_down() {
+  if [[ -f $STATE/worker.pid ]]; then
+    kill "$(cat "$STATE/worker.pid")" 2>/dev/null || true
+    rm -f "$STATE/worker.pid"
+    sleep 1
+  fi
+}
+
 api_down() {
   if [[ -f $STATE/api.pid ]]; then
     kill "$(cat "$STATE/api.pid")" 2>/dev/null || true
@@ -110,6 +139,8 @@ case ${1:-} in
   db-up) db_up "${2:?cpus}" "${3:?memory}" ;;
   api-up) api_up "${2:?cpus}" "${3:-10}" ;;
   api-down) api_down ;;
+  worker-up) worker_up "${2:?cpus}" ;;
+  worker-down) worker_down ;;
   services-up) services_up ;;
   migrate)
     api_env
@@ -122,11 +153,13 @@ case ${1:-} in
     ;;
   down)
     api_down
+    worker_down
     podman rm -f "$DB_NAME" >/dev/null 2>&1 || true
     echo "Stopped (the data stays in the masarat-load-pg volume)"
     ;;
   wipe)
     api_down
+    worker_down
     podman rm -f "$DB_NAME" >/dev/null 2>&1 || true
     podman volume rm masarat-load-pg >/dev/null 2>&1 || true
     rm -rf loadtest/.storage
@@ -135,6 +168,8 @@ case ${1:-} in
   status)
     podman ps --filter "name=$DB_NAME" --format '{{.Names}} {{.Status}}'
     [[ -f $STATE/api.pid ]] && echo "API pid $(cat "$STATE/api.pid")" || echo "API not running"
+    [[ -f $STATE/worker.pid ]] && echo "Export worker pid $(cat "$STATE/worker.pid")" ||
+      echo "Export worker not running"
     ;;
   *)
     sed -n 2,13p "$0"

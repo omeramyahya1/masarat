@@ -72,7 +72,11 @@ export function api(method, path, { kind, name, body, ip, expect = 'ok', timeout
   } catch {
     // not JSON: the check below fails
   }
-  check(res, { [`${params.tags.name} ok`]: () => res.status === 200 && json && json.ok === true })
+  // A queued export answers 202
+  const okStatus = expect === 'queued' ? 202 : 200
+  check(res, {
+    [`${params.tags.name} ok`]: () => res.status === okStatus && json && json.ok === true
+  })
   return json && json.ok ? (json.data ?? json) : null
 }
 
@@ -130,6 +134,8 @@ const ENDPOINTS = [
   'GET /govt/search',
   'GET /govt/trips/:id',
   'POST /govt/exports',
+  'GET /govt/exports/:id',
+  'GET /govt/exports/:id/file',
   'GET /verify/:token'
 ]
 export const thresholds = {
@@ -143,7 +149,10 @@ export const thresholds = {
   'http_req_duration{kind:login}': ['p(95)<1000'],
   'http_req_duration{kind:verify}': ['p(95)<300'],
   'http_req_duration{kind:dashboard}': ['p(95)<3000'],
+  // Queuing an export and downloading its file; the wait in between is export_job_ms
   'http_req_duration{kind:export}': ['p(95)<15000'],
+  // A month of national trips and bills as Excel, queued to downloaded
+  export_job_ms: ['p(95)<900000'],
   ...Object.fromEntries(
     ENDPOINTS.map((name) => [`http_req_duration{name:${name}}`, ['p(95)<600000']])
   )

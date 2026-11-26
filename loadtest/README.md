@@ -4,17 +4,17 @@ Finds the hardware Masarat needs in production. The test loads the API and Postg
 
 ## The workload (SCALE=1)
 
-The targets: **5,000–20,000 trips a day**, **1,000–5,000 users online**, and **10–100 checkpoint scans a second**. SCALE=1 is the top of each range. SCALE=0.25 and 0.5 are 5,000 and 10,000 trips a day. Every rate is in `TARGET` in `k6/mixed.js`.
+The targets come from the agreed numbers: **20,000 trips a day** (10% by bus), about **4,300 company members** (a clerk per branch, an accountant and an admin per company) and **100 government staff**. Each rate is worked out from them below, for the **peak hour**, which carries 15% of a day's bookings and browsing. SCALE=1 is that target; SCALE=0.25 and 0.5 are 5,000 and 10,000 trips a day. Every rate is in `TARGET` in `k6/mixed.js`.
 
-| Flow (`k6/flows.js`)                                                                                                          | At SCALE=1                                        | Where it comes from                                                                                                              |
-| ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `booking`: a clerk books a trip and takes it to the authorized manifest                                                       | 51 trips a minute (0.85/s), about 9 requests each | 20,000 trips a day, 15% of them in the peak hour. A third of cargo trips also attach an invoice and a packing list of 1 MB each. |
-| `browse`: members follow their trips (lists, filters, groups, search, a trip, vehicles, drivers)                              | 140 page views a second                           | 5,000 members online, one page view every ~35 s. 4 in 5 are clerks (their branch), 1 in 5 accountants (the whole company).       |
-| `govtDashboard`: a senior opens the dashboard (history and today) or refreshes it (today only)                                | 5 a minute                                        | 5 senior government staff, each about once a minute; a new view 3 times in 10                                                    |
-| `govtReview`: an agent searches (this week's trips 9 times in 10), opens a trip, and a third of the time one of its documents | 95 a minute                                       | 95 government agents, each about once a minute (100 government staff in all)                                                     |
-| `exportData`: a month of trips and bills as Excel                                                                             | 1 a minute                                        |                                                                                                                                  |
-| `verify`: a QR scan at a checkpoint                                                                                           | 100 a second                                      | Every trip scanned at 3–5 checkpoints, mostly in the morning. 9 in 10 scans are valid documents, 1 in 10 expired.                |
-| `login`: a fresh sign-in (Argon2id)                                                                                           | 6 a second                                        | The shift-start rush: 5,000 sign-ins in 15 minutes. Not in the mixed run by default; run it on its own with `FLOWS=login`.       |
+| Flow (`k6/flows.js`)                                                                                                          | At SCALE=1                                        | Where it comes from                                                                                                                                                                                                                                                                                |
+| ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `booking`: a clerk books a trip and takes it to the authorized manifest                                                       | 51 trips a minute (0.85/s), about 9 requests each | 20,000 trips a day, 15% of them in the peak hour. A third of cargo trips also attach an invoice and a packing list of 1 MB each.                                                                                                                                                                   |
+| `browse`: members follow their trips (lists, filters, groups, search, a trip, vehicles, drivers)                              | 22 page views a second                            | About 25 page views per trip (the clerk's list and trip, searches, accountants and admins checking): 500,000 a day, 15% in the peak hour. The same as 60% of the members online, each looking at a page every 2 minutes. 4 in 5 are clerks (their branch), 1 in 5 accountants (the whole company). |
+| `govtDashboard`: a senior opens the dashboard (history and today) or refreshes it (today only)                                | 5 a minute                                        | 5 senior government staff (supervisors), each about once a minute; a new view 3 times in 10                                                                                                                                                                                                        |
+| `govtReview`: an agent searches (this week's trips 9 times in 10), opens a trip, and a third of the time one of its documents | 95 a minute                                       | 95 government agents, each about once a minute (100 government staff in all)                                                                                                                                                                                                                       |
+| `exportData`: a month of trips and bills as Excel, queued, prepared by the export worker, then downloaded                     | 6 an hour                                         | The agreed number. The iteration lasts until the file is downloaded; `export_job_ms` is the whole wait.                                                                                                                                                                                            |
+| `verify`: a QR scan at a checkpoint                                                                                           | 4 a second                                        | About 6 checkpoints per trip: 120,000 scans a day, about 10% of them in the peak hour (3.3 a second). 9 in 10 scans are valid documents, 1 in 10 expired.                                                                                                                                          |
+| `login`: a fresh sign-in (Argon2id, about 65 ms of CPU each)                                                                  | 1.5 a second                                      | The morning rush: 60% of the ~4,400 accounts sign in within the first 30 minutes. Part of the mixed run, which makes it a peak hour that overlaps the rush (on the safe side).                                                                                                                     |
 
 **The data.** The tables are seeded at production size, because the dashboard, the search and the lists slow down as they grow. Production keeps a month of history, so the seeder fills 30 days (`--days`). At 20,000 trips a day, with 10% of trips by bus (`--bus-share`), that comes to:
 
@@ -25,27 +25,28 @@ The targets: **5,000–20,000 trips a day**, **1,000–5,000 users online**, and
 
 **The SLOs** are the k6 thresholds in `k6/lib.js`. Every run reports each endpoint's p95 too.
 
-| Kind                                     | p95      |
-| ---------------------------------------- | -------- |
-| read                                     | < 500 ms |
-| write (save, bill, pay, refresh, upload) | < 1 s    |
-| login                                    | < 1 s    |
-| verify                                   | < 300 ms |
-| dashboard                                | < 3 s    |
-| export                                   | < 15 s   |
+| Kind                                                   | p95      |
+| ------------------------------------------------------ | -------- |
+| read                                                   | < 500 ms |
+| write (save, bill, pay, refresh, upload)               | < 1 s    |
+| login                                                  | < 1 s    |
+| verify                                                 | < 300 ms |
+| dashboard                                              | < 3 s    |
+| export (queuing one, downloading its file)             | < 15 s   |
+| a whole export, queued to downloaded (`export_job_ms`) | < 15 min |
 
 On top of that, errors must stay under 0.1% and checks above 99.9%.
 
 ## How the stack runs
 
-`stack.sh` runs a Postgres 18 container named `masarat_load_db`, on port 5434 with the volume `masarat-load-pg`. It is separate from the dev database. Its settings are sized to its memory, and `pg_stat_statements` is on. The API runs natively on port 3100. It has demo mode on, for the simulated payment, and `TRUST_PROXY=true`, so k6 can give every virtual user its own IP and the per-IP limits behave as they would with many real clients.
+`stack.sh` runs a Postgres 18 container named `masarat_load_db`, on port 5434 with the volume `masarat-load-pg`. It is separate from the dev database. Its settings are sized to its memory, and `pg_stat_statements` is on. The API runs natively on port 3100, and the **export worker** (`apps/api/src/exportWorker.ts`) as its own process on CPUs 2–3 (`WORKER_CPUS`), as it would be its own server; `run.sh` starts both and samples both. It has demo mode on, for the simulated payment, and `TRUST_PROXY=true`, so k6 can give every virtual user its own IP and the per-IP limits behave as they would with many real clients.
 
 **Server size = pinned CPUs.** Rootless podman on this machine can't limit CPU time; only memory and pids are delegated to the user's cgroup. So a server's size is the set of CPUs it is pinned to with `taskset`; memory is a real cgroup limit. The layout on this machine (i7-12800H):
 
-| CPUs  | Hardware                                | Used by                      |
-| ----- | --------------------------------------- | ---------------------------- |
-| 0–11  | the 6 performance cores, 2 threads each | API on 0–3, Postgres on 4–11 |
-| 12–19 | the 8 efficiency cores                  | k6                           |
+| CPUs  | Hardware                                | Used by                                                |
+| ----- | --------------------------------------- | ------------------------------------------------------ |
+| 0–11  | the 6 performance cores, 2 threads each | API on 0–1, the export worker on 2–3, Postgres on 4–11 |
+| 12–19 | the 8 efficiency cores                  | k6                                                     |
 
 **Laptop cores aren't cloud cores.** They run at up to 4.7 GHz, while a cloud vCPU is typically 2.5–3.5 GHz. A size that passes here needs about **1.5×** the vCPUs in the cloud. Confirm the chosen size once on a real VM before ordering hardware.
 
@@ -64,6 +65,7 @@ taskset -c 12-19 loadtest/stack.sh seed --trips-per-day 20000 --days 30 --bus-sh
 
 # 2. Smoke test: every flow, briefly, with no errors
 loadtest/stack.sh api-up 0-1 20
+loadtest/stack.sh worker-up 2-3        # the export worker (run.sh starts both itself)
 (cd loadtest/k6 && k6 run -e SCALE=0.05 -e DURATION=30s -e FLOWS=booking,browse,govtDashboard,govtReview,exportData,verify,login mixed.js)
 
 # 3. One size at the target load, or a series of loads until it fails

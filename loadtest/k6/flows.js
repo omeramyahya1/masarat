@@ -1,5 +1,6 @@
 // What each kind of user does, one iteration at a time. The rates are set by the scenario files.
 import { check, sleep } from 'k6'
+import { Trend } from 'k6/metrics'
 import http from 'k6/http'
 import {
   BASE,
@@ -22,6 +23,9 @@ import {
   upload,
   validTokens
 } from './lib.js'
+
+// How long a data export took, queued to downloaded
+const exportJob = new Trend('export_job_ms', true)
 
 // A 1 MB PDF (the API checks the first bytes), made once per VU
 const PDF_BYTES = 1024 * 1024
@@ -227,13 +231,16 @@ export function govtReview() {
   }
 }
 
-// An occasional export: a month of trips and bills as Excel
+// An occasional export: a month of trips and bills as Excel. The API queues it; the export worker
+// prepares it; the portal asks how it's going every 2 seconds, then downloads the file. The whole
+// wait is export_job_ms (thresholds in lib.js).
 export function exportData() {
   if (!signIn(govtUsers)) return
-  api('POST', '/govt/exports', {
+  const started = Date.now()
+  const job = api('POST', '/govt/exports', {
     kind: 'export',
-    expect: 'raw',
-    timeout: '120s',
+    name: 'POST /govt/exports',
+    expect: 'queued',
     body: {
       filters: { range: { preset: '30d' } },
       dateBasis: 'trip',
@@ -243,6 +250,26 @@ export function exportData() {
       labels: { sheets: {}, columns: {}, values: {} }
     }
   })
+  if (!job) return
+  let status = job.status
+  while (status === 'queued' || status === 'running') {
+    if (Date.now() - started > 30 * 60 * 1000) break
+    sleep(2)
+    const now = api('GET', `/govt/exports/${job.id}`, {
+      kind: 'read',
+      name: 'GET /govt/exports/:id'
+    })
+    status = now ? now.status : status
+  }
+  check(status, { 'export done': (s) => s === 'done' })
+  if (status !== 'done') return
+  api('GET', `/govt/exports/${job.id}/file`, {
+    kind: 'export',
+    name: 'GET /govt/exports/:id/file',
+    expect: 'raw',
+    timeout: '300s'
+  })
+  exportJob.add(Date.now() - started)
 }
 
 // A checkpoint officer scans a QR code: mostly valid documents, some expired; each scan from its

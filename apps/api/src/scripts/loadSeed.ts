@@ -253,7 +253,10 @@ await sql.begin(async (tx) => {
     INSERT INTO users (username, password_hash, kind, full_name, phone, role_id)
     SELECT 'lt.govt' || i, ${passwordHash}, 'govt', 'موظف حكومي ' || i,
            '+24912' || lpad(i::text, 7, '0'),
-           (SELECT id FROM roles WHERE company_id IS NULL AND key = 'govt_agent')
+           -- The first 5 are the seniors who follow the dashboard: supervisors (each also allows
+           -- one more export at a time); the others agents
+           (SELECT id FROM roles WHERE company_id IS NULL
+              AND key = CASE WHEN i <= 5 THEN 'govt_supervisor' ELSE 'govt_agent' END)
     FROM generate_series(1, ${GOVT_USERS}) i`
 
   // Vehicles: trucks (tankers count in liters) and buses, each with a unique plate

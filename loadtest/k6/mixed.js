@@ -7,28 +7,34 @@ export { booking, browse, govtDashboard, govtReview, exportData, verify, login }
 
 const SCALE = Number(__ENV.SCALE || 1)
 const DURATION = __ENV.DURATION || '5m'
-const FLOWS = (__ENV.FLOWS || 'booking,browse,govtDashboard,govtReview,exportData,verify').split(
-  ','
-)
+const FLOWS = (
+  __ENV.FLOWS || 'booking,browse,govtDashboard,govtReview,exportData,verify,login'
+).split(',')
 
-// Per-second rates at SCALE=1 (see loadtest/README.md for where they come from), and how many
-// VUs each needs at that rate (rate × the seconds an iteration takes, with room to spare)
+// Rates at SCALE=1, from the agreed numbers (loadtest/README.md has the reasoning): 20,000 trips a
+// day (10% buses), about 4,300 company members and 100 government staff. The peak hour carries 15%
+// of a day's bookings and browsing. `vusPerUnit`: VUs per trip a minute, with room to spare.
 const TARGET = {
   // 20,000 trips a day, 15% of them in the peak hour: 0.85 a second
   booking: { perMinute: 51, vusPerUnit: 0.6 },
-  // 5,000 members online, a page view every ~35 s
-  browse: { perMinute: 140 * 60, vusPerUnit: 0.02 },
-  // 100 government staff. 5 seniors follow the dashboard, each about once a minute (a new view
-  // 3 times in 10, otherwise a refresh of today); 95 agents each search and review about once a
-  // minute
+  // About 25 page views per trip (the clerk's list, the trip, searches; accountants and admins
+  // checking): 500,000 a day, 15% in the peak hour, about 21 a second. The same as 60% of the
+  // 4,312 members online, each looking at a page every 2 minutes.
+  browse: { perMinute: 22 * 60, vusPerUnit: 0.02 },
+  // 100 government staff. 5 seniors (supervisors) follow the dashboard, each about once a minute
+  // (a new view 3 times in 10, otherwise a refresh of today); 95 agents each search and review
+  // about once a minute
   govtDashboard: { perMinute: 5, vusPerUnit: 1 },
   govtReview: { perMinute: 95, vusPerUnit: 0.1 },
-  // One Excel export a minute
-  exportData: { perMinute: 1, vusPerUnit: 1 },
-  // 100 checkpoint scans a second
-  verify: { perMinute: 100 * 60, vusPerUnit: 0.01 },
-  // The shift-start rush: 5,000 sign-ins in 15 minutes
-  login: { perMinute: 6 * 60, vusPerUnit: 0.03 }
+  // 6 data exports an hour (a month of trips and bills as Excel), prepared by the export worker;
+  // an iteration lasts until the file is downloaded (minutes)
+  exportData: { perMinute: 0.1, vusPerUnit: 20 },
+  // Checkpoint scans: about 6 checkpoints per trip, 120,000 scans a day, about 10% in the peak
+  // hour: 3.3 a second, rounded up
+  verify: { perMinute: 4 * 60, vusPerUnit: 0.01 },
+  // The morning rush: 60% of the ~4,400 accounts sign in within the first 30 minutes, 1.5 a
+  // second
+  login: { perMinute: 90, vusPerUnit: 0.03 }
 }
 
 export const options = {
@@ -40,20 +46,22 @@ export const options = {
   scenarios: Object.fromEntries(
     FLOWS.map((flow) => {
       const { perMinute, vusPerUnit } = TARGET[flow]
-      const rate = Math.max(1, Math.round(perMinute * SCALE))
+      // Per hour, so a rate under one a minute (the exports) keeps its value
+      const rate = Math.max(1, Math.round(perMinute * 60 * SCALE))
+      const perMinuteNow = rate / 60
       return [
         flow,
         {
           executor: 'constant-arrival-rate',
           exec: flow,
           rate,
-          timeUnit: '1m',
+          timeUnit: '1h',
           duration: DURATION,
-          preAllocatedVUs: Math.max(2, Math.ceil(rate * vusPerUnit)),
+          preAllocatedVUs: Math.max(2, Math.ceil(perMinuteNow * vusPerUnit)),
           // Room for responses up to ~4× slower than expected, and no more: past that the server is
           // past its limit, and k6 drops the late iterations (a failure, see dropped_iterations in
           // lib.js) instead of piling up VUs until the machine runs out of memory
-          maxVUs: Math.max(10, Math.ceil(rate * vusPerUnit * 4))
+          maxVUs: Math.max(10, Math.ceil(perMinuteNow * vusPerUnit * 4))
         }
       ]
     })

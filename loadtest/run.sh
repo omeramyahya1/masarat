@@ -3,7 +3,7 @@
 # the SLOs. Each run's results go to loadtest/results/<label>/scale-<scale>/:
 #   summary.json   k6's end-of-test summary (p95 per kind and endpoint, request rate, errors)
 #   k6.txt         k6's text output, with the thresholds that passed or failed
-#   stats.csv      every 5 s: API CPU (cores) and memory, Postgres CPU (cores) and memory
+#   stats.csv      every 5 s: API and export worker CPU (cores) and memory, Postgres CPU and memory
 #   queries.txt    Postgres's slowest queries in total time (pg_stat_statements)
 #   result         PASS or FAIL
 #
@@ -13,7 +13,8 @@
 #   loadtest/run.sh api2-db4 0-1 4-7 8g 20 1          the target load on 2 + 4 CPUs
 #   loadtest/run.sh knee api2-db4 0-1 4-7 8g 20 "0.5 1 1.5 2 3 4"
 #
-# The data must have been seeded first (loadtest/README.md). k6 runs on CPUs 12-19.
+# The data must have been seeded first (loadtest/README.md). The export worker runs on CPUs 2-3
+# (WORKER_CPUS), k6 on 12-19.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 K6=${K6:-$(command -v k6 || echo "$HOME/.local/bin/k6")}
@@ -25,28 +26,34 @@ psql_load() { podman exec "$DB" psql -U masarat -d masarat_load -qAt -c "$1"; }
 # CPU time in microseconds and memory in bytes: the API process, and the Postgres container
 api_cpu_us() { awk '{ print int(($14 + $15) * 1000000 / 100) }' "/proc/$(cat "$STATE/api.pid")/stat"; }
 api_rss() { awk '/VmRSS/ { print $2 * 1024 }' "/proc/$(cat "$STATE/api.pid")/status"; }
+worker_cpu_us() { awk '{ print int(($14 + $15) * 1000000 / 100) }' "/proc/$(cat "$STATE/worker.pid")/stat"; }
+worker_rss() { awk '/VmRSS/ { print $2 * 1024 }' "/proc/$(cat "$STATE/worker.pid")/status"; }
 db_cpu_us() { podman exec "$DB" awk '/usage_usec/ { print $2 }' /sys/fs/cgroup/cpu.stat; }
 db_mem() { podman exec "$DB" cat /sys/fs/cgroup/memory.current; }
 
 sample() {
-  local out=$1 prev_api prev_db now_api now_db t=0
-  echo "seconds,api_cores,api_rss_mb,db_cores,db_mem_mb" >"$out"
-  prev_api=$(api_cpu_us) prev_db=$(db_cpu_us)
+  local out=$1 prev_api prev_db prev_worker now_api now_db now_worker t=0
+  echo "seconds,api_cores,api_rss_mb,worker_cores,worker_rss_mb,db_cores,db_mem_mb" >"$out"
+  prev_api=$(api_cpu_us) prev_db=$(db_cpu_us) prev_worker=$(worker_cpu_us)
+  local cores='BEGIN { printf "%.2f", (a - b) / 5000000 }'
   while sleep 5; do
     t=$((t + 5))
     now_api=$(api_cpu_us 2>/dev/null) || break
     now_db=$(db_cpu_us 2>/dev/null) || break
-    echo "$t,$(awk -v a="$now_api" -v b="$prev_api" 'BEGIN { printf "%.2f", (a - b) / 5000000 }'),$(($(api_rss) / 1048576)),$(awk -v a="$now_db" -v b="$prev_db" 'BEGIN { printf "%.2f", (a - b) / 5000000 }'),$(($(db_mem) / 1048576))" >>"$out"
-    prev_api=$now_api prev_db=$now_db
+    now_worker=$(worker_cpu_us 2>/dev/null) || break
+    echo "$t,$(awk -v a="$now_api" -v b="$prev_api" "$cores"),$(($(api_rss) / 1048576)),$(awk -v a="$now_worker" -v b="$prev_worker" "$cores"),$(($(worker_rss) / 1048576)),$(awk -v a="$now_db" -v b="$prev_db" "$cores"),$(($(db_mem) / 1048576))" >>"$out"
+    prev_api=$now_api prev_db=$now_db prev_worker=$now_worker
   done
 }
 
 run_one() {
   local label=$1 api_cpus=$2 db_cpus=$3 db_mem=$4 pool=$5 scale=$6 duration=${7:-5m}
-  local flows=${8:-booking,browse,govtDashboard,govtReview,exportData,verify}
+  local flows=${8:-booking,browse,govtDashboard,govtReview,exportData,verify,login}
   local dir=loadtest/results/$label/scale-$scale
   mkdir -p "$dir"
   echo "== $label: API on CPUs $api_cpus (pool $pool), Postgres on $db_cpus with $db_mem; scale $scale for $duration"
+  # The export worker, on its own CPUs (it would be its own server)
+  loadtest/stack.sh worker-up "${WORKER_CPUS:-2-3}" >/dev/null
   # Same size as last time: keep Postgres running, so its cache stays warm
   if [[ $(cat "$STATE/db-size" 2>/dev/null) != "$db_cpus $db_mem" ]]; then
     loadtest/stack.sh db-up "$db_cpus" "$db_mem" >/dev/null
@@ -56,6 +63,9 @@ run_one() {
     (cd loadtest/k6 && taskset -c 12-19 "$K6" run --quiet --summary-mode disabled -e SCALE=0.3 -e DURATION=90s mixed.js >/dev/null 2>&1)
   fi
   loadtest/stack.sh api-up "$api_cpus" "$pool" >/dev/null
+  # Exports queued by an earlier run (or the warm-up)
+  podman exec masarat_redis_1 redis-cli -n 1 --scan --pattern 'exports:*' 2>/dev/null |
+    xargs -r podman exec masarat_redis_1 redis-cli -n 1 del >/dev/null 2>&1 || true
   # Queries left running by an earlier run (Bun drops a request after 10 s, Postgres carries on)
   psql_load "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'masarat_load'
              AND pid <> pg_backend_pid() AND state <> 'idle'" >/dev/null
@@ -71,6 +81,7 @@ run_one() {
              FROM pg_stat_statements WHERE dbid = (SELECT oid FROM pg_database WHERE datname = 'masarat_load')
              ORDER BY total_exec_time DESC LIMIT 25" >"$dir/queries.txt"
   tail -50 "$STATE/api.log" >"$dir/api.log"
+  tail -50 "$STATE/worker.log" >"$dir/worker.log"
   # k6 exits 99 when a threshold failed
   if [[ $code -eq 0 ]]; then echo PASS >"$dir/result"; else echo FAIL >"$dir/result"; fi
   echo "   $(cat "$dir/result") (k6 exit $code)"

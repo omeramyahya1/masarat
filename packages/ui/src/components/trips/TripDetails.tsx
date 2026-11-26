@@ -37,6 +37,7 @@ import Menu from '../ui/Menu'
 import CertificateModal from './CertificateModal'
 import DeleteTripDialog from './DeleteTripDialog'
 import DocumentPreview from './DocumentPreview'
+import ReviewPanel from './ReviewPanel'
 import { STATUS_STYLES } from './statusStyles'
 import TaxBreakdown from './TaxBreakdown'
 import { api } from '@masarat/api-client'
@@ -277,6 +278,8 @@ function TripDetails({
           {t('trips.details.archived')}
         </p>
       )}
+      {/* The supervisor's decision; for the government also the reports and the review actions */}
+      <ReviewPanel details={details} readOnly={readOnly} onChanged={onChanged} />
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="card p-6">

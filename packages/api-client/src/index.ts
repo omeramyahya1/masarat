@@ -45,6 +45,14 @@ import type {
   TripDetails
 } from '@masarat/shared/billing'
 import type { DashboardData, DashboardHistory, DashboardToday } from '@masarat/shared/dashboard'
+import type {
+  CancelTripInput,
+  DecisionInput,
+  DismissInput,
+  ReportInput,
+  ReportListQuery,
+  ReportListRow
+} from '@masarat/shared/reviews'
 import type { AnalyticsFilters, DashboardView, CompanyOption } from '@masarat/shared/analytics'
 import type { ExportInput, ExportRows } from '@masarat/shared/exports'
 import type { SystemSettings } from '@masarat/shared/settings'
@@ -178,6 +186,22 @@ export interface GovtAPI {
   updateCharge: (id: number, input: ChargeInput) => Promise<FleetResult<ChargesView>>
   // Demo only: rebuilds the seeded demo companies' data
   regenerateDemoData: () => Promise<FleetResult<null>>
+  // Reports on issued clearances; each change answers the trip's page
+  reports: ReportsAPI
+  // A supervisor cancels a trip whose bill isn't paid yet
+  cancelTrip: (manifestId: number, input: CancelTripInput) => Promise<FleetResult<TripDetails>>
+}
+
+// Government portal → Reports (services/reviews.ts)
+export interface ReportsAPI {
+  // Supervisors: one page of the reports, newest first
+  list: (query: ReportListQuery) => Promise<FleetResult<Page<ReportListRow>>>
+  // Any government user with govt.reports.create: report a certified trip
+  create: (input: ReportInput) => Promise<FleetResult<TripDetails>>
+  // Supervisors: the clearance stays valid
+  dismiss: (reportId: number, input: DismissInput) => Promise<FleetResult<TripDetails>>
+  // Supervisors: the clearance is revoked for good
+  revoke: (reportId: number, input: DecisionInput) => Promise<FleetResult<TripDetails>>
 }
 
 export interface AuthAPI {
@@ -397,7 +421,14 @@ const govt: GovtAPI = {
   charges: () => request('GET', '/govt/charges'),
   addCharge: (input) => request('POST', '/govt/charges', input),
   updateCharge: (id, input) => request('PUT', `/govt/charges/${id}`, input),
-  regenerateDemoData: () => request('POST', '/govt/demo/regenerate')
+  regenerateDemoData: () => request('POST', '/govt/demo/regenerate'),
+  reports: {
+    list: (query) => request('GET', `/govt/reports${queryString(query)}`),
+    create: (input) => request('POST', '/govt/reports', input),
+    dismiss: (id, input) => request('POST', `/govt/reports/${id}/dismiss`, input),
+    revoke: (id, input) => request('POST', `/govt/reports/${id}/revoke`, input)
+  },
+  cancelTrip: (id, input) => request('POST', `/govt/trips/${id}/cancel`, input)
 }
 
 const config: ConfigAPI = {

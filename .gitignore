@@ -40,3 +40,4 @@ e2e/.storage/
 
 # Git worktrees of other branches
 .claude/worktrees/
+docs/

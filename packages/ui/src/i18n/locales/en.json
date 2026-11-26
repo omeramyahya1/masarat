@@ -73,7 +73,8 @@
       "password_change_required": "Please choose your own password first.",
       "forbidden": "You don't have access to this.",
       "invalid_phone": "Enter a Sudanese mobile number, e.g. 0912 345 678 or +249 91 234 5678.",
-      "phone_taken": "Another account already uses this phone number."
+      "phone_taken": "Another account already uses this phone number.",
+      "invalid_request": "The request is incomplete or not in the expected form. Reload the page and try again."
     },
     "demoAccounts": {
       "title": "Demo accounts",
@@ -326,7 +327,8 @@
       "template_not_found": "This template could not be found.",
       "invalid_template": "A template needs a bus, a departure time (HH:MM) and a duration.",
       "invalid_settings": "Enter a margin from 0 to 720 hours and a speed from 10 to 150 km/h.",
-      "invalid_period": "Choose a period of at most 92 days that ends after it starts."
+      "invalid_period": "Choose a period of at most 92 days that ends after it starts.",
+      "invalid_request": "The request is incomplete or not in the expected form. Reload the page and try again."
     },
     "groupSummary": "{{count}} vehicles",
     "list": {
@@ -507,7 +509,8 @@
       "bookedBy": "Booked by",
       "arrivalAt": "Estimated arrival",
       "category": "Trip type",
-      "passengers": "Passengers"
+      "passengers": "Passengers",
+      "archived": "This trip is in the archive (older than a month): it can be viewed and printed, not changed."
     },
     "backToTrip": "Back to trip",
     "items": {
@@ -625,7 +628,8 @@
       "to": "To",
       "apply": "Show",
       "range": "{{from}} – {{to}}",
-      "limit": "A period of up to 92 days."
+      "limit": "A period of up to 92 days.",
+      "reset": "Show this month"
     }
   },
   "billing": {
@@ -1182,7 +1186,13 @@
   "shell": {
     "loading": "Loading…",
     "offline": "Masarat can't be reached right now. Check your connection and try again.",
-    "retry": "Try again"
+    "retry": "Try again",
+    "crash": {
+      "title": "Something went wrong",
+      "body": "This section couldn't be shown. Try again, or reload the page. Your saved data isn't affected.",
+      "retry": "Try again",
+      "reload": "Reload the page"
+    }
   },
   "site": {
     "nav": {
@@ -1342,6 +1352,7 @@
       "username_taken": "This username is already taken.",
       "user_not_found": "This account could not be found.",
       "last_admin": "There must always be at least one active admin.",
+      "admin_exists": "There is already a government admin. Only one government admin account can exist.",
       "cannot_change_self": "You can't change your own account here.",
       "not_signed_in": "Your session has ended. Please log in again.",
       "forbidden": "You don't have permission to do this.",
@@ -1357,7 +1368,8 @@
       "branch_required": "Choose the member's branch.",
       "branch_not_found": "This branch could not be found, or it is closed.",
       "branch_name_taken": "A branch with this name already exists.",
-      "city_not_found": "Choose the branch's city."
+      "city_not_found": "Choose the branch's city.",
+      "invalid_request": "The request is incomplete or not in the expected form. Reload the page and try again."
     },
     "empty": "No accounts yet.",
     "scopes": {

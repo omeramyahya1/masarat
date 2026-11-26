@@ -129,30 +129,3 @@ export const EXCEL_MAX_ROWS = 1_048_575
 
 // Rows written per dataset
 export type ExportRows = Partial<Record<ExportDataset, number>>
-
-const isObject = (value: unknown): value is Record<string, unknown> =>
-  Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-
-const isOneOf = <T>(list: readonly T[], value: unknown): value is T =>
-  (list as readonly unknown[]).includes(value)
-
-// The parts other than the filters (checked with isAnalyticsFilters)
-export function isExportOptions(value: unknown): value is Omit<ExportInput, 'filters'> {
-  const v = value as Partial<ExportInput> | null
-  if (!v || typeof v !== 'object') return false
-  return (
-    isOneOf(DATE_BASES, v.dateBasis) &&
-    isOneOf(EXPORT_STATUSES, v.status) &&
-    Array.isArray(v.formats) &&
-    v.formats.length > 0 &&
-    v.formats.every((f) => isOneOf(EXPORT_FORMATS, f)) &&
-    Array.isArray(v.datasets) &&
-    v.datasets.length > 0 &&
-    v.datasets.every((d) => isOneOf(EXPORT_DATASETS, d)) &&
-    (v.includeIdNumbers === undefined || typeof v.includeIdNumbers === 'boolean') &&
-    isObject(v.labels) &&
-    isObject(v.labels.columns) &&
-    isObject(v.labels.sheets) &&
-    isObject(v.labels.values)
-  )
-}

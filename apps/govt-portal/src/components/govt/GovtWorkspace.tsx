@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LayoutDashboard, Percent, SlidersHorizontal, UsersRound } from 'lucide-react'
 import type { Permission } from '@masarat/shared/permissions'
 import type { GovtSearchInput } from '@masarat/shared/billing'
-import type { TripReferenceData } from '@masarat/shared/fleet'
 import TeamPanel from '@masarat/ui/components/members/TeamPanel'
 import SectionNav from '@masarat/ui/components/ui/SectionNav'
 import { useCan } from '@masarat/ui/lib/account'
+import ErrorBoundary from '@masarat/ui/components/ErrorBoundary'
+import { useGovtReference } from '@masarat/ui/lib/queries'
 import TripDetails from '@masarat/ui/components/trips/TripDetails'
 import GovtDashboard from './GovtDashboard'
 import GovtSearch from './GovtSearch'
@@ -39,16 +40,10 @@ function GovtWorkspace(): React.JSX.Element {
   const can = useCan()
   const sections = SECTIONS.filter((s) => can(s.needs))
   const [section, setSection] = useState<Section>(sections[0]?.id ?? 'overview')
-  const [reference, setReference] = useState<TripReferenceData | null>(null)
+  // Cached (lib/queries.ts), shared with the dashboard
+  const reference = useGovtReference().data ?? null
   const [search, setSearch] = useState<GovtSearchInput | null>(null)
   const [openTrip, setOpenTrip] = useState<number | null>(null)
-
-  useEffect(() => {
-    api.govt
-      .getReferenceData()
-      .then((result) => result.ok && setReference(result.data))
-      .catch(() => undefined)
-  }, [])
 
   return (
     <div className="flex flex-1 flex-col">
@@ -104,15 +99,18 @@ function GovtWorkspace(): React.JSX.Element {
           </div>
         )}
         <div hidden={openTrip !== null || search !== null}>
-          {section === 'overview' ? (
-            <GovtDashboard onOpenTrip={setOpenTrip} />
-          ) : section === 'taxes' ? (
-            <TaxSettings />
-          ) : section === 'settings' ? (
-            <SettingsPanel />
-          ) : (
-            <TeamPanel side="govt" members={api.govt.users} />
-          )}
+          {/* A section that fails to draw shows an error in its place */}
+          <ErrorBoundary key={section}>
+            {section === 'overview' ? (
+              <GovtDashboard onOpenTrip={setOpenTrip} />
+            ) : section === 'taxes' ? (
+              <TaxSettings />
+            ) : section === 'settings' ? (
+              <SettingsPanel />
+            ) : (
+              <TeamPanel side="govt" members={api.govt.users} />
+            )}
+          </ErrorBoundary>
         </div>
       </div>
     </div>

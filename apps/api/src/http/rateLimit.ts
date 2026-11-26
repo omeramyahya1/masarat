@@ -1,24 +1,29 @@
-// A per-IP request limit for public routes, kept in memory (the API runs as one server). Over the
-// limit, requests get 429 until the window has moved on.
+// A per-IP request limit for public routes, kept in Redis so every API instance counts the same
+// requests: a fixed window per IP (INCR, with the window's expiry set by the first request). Over
+// the limit, requests get 429 until the window ends. If Redis can't be reached the request goes
+// through (logged): checkpoint officers must still be able to verify a manifest.
 import { createMiddleware } from 'hono/factory'
+import { log } from '../log'
+import { getRedis, withTimeout } from '../services/redis'
 import { clientInfo, fail, type AppEnv } from './context'
 
 export function rateLimit(
+  name: string,
   limit: number,
   windowMs: number
 ): ReturnType<typeof createMiddleware<AppEnv>> {
-  const hits = new Map<string, number[]>()
+  const windowS = Math.max(1, Math.round(windowMs / 1000))
   return createMiddleware<AppEnv>(async (c, next) => {
-    const now = Date.now()
     const ip = clientInfo(c).ip ?? 'unknown'
-    const recent = (hits.get(ip) ?? []).filter((at) => now - at < windowMs)
-    if (recent.length >= limit) return fail(c, 'too_many_attempts')
-    recent.push(now)
-    hits.set(ip, recent)
-    // Forget IPs that have gone quiet, so the map doesn't grow without end
-    if (hits.size > 10_000) {
-      for (const [key, times] of hits)
-        if (times.every((at) => now - at >= windowMs)) hits.delete(key)
+    const window = Math.floor(Date.now() / (windowS * 1000))
+    const key = `rate:${name}:${ip}:${window}`
+    try {
+      const redis = getRedis()
+      const count = await withTimeout(redis.incr(key))
+      if (count === 1) await withTimeout(redis.expire(key, windowS))
+      if (count > limit) return fail(c, 'too_many_attempts')
+    } catch (err) {
+      log.warn('Rate limit unavailable; request allowed', err, { name })
     }
     return next()
   })

@@ -1,5 +1,7 @@
-import { useEffect, useId, useState, type FormEvent } from 'react'
+import { useId, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useRoles } from '@masarat/ui/lib/queries'
+import { errorCode, queryClient, queryKeys } from '@masarat/ui/lib/query'
 import { Lock, LoaderCircle, Pencil, Plus, Trash2 } from 'lucide-react'
 import {
   MAX_ROLE_NAME_LENGTH,
@@ -148,22 +150,16 @@ function RolesPanel(): React.JSX.Element {
   const format = useFormat()
   const roleName = useRoleName()
   const mounted = useMountedRef()
-  const [roles, setRoles] = useState<RoleRecord[] | null>(null)
-  const [error, setError] = useState<MemberErrorCode | null>(null)
+  // The cached roles (lib/queries.ts); the Team section's role list follows them
+  const rolesQuery = useRoles()
+  const roles = rolesQuery.data ?? null
+  const [actionError, setError] = useState<MemberErrorCode | null>(null)
+  const error = actionError ?? errorCode<MemberErrorCode>(rolesQuery.error)
   const [editing, setEditing] = useState<RoleRecord | 'new' | null>(null)
-  const [version, setVersion] = useState(0)
-  const reload = (): void => setVersion((v) => v + 1)
-
-  useEffect(() => {
-    api.company
-      .roles()
-      .then((result) => {
-        if (!mounted.current) return
-        if (!result.ok) return setError(result.error)
-        setRoles(result.data)
-      })
-      .catch(() => mounted.current && setError('unknown'))
-  }, [mounted, version])
+  const reload = (): void => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.roles })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.members('company') })
+  }
 
   const remove = async (role: RoleRecord): Promise<void> => {
     setError(null)

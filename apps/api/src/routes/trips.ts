@@ -1,7 +1,7 @@
 // The company's trips (a branch member's: their branch's): the list (paged), the form's data,
 // saving drafts, and billing
 import { Hono } from 'hono'
-import type { TripInput } from '@masarat/shared/fleet'
+import { tripListQuerySchema, tripSchema } from '@masarat/shared/schemas'
 import {
   createTrip,
   deleteTrip,
@@ -9,16 +9,19 @@ import {
   listSuggestions,
   updateTrip
 } from '../services/trips'
-import { listTripsPage, parseTripListQuery } from '../services/tripList'
+import { listTripsPage } from '../services/tripList'
 import {
   generateBill,
   getTripDetails,
   refreshBillStatus,
   simulatePayment
 } from '../services/billing'
-import { fail, idParam, readJson, send, type AppEnv } from '../http/context'
+import { fail, idParam, send, type AppEnv } from '../http/context'
+import { body, doc, query } from '../http/validate'
 import { companyScope, requireCompany, userId } from '../http/company'
 import { requirePermission } from '../http/middleware'
+
+const T = 'Trips'
 
 export const tripRoutes = new Hono<AppEnv>()
   .use(...requireCompany)
@@ -35,55 +38,58 @@ export const tripRoutes = new Hono<AppEnv>()
           : 'trips.edit'
     return requirePermission(needed)(c, next)
   })
-  .get('/reference', async (c) => send(c, { ok: true, data: await getReferenceData() }))
-  .get('/suggestions', async (c) =>
+  .get('/reference', doc(T, 'Cities, states and rates for the trip form'), async (c) =>
+    send(c, { ok: true, data: await getReferenceData() })
+  )
+  .get('/suggestions', doc(T, 'Recent senders, receivers and packing types'), async (c) =>
     send(c, { ok: true, data: await listSuggestions(companyScope(c)) })
   )
-  .get('/', async (c) =>
-    send(c, await listTripsPage(companyScope(c), parseTripListQuery(c.req.query())))
+  .get(
+    '/',
+    doc(T, 'A page of the period’s trips', 'Filtered, searched, sorted and grouped'),
+    query(tripListQuerySchema),
+    async (c) => send(c, await listTripsPage(companyScope(c), c.req.valid('query')))
   )
-  .post('/', async (c) =>
-    send(
-      c,
-      await createTrip(companyScope(c), userId(c), (await readJson(c)) as unknown as TripInput)
-    )
+  .post('/', doc(T, 'Save a new draft trip'), body(tripSchema), async (c) =>
+    send(c, await createTrip(companyScope(c), userId(c), c.req.valid('json')))
   )
-  .get('/:id', async (c) => {
+  .get('/:id', doc(T, 'A trip with its bill and documents'), async (c) => {
     const id = idParam(c)
     return id === null
       ? fail(c, 'manifest_not_found')
       : send(c, await getTripDetails(companyScope(c), id))
   })
-  .put('/:id', async (c) => {
+  .put('/:id', doc(T, 'Edit a draft trip'), body(tripSchema), async (c) => {
     const id = idParam(c)
     if (id === null) return fail(c, 'manifest_not_found')
-    return send(
-      c,
-      await updateTrip(companyScope(c), userId(c), id, (await readJson(c)) as unknown as TripInput)
-    )
+    return send(c, await updateTrip(companyScope(c), userId(c), id, c.req.valid('json')))
   })
-  .delete('/:id', async (c) => {
+  .delete('/:id', doc(T, 'Delete a draft trip'), async (c) => {
     const id = idParam(c)
     return id === null
       ? fail(c, 'manifest_not_found')
       : send(c, await deleteTrip(companyScope(c), id))
   })
-  .post('/:id/bill', async (c) => {
+  .post('/:id/bill', doc(T, 'Generate the E-Sali bill ID'), async (c) => {
     const id = idParam(c)
     return id === null
       ? fail(c, 'manifest_not_found')
       : send(c, await generateBill(companyScope(c), id))
   })
-  .post('/:id/refresh', async (c) => {
+  .post('/:id/refresh', doc(T, 'Ask E-Sali whether the bill is paid'), async (c) => {
     const id = idParam(c)
     return id === null
       ? fail(c, 'manifest_not_found')
       : send(c, await refreshBillStatus(companyScope(c), id))
   })
   // Demo only (the service refuses outside demo mode)
-  .post('/:id/simulate-payment', async (c) => {
-    const id = idParam(c)
-    return id === null
-      ? fail(c, 'manifest_not_found')
-      : send(c, await simulatePayment(companyScope(c), id))
-  })
+  .post(
+    '/:id/simulate-payment',
+    doc(T, 'Demo only: pay the bill at the simulated E-Sali'),
+    async (c) => {
+      const id = idParam(c)
+      return id === null
+        ? fail(c, 'manifest_not_found')
+        : send(c, await simulatePayment(companyScope(c), id))
+    }
+  )

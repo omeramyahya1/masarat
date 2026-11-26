@@ -6,6 +6,7 @@
 #
 #   loadtest/stack.sh db-up   <cpus> <mem>     e.g. db-up 4-7 8g
 #   loadtest/stack.sh api-up  <cpus> [pool]    e.g. api-up 0-1 20
+#   loadtest/stack.sh services-up                Redis and MinIO (compose.yaml) and the load bucket
 #   loadtest/stack.sh migrate | down | api-down | status
 #
 # CPU layout on the i7-12800H this was written on: 0-11 are the 6 performance cores (2 threads
@@ -16,7 +17,10 @@ cd "$(dirname "$0")/.."
 DB_NAME=masarat_load_db
 DB_PORT=5434
 DB_IMAGE=public.ecr.aws/docker/library/postgres:18
+# The owner (migrations, seeding) and the API's least-privileged role
 export LOAD_DATABASE_URL="postgres://masarat:masarat@localhost:${DB_PORT}/masarat_load"
+export LOAD_APP_URL="postgres://masarat_app:masarat_app@localhost:${DB_PORT}/masarat_load"
+LOAD_BUCKET=masarat-load
 API_PORT=3100
 STATE=$PWD/loadtest/.state
 mkdir -p "$STATE"
@@ -59,11 +63,22 @@ db_up() {
 }
 
 api_env() {
-  # Every value set here, so apps/api/.env (the dev settings) doesn't leak in
-  export DATABASE_URL=$LOAD_DATABASE_URL PORT=$API_PORT APP_ENV=development DEMO_MODE=true \
-    TRUST_PROXY=true STORAGE_DIR="$PWD/loadtest/.storage" COOKIE_DOMAIN= \
-    SITE_URL=http://localhost:5175 OWNER_URL=http://localhost:5173 GOVT_URL=http://localhost:5174 \
-    TZ=Africa/Khartoum
+  # Every value set here, so apps/api/.env (the dev settings) doesn't leak in. The API runs as it
+  # would in production: the app role, Redis and MinIO, and its logs written (JSON, info level)
+  export DATABASE_URL=$LOAD_APP_URL MIGRATION_DATABASE_URL=$LOAD_DATABASE_URL PORT=$API_PORT \
+    APP_ENV=development DEMO_MODE=true TRUST_PROXY=true STORAGE_DIR="$PWD/loadtest/.storage" \
+    COOKIE_DOMAIN= SITE_URL=http://localhost:5175 OWNER_URL=http://localhost:5173 \
+    GOVT_URL=http://localhost:5174 TZ=Africa/Khartoum \
+    REDIS_URL=redis://localhost:6380/1 S3_BUCKET=$LOAD_BUCKET \
+    LOG_DIR="$STATE/logs" LOG_LEVEL=info LOG_PRETTY=false INSTANCE_NAME=load-api
+}
+
+services_up() {
+  podman compose up -d redis minio >/dev/null 2>&1 || docker compose up -d redis minio >/dev/null
+  for _ in $(seq 30); do curl -sf http://localhost:9000/minio/health/live >/dev/null && break; sleep 1; done
+  podman run --rm --network host -e MC_HOST_local=http://masarat:masarat-dev-secret@localhost:9000 \
+    cgr.dev/chainguard/minio-client:latest mb --ignore-existing "local/$LOAD_BUCKET" >/dev/null
+  echo "Redis and MinIO up; bucket $LOAD_BUCKET"
 }
 
 api_up() {
@@ -77,7 +92,7 @@ api_up() {
     echo $! >"$STATE/api.pid"
   )
   for _ in $(seq 60); do
-    curl -sf "http://localhost:${API_PORT}/health" >/dev/null && break
+    curl -sf "http://localhost:${API_PORT}/health/ready" >/dev/null && break
     sleep 1
   done
   echo "API up on CPUs $cpus, pool $pool, http://localhost:${API_PORT} (pid $(cat "$STATE/api.pid"))"
@@ -95,6 +110,7 @@ case ${1:-} in
   db-up) db_up "${2:?cpus}" "${3:?memory}" ;;
   api-up) api_up "${2:?cpus}" "${3:-10}" ;;
   api-down) api_down ;;
+  services-up) services_up ;;
   migrate)
     api_env
     (cd apps/api && bun src/db/migrate.ts)

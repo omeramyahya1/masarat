@@ -8,7 +8,8 @@
     "apps/api",
     "apps/site",
     "apps/*-portal",
-    "packages/*"
+    "packages/*",
+    "e2e"
   ],
   "scripts": {
     "dev": "bun --filter './apps/*' dev",
@@ -26,7 +27,8 @@
     "db:migrate": "bun --filter @masarat/api db:migrate",
     "db:up": "podman compose up -d || docker compose up -d",
     "db:down": "podman compose down || docker compose down",
-    "release": "cd apps/desktop-demo && bun run release"
+    "release": "cd apps/desktop-demo && bun run release",
+    "e2e": "bun --filter @masarat/e2e test"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.1",

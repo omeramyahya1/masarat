@@ -48,13 +48,16 @@ On top of that, errors must stay under 0.1% and checks above 99.9%.
 
 **Laptop cores aren't cloud cores.** They run at up to 4.7 GHz, while a cloud vCPU is typically 2.5–3.5 GHz. A size that passes here needs about **1.5×** the vCPUs in the cloud. Confirm the chosen size once on a real VM before ordering hardware.
 
+**Run as production runs.** The load API connects as the least-privileged `masarat_app` role (the seeder and migrations as the owner), keeps upload staging and rate limits in Redis (`redis://localhost:6380/1`), attachments in MinIO (`masarat-load` bucket), and writes its JSON logs (info level) to `loadtest/.state/logs`, so the measured cost includes logging. Cargo trips are seeded with 1–3 attachment rows pointing at one shared sample object: the storage itself (2–6 TB a month at these volumes) is sized by arithmetic in `docs/deployment/sizing.md` and tested on the real server.
+
 ## Running it
 
 k6 is a single binary, from https://github.com/grafana/k6/releases. Put it on the PATH or at `~/.local/bin/k6`.
 
 ```sh
-# 1. Database and data (a month at 20,000 trips a day)
-loadtest/stack.sh db-up 4-11 8g
+# 1. Services, database and data (a month at 20,000 trips a day: ~5 minutes, ~3 GB)
+loadtest/stack.sh services-up          # Redis and MinIO (compose.yaml) and the masarat-load bucket
+loadtest/stack.sh db-up 4-11 4g
 loadtest/stack.sh migrate
 taskset -c 12-19 loadtest/stack.sh seed --trips-per-day 20000 --days 30 --bus-share 0.1
 
@@ -69,7 +72,7 @@ loadtest/run.sh knee api2-db4 0-1 4-7 8g 20 "0.5 1 1.5 2 3"
 # 4. One flow on its own (what saturates first?)
 loadtest/run.sh verify-only 0-1 4-7 8g 20 1 3m verify
 
-# 5. Soak: the target for 3 hours (memory growth, sessions, the in-memory rate limits)
+# 5. Soak: the target for 3 hours (memory growth, sessions, Redis, the log files)
 loadtest/run.sh soak 0-1 4-7 8g 20 1 3h
 
 # The table of every run so far

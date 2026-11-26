@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { LoaderCircle, LogOut, Route, UserRound, WifiOff } from 'lucide-react'
 import type { AuthUser } from '@masarat/shared/auth'
@@ -6,6 +7,8 @@ import type { UserKind } from '@masarat/shared/permissions'
 import { api, SIGNED_OUT_EVENT } from '@masarat/api-client'
 import { PORTAL_URLS, SITE_URL, changePasswordUrl, loginUrl } from '../lib/urls'
 import { AccountContext, useRoleName } from '../lib/account'
+import { queryClient } from '../lib/query'
+import ErrorBoundary from './ErrorBoundary'
 import LanguageToggle from './LanguageToggle'
 
 interface AppShellProps {
@@ -48,7 +51,11 @@ function AppShell({ kind, version, children }: AppShellProps): React.JSX.Element
 
   // Any API call that finds the session ended (expired, signed out elsewhere, account disabled)
   useEffect(() => {
-    const onSignedOut = (): void => window.location.assign(loginUrl(window.location.href))
+    const onSignedOut = (): void => {
+      // Nothing of this account's stays in memory
+      queryClient.clear()
+      window.location.assign(loginUrl(window.location.href))
+    }
     window.addEventListener(SIGNED_OUT_EVENT, onSignedOut)
     return () => window.removeEventListener(SIGNED_OUT_EVENT, onSignedOut)
   }, [])
@@ -57,6 +64,7 @@ function AppShell({ kind, version, children }: AppShellProps): React.JSX.Element
     try {
       await api.auth.logOut()
     } finally {
+      queryClient.clear()
       window.location.assign(SITE_URL)
     }
   }
@@ -117,7 +125,11 @@ function AppShell({ kind, version, children }: AppShellProps): React.JSX.Element
               </button>
             </div>
             <AccountContext.Provider value={state.user}>
-              {children(state.user, (user) => setState({ status: 'ready', user }))}
+              <QueryClientProvider client={queryClient}>
+                <ErrorBoundary>
+                  {children(state.user, (user) => setState({ status: 'ready', user }))}
+                </ErrorBoundary>
+              </QueryClientProvider>
             </AccountContext.Provider>
           </div>
         ) : state.status === 'offline' ? (

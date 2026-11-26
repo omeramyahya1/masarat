@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoaderCircle, Pencil, Plus, Trash2, UsersRound } from 'lucide-react'
 import type { DriverRecord, FleetErrorCode } from '@masarat/shared/fleet'
 import { formatSudanPhone } from '@masarat/shared/phone'
 import { useCan } from '@masarat/ui/lib/account'
+import { useDrivers } from '@masarat/ui/lib/queries'
+import { errorCode, queryClient, queryKeys } from '@masarat/ui/lib/query'
 import { useFormat } from '@masarat/ui/lib/format'
 import { useListView, type ListViewConfig } from '@masarat/ui/lib/useListView'
 import { FormAlert } from '@masarat/ui/components/form/fields'
@@ -17,8 +19,10 @@ function DriversPanel(): React.JSX.Element {
   const { t } = useTranslation()
   // Without it the list is read-only
   const canManage = useCan()('drivers.manage')
-  const [drivers, setDrivers] = useState<DriverRecord[] | null>(null)
-  const [error, setError] = useState<FleetErrorCode | null>(null)
+  // The cached list (lib/queries.ts), shared with the trips list and the trip form
+  const driversQuery = useDrivers()
+  const drivers = driversQuery.data ?? null
+  const error = errorCode<FleetErrorCode>(driversQuery.error)
   // 'new' opens the add dialog; a record opens it for editing
   const [editing, setEditing] = useState<DriverRecord | 'new' | null>(null)
   const [deleting, setDeleting] = useState<DriverRecord | null>(null)
@@ -45,20 +49,8 @@ function DriversPanel(): React.JSX.Element {
   )
   const list = useListView(drivers, listConfig)
 
-  const load = useCallback(async (): Promise<void> => {
-    try {
-      const result = await api.fleet.listDrivers()
-      if (result.ok) setDrivers(result.data)
-      else setError(result.error)
-    } catch {
-      setError('unknown')
-    }
-  }, [])
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount
-    load()
-  }, [load])
+  // After a change: the list again (and the trips' filters with it)
+  const load = (): void => void queryClient.invalidateQueries({ queryKey: queryKeys.drivers })
 
   return (
     <section className="flex flex-col gap-4">

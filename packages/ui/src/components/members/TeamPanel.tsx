@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoaderCircle, Plus } from 'lucide-react'
 import type {
@@ -15,7 +15,8 @@ import Menu from '../ui/Menu'
 import { FormAlert } from '../form/fields'
 import { useAccount, useRoleName } from '../../lib/account'
 import { useFormat } from '../../lib/format'
-import { useMountedRef } from '../../lib/useMountedRef'
+import { useMemberRoles, useMembers } from '../../lib/queries'
+import { errorCode, queryClient, queryKeys } from '../../lib/query'
 import ConfirmActionDialog, { type MemberAction } from './ConfirmActionDialog'
 import IssuedPasswordDialog from './IssuedPasswordDialog'
 import NewMemberDialog from './NewMemberDialog'
@@ -63,28 +64,19 @@ function TeamPanel({
   const { t } = useTranslation()
   const format = useFormat()
   const roleName = useRoleName()
-  const mounted = useMountedRef()
   const { id: currentUserId } = useAccount()
-  const [users, setUsers] = useState<MemberRecord[] | null>(null)
-  const [roles, setRoles] = useState<RoleRecord[]>([])
-  const [error, setError] = useState<MemberErrorCode | null>(null)
+  // The accounts and the roles they can be given, cached per side (lib/queries.ts)
+  const usersQuery = useMembers(side, members)
+  const users: MemberRecord[] | null = usersQuery.data ?? null
+  const roles: RoleRecord[] = useMemberRoles(side, members).data ?? []
+  const error = errorCode<MemberErrorCode>(usersQuery.error)
   const [dialog, setDialog] = useState<Dialog | null>(null)
 
-  // Bumped after every change, to load the list again
-  const [version, setVersion] = useState(0)
-  const reload = (): void => setVersion((v) => v + 1)
-
-  useEffect(() => {
-    Promise.all([members.list(), members.roles()])
-      .then(([list, roleList]) => {
-        if (!mounted.current) return
-        if (!list.ok) return setError(list.error)
-        setUsers(list.data)
-        if (roleList.ok) setRoles(roleList.data)
-        setError(null)
-      })
-      .catch(() => mounted.current && setError('unknown'))
-  }, [members, mounted, version])
+  // After every change: the accounts again (the roles' member counts follow them)
+  const reload = (): void => {
+    void queryClient.invalidateQueries({ queryKey: ['members', side] })
+    if (side === 'company') void queryClient.invalidateQueries({ queryKey: queryKeys.roles })
+  }
 
   const actionsFor = (user: MemberRecord): MemberAction[] => [
     user.disabled ? 'enable' : 'disable',

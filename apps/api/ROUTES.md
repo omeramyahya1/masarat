@@ -4,6 +4,11 @@ The Electron MVP talked to its main process over IPC (`apps/desktop-demo/src/mai
 Each channel is now an HTTP endpoint here (`src/routes/`), calling the same service functions
 (`src/services/`). New routes follow the same pattern.
 
+**The full list of endpoints**, with their request schemas, is the OpenAPI document the API serves in
+development: `GET /openapi.json` (built from each route's `doc(...)` and zod schema, see
+`src/http/validate.ts`). Every body and query is validated against its schema in
+`packages/shared/src/schemas.ts` before a service runs.
+
 **Sessions and permissions** (`src/http/middleware.ts`, `src/http/company.ts`): `session` puts the
 signed-in account (an `AuthUser`, with its company, role, branch and permissions) on the request as
 `c.get('user')`. `requireUser()`, `requireKind('company' | 'govt')` and `requirePermission(...)`

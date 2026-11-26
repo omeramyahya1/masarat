@@ -5,7 +5,16 @@
 // permission; these functions check the rest.
 import { randomInt } from 'crypto'
 import { and, asc, count, eq, inArray, isNull, ne, type SQL } from 'drizzle-orm'
-import { branches, getDb, roles, users, type Branch, type Role, type User } from '../db'
+import {
+  branches,
+  getDb,
+  isUniqueViolation,
+  roles,
+  users,
+  type Branch,
+  type Role,
+  type User
+} from '../db'
 import { USERNAME_PATTERN } from '@masarat/shared/auth'
 import type {
   IssuedPassword,
@@ -83,7 +92,9 @@ export async function listMembers(side: Side): Promise<MemberRecord[]> {
 async function checkAssignment(
   db: Tx,
   side: Side,
-  input: MemberRoleInput
+  input: MemberRoleInput,
+  // The account being changed (null for a new one)
+  userId: number | null = null
 ): Promise<
   { ok: true; role: Role; branchId: number | null } | { ok: false; error: MemberErrorCode }
 > {
@@ -95,6 +106,15 @@ async function checkAssignment(
     .where(and(eq(roles.id, roleId), sideRoles(side)))
     .for('update')
   if (!role) return { ok: false, error: 'role_not_found' }
+  // There is one government admin (migration 0010's index): the role can't go to anyone else
+  if (side.kind === 'govt' && role.key === ADMIN_KEY.govt) {
+    const [holder] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.roleId, role.id), userId === null ? undefined : ne(users.id, userId)))
+      .limit(1)
+    if (holder) return { ok: false, error: 'admin_exists' }
+  }
   if (role.scope !== 'branch' || side.kind !== 'company') return { ok: true, role, branchId: null }
 
   const branchId = Number(input?.branchId)
@@ -153,6 +173,8 @@ export async function createMember(
     })
   } catch (error) {
     if (isPhoneConflict(error)) return { ok: false, error: 'phone_taken' }
+    if (isUniqueViolation(error, 'users_one_govt_admin_idx'))
+      return { ok: false, error: 'admin_exists' }
     throw error
   }
   if (!result.ok) return result
@@ -239,7 +261,7 @@ export async function changeRole(
   input: MemberRoleInput
 ): Promise<MemberResult<MemberRecord>> {
   const result = await changeAccount(side, adminId, userId, async (tx, user, isAdmin) => {
-    const assignment = await checkAssignment(tx, side, input)
+    const assignment = await checkAssignment(tx, side, input, user.id)
     if (!assignment.ok) return assignment
     const staysAdmin = assignment.role.key === ADMIN_KEY[side.kind]
     if (isAdmin && !staysAdmin && !(await otherActiveAdmin(tx, side, user.id))) {

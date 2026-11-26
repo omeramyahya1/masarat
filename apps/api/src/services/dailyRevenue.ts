@@ -19,7 +19,7 @@ type Executor = Pick<AppDatabase, 'execute'>
 export const cargoSharesSql = sql`
 items AS (
   SELECT i.manifest_id, i.cargo_type, i.cost
-  FROM manifest_cargo_items i JOIN paid ON paid.manifest_id = i.manifest_id
+  FROM all_manifest_cargo_items i JOIN paid ON paid.manifest_id = i.manifest_id
 ),
 item_cost AS (
   SELECT manifest_id, sum(cost) AS cost FROM items GROUP BY manifest_id
@@ -38,14 +38,15 @@ cargo_shares AS (
 )`
 
 // One statement: the rows for the paid payments matching `where` (on payments as p), added to
-// what's there. Days are Sudan days (the session's time zone).
+// what's there. Days are Sudan days (the session's time zone). It reads the all_* views, so a
+// rebuild still counts the trips that moved to the archive.
 export const summarySql = (where: SQL): SQL => sql`
 WITH paid AS (
   SELECT p.manifest_id, p.amount, p.paid_at::date AS day, m.category, m.cargo_type,
          m.origin_city_id, m.destination_city_id, m.company_id, m.trip_kind, v.vehicle_type,
          os.name AS origin_state, ds.name AS destination_state
-  FROM payments p
-  JOIN manifests m ON m.id = p.manifest_id
+  FROM all_payments p
+  JOIN all_manifests m ON m.id = p.manifest_id
   JOIN vehicles v ON v.id = m.vehicle_id
   JOIN cities oc ON oc.id = m.origin_city_id
   JOIN states os ON os.id = oc.state_id
@@ -81,7 +82,7 @@ rows AS (
   SELECT paid.day, 'charge', c.code,
          (array_agg(c.name ORDER BY c.id DESC))[1], (array_agg(c.name_ar ORDER BY c.id DESC))[1],
          sum(c.amount), count(*)
-  FROM paid JOIN manifest_charges c ON c.manifest_id = paid.manifest_id
+  FROM paid JOIN all_manifest_charges c ON c.manifest_id = paid.manifest_id
   GROUP BY paid.day, c.code
 )
 INSERT INTO daily_revenue (day, dimension, key, name, name_ar, revenue, trips)

@@ -40,18 +40,12 @@ import {
 } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import {
-  certificates,
   cities,
   companies,
   getDb,
-  manifestCargoItems,
-  manifestCharges,
-  manifestTrailers,
-  manifests,
-  tripPassengers,
   people,
-  payments,
   states,
+  tripViews,
   vehicles,
   type AppDatabase
 } from '../db'
@@ -67,6 +61,17 @@ import {
   type ExportRows
 } from '@masarat/shared/exports'
 import { inFilteredTrips } from './analyticsQuery'
+
+// Reads live and archived trips alike (the all_* views)
+const {
+  certificates,
+  manifestCargoItems,
+  manifestCharges,
+  manifestTrailers,
+  manifests,
+  tripPassengers,
+  payments
+} = tripViews
 
 type Cell = string | number | Date | null
 type Row = Cell[]

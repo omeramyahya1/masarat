@@ -1,5 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQuery } from '@tanstack/react-query'
+import { errorCode, queryClient, queryKeys, unwrap } from '@masarat/ui/lib/query'
 import { Info, LoaderCircle } from 'lucide-react'
 import type { FleetErrorCode } from '@masarat/shared/fleet'
 import {
@@ -33,21 +35,19 @@ const inRange = (text: string, min: number, max: number): number | null => {
 function SettingsPanel(): React.JSX.Element {
   const { t } = useTranslation()
   const mounted = useMountedRef()
-  const [drafts, setDrafts] = useState<Drafts | null>(null)
-  const [error, setError] = useState<FleetErrorCode | null>(null)
+  // Cached (lib/query.ts); the form starts from it and edits a draft of its own
+  const settingsQuery = useQuery({
+    queryKey: queryKeys.settings,
+    queryFn: () => unwrap(api.govt.settings())
+  })
+  const [drafts, setDrafts] = useState<Drafts | null>(() =>
+    settingsQuery.data ? draftsFrom(settingsQuery.data) : null
+  )
+  if (!drafts && settingsQuery.data) setDrafts(draftsFrom(settingsQuery.data))
+  const [actionError, setError] = useState<FleetErrorCode | null>(null)
+  const error = actionError ?? errorCode<FleetErrorCode>(settingsQuery.error)
   const [saved, setSaved] = useState(false)
   const [pending, setPending] = useState(false)
-
-  useEffect(() => {
-    api.govt
-      .settings()
-      .then((result) => {
-        if (!mounted.current) return
-        if (!result.ok) return setError(result.error)
-        setDrafts(draftsFrom(result.data))
-      })
-      .catch(() => mounted.current && setError('unknown'))
-  }, [mounted])
 
   if (!drafts) {
     return error ? (
@@ -83,6 +83,7 @@ function SettingsPanel(): React.JSX.Element {
       const result = await api.govt.updateSettings(input)
       if (!mounted.current) return
       if (!result.ok) return setError(result.error)
+      queryClient.setQueryData(queryKeys.settings, result.data)
       setDrafts(draftsFrom(result.data))
       setSaved(true)
     } catch {

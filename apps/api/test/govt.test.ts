@@ -24,8 +24,9 @@ let owner: Browser
 
 beforeAll(async () => {
   await resetData()
-  await ensureDemoData()
+  // The one government admin, made before the demo data (which then skips its own admin)
   govt = (await signedIn('inspector', 'govt_admin')).b
+  await ensureDemoData()
   agent = (await signedIn('analyst', 'govt_agent')).b
   owner = (await signedIn('owner.x', 'company_admin')).b
 }, 60_000)

@@ -236,8 +236,7 @@ export const analyticsFiltersSchema = z.object({
   category: z.enum(TRIP_CATEGORIES).nullable().optional(),
   cargoType: z.enum(CARGO_TYPES).nullable().optional(),
   vehicleType: z.enum(VEHICLE_TYPES).nullable().optional(),
-  tripKind: z.enum(TRIP_KINDS).nullable().optional(),
-  companyId: nullableId.optional()
+  tripKind: z.enum(TRIP_KINDS).nullable().optional()
 })
 
 export const dashboardViewSchema = z.object({

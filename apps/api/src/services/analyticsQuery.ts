@@ -28,7 +28,6 @@ export function tripConditions(f: AnalyticsFilters): SQL | undefined {
     f.category ? eq(manifests.category, f.category) : undefined,
     f.tripKind ? eq(manifests.tripKind, f.tripKind) : undefined,
     f.vehicleType ? eq(vehicles.vehicleType, f.vehicleType) : undefined,
-    f.companyId ? eq(manifests.companyId, f.companyId) : undefined,
     // Any item of that type (a trip can mix them), or the trip's own type for trips from before
     // cargo items existed
     f.cargoType

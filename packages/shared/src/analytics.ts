@@ -19,12 +19,11 @@ export interface AnalyticsFilters {
   destinationState?: string | null
   // Cargo or passenger trips
   category?: TripCategory | null
-  // Matches a trip that carries this type in any of its items
+  // The trip's main cargo type (its costliest item's type): the dashboard's daily aggregates are
+  // kept at that grain
   cargoType?: CargoType | null
   vehicleType?: VehicleType | null
   tripKind?: TripKind | null
-  // A transport company (companies.id)
-  companyId?: number | null
 }
 
 export const DEFAULT_FILTERS: AnalyticsFilters = { range: { preset: '30d' } }
@@ -38,8 +37,7 @@ export const FILTER_KEYS = [
   'category',
   'cargoType',
   'vehicleType',
-  'tripKind',
-  'companyId'
+  'tripKind'
 ] as const
 export type FilterKey = (typeof FILTER_KEYS)[number]
 

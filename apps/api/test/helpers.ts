@@ -42,7 +42,15 @@ export async function resetData(): Promise<void> {
 let phoneCounter = 0
 export const nextPhone = (): string => `+24991${String(++phoneCounter).padStart(7, '0')}`
 
-export type AccountRole = 'company_admin' | 'clerk' | 'accountant' | 'govt_admin' | 'govt_agent'
+export type AccountRole =
+  | 'company_admin'
+  | 'clerk'
+  | 'accountant'
+  | 'govt_admin'
+  | 'govt_supervisor'
+  | 'govt_agent'
+
+const isGovtRole = (role: AccountRole): boolean => role.startsWith('govt_')
 
 export interface AccountOptions {
   // Join this company; without it a company member gets a new company (with one branch)
@@ -70,7 +78,7 @@ export async function createUser(
   options: AccountOptions = {}
 ): Promise<Account> {
   const db = getDb()
-  const govt = role === 'govt_admin' || role === 'govt_agent'
+  const govt = isGovtRole(role)
   let companyId: number | null = null
   let branchId: number | null = null
   let roleId: number
@@ -182,7 +190,7 @@ export async function signedIn(
     passwordHash: await hashPassword(PASSWORD),
     ...options
   })
-  const govt = role === 'govt_admin' || role === 'govt_agent'
+  const govt = isGovtRole(role)
   const b = browser(govt ? 'http://localhost:5174' : 'http://localhost:5173')
   await b.call('POST', '/auth/login', { username, password: PASSWORD })
   return { b, ...account }

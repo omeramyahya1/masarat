@@ -1,7 +1,7 @@
 // Demo companies and accounts, created by the demo data seeder (apps/api/src/services/demoData.ts)
 // in demo mode, and listed on the login page so the presenter can sign in with one click. Static
 // on purpose: this is a demo.
-import type { BuiltinRoleKey } from './permissions'
+import type { BuiltinRoleKey, GovtRoleKey } from './permissions'
 
 export interface DemoAccount {
   username: string
@@ -120,11 +120,14 @@ export const DEMO_COMPANIES: readonly DemoCompany[] = [
 ]
 
 // Kept across "Regenerate demo data", so the presenter who runs it stays signed in
-export const DEMO_GOVT_ACCOUNTS: readonly (DemoAccount & { role: 'govt_admin' | 'govt_agent' })[] =
-  [
+export const DEMO_GOVT_ACCOUNTS: readonly (DemoAccount & { role: GovtRoleKey })[] = [
     {
       ...member('ministry.demo', 'govt2026', 'Tax Collection Officer', '+249912301000'),
       role: 'govt_admin'
+    },
+    {
+      ...member('ministry.supervisor', 'govt2026', 'Review Supervisor', '+249912301008'),
+      role: 'govt_supervisor'
     },
     {
       ...member('ministry.agent', 'govt2026', 'Revenue Analyst', '+249912301009'),
@@ -133,7 +136,7 @@ export const DEMO_GOVT_ACCOUNTS: readonly (DemoAccount & { role: 'govt_admin' | 
   ]
 
 // What the login page lists in demo mode: every company admin, one company's clerk and
-// accountant (to show what a branch-scoped role sees), and both government roles. The other
+// accountant (to show what a branch-scoped role sees), and the three government roles. The other
 // clerks sign in the same way (see DEMO_COMPANIES).
 export interface DemoLogin extends DemoAccount {
   role: BuiltinRoleKey

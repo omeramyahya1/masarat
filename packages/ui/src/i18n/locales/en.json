@@ -1415,7 +1415,8 @@
       "scopeLocked": "Members have this role, so its reach can't change. Give them another role first.",
       "permissions": "What it can do",
       "save": "Save role"
-    }
+    },
+    "govt_supervisor": "Government supervisor"
   },
   "branches": {
     "title": "Branches",

@@ -55,7 +55,12 @@ describe('access', () => {
     expect((await agent.call('GET', '/govt/users')).status).toBe(403)
     const me = (await agent.call('GET', '/auth/me')).body.user
     expect(me).toMatchObject({ kind: 'govt', company: null, role: { key: 'govt_agent' } })
-    expect(me.permissions).toEqual(['govt.dashboard', 'govt.search', 'govt.exports'])
+    expect(me.permissions).toEqual([
+      'govt.dashboard',
+      'govt.search',
+      'govt.exports',
+      'govt.reports.create'
+    ])
   })
 })
 

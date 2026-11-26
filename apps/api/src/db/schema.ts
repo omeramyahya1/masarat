@@ -449,8 +449,12 @@ function defineTripTables(table: PgTableFn, id: typeof liveId) {
       // The names' search keys (masarat_name_key, migration 0008), kept by Postgres: the trips
       // search compares whole names by them without computing the key for every trip
       driverNameKey: text('driver_name_key').generatedAlwaysAs(sql`masarat_name_key(driver_name)`),
-      shipperNameKey: text('shipper_name_key').generatedAlwaysAs(sql`masarat_name_key(shipper_name)`),
-      receiverNameKey: text('receiver_name_key').generatedAlwaysAs(sql`masarat_name_key(receiver_name)`)
+      shipperNameKey: text('shipper_name_key').generatedAlwaysAs(
+        sql`masarat_name_key(shipper_name)`
+      ),
+      receiverNameKey: text('receiver_name_key').generatedAlwaysAs(
+        sql`masarat_name_key(receiver_name)`
+      )
     },
     (t) => [
       index('manifests_vehicle_id_idx').on(t.vehicleId),

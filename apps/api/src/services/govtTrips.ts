@@ -63,6 +63,9 @@ function textConditions(raw: string): SQL | undefined {
       )
     : undefined
 
+  // "#123": only a trip number, whatever its length (the ids run past 5 digits)
+  const hashNo = /^#(\d{1,9})$/.exec(western)
+  if (hashNo) return eq(manifests.id, Number(hashNo[1]))
   // An E-Sali bill ID (22 digits) or the start of one, or a national ID (11 digits)
   if (/^\d{6,22}$/.test(western)) {
     return or(
@@ -77,14 +80,9 @@ function textConditions(raw: string): SQL | undefined {
       passenger
     )
   }
-  // A trip number: "123" or "#123"
-  const tripNo = /^(#)?(\d{1,5})$/.exec(western)
-  if (tripNo) {
-    // "#123" is only a trip number
-    return tripNo[1]
-      ? eq(manifests.id, Number(tripNo[2]))
-      : or(eq(manifests.id, Number(tripNo[2])), plate)
-  }
+  // A short number: a trip number, or part of a plate
+  const tripNo = /^\d{1,5}$/.exec(western)
+  if (tripNo) return or(eq(manifests.id, Number(tripNo[0])), plate)
   // A receipt or manifest number, whole or in part (MNF-2026-000123, psg 2026 123, …), through
   // the numbers' prefix indexes
   const docNo = /^(MNF|PSG|MSR)[\s-]*(\d{4})?[\s-]*(\d{0,6})$/i.exec(western)

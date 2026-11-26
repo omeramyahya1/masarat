@@ -2,7 +2,7 @@
 // to match the printed copy. Nothing personal (sender, receiver, driver, passengers' names or IDs)
 // leaves here: a passenger trip only gives its head count. A revoked clearance says so (with the
 // date, not the reason); one with an open report stays valid, flagged as under review.
-import { and, count, eq } from 'drizzle-orm'
+import { and, count, eq, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { cities, getDb, tripViews, vehicles } from '../db'
 import { QR_TOKEN_PATTERN, type ManifestVerification } from '@masarat/shared/billing'
@@ -47,8 +47,18 @@ export async function verifyManifest(
     .innerJoin(destination, eq(manifests.destinationCityId, destination.id))
     // Only a paid bill's documents count
     .innerJoin(payments, and(eq(payments.manifestId, manifests.id), eq(payments.status, 'paid')))
-    .where(eq(certificates.qrToken, token))
-    .limit(1)
+    // The trip by its id, found from the token first: through the live + archive views Postgres
+    // can't tell this join gives one row, and with a plain join on the token it may scan every
+    // trip looking for it (hundreds of ms per check at a month of data)
+    .where(
+      and(
+        eq(certificates.qrToken, token),
+        eq(
+          manifests.id,
+          sql`(select ${certificates.manifestId} from ${certificates} where ${certificates.qrToken} = ${token} limit 1)`
+        )
+      )
+    )
   if (!row) return { ok: false, error: 'manifest_not_found' }
 
   const [counts, review] = await Promise.all([

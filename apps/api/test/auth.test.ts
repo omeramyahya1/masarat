@@ -2,7 +2,8 @@
 // forced password changes, sign-up (a new company) and the government Users section
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { and, eq, isNull } from 'drizzle-orm'
-import { getDb, roles, sessions, users } from '../src/db'
+import { getDb, isUniqueViolation, roles, sessions, users } from '../src/db'
+import { createOrUpdateAdmin } from '../src/scripts/createAdmin'
 import { hashPassword, logIn } from '../src/services/auth'
 import { changeRole, setDisabled } from '../src/services/members'
 import { ABSOLUTE_MS, IDLE_MS, createSession, findSession } from '../src/services/sessions'
@@ -378,7 +379,7 @@ describe('government users', () => {
     expect(old.body.error).toBe('invalid_credentials')
   })
 
-  test('the last active admin stays, and admins cannot change themselves', async () => {
+  test('there is one admin, who cannot change themselves', async () => {
     const { b, id } = await admin()
     const otherId = await createAccount('deputy', 'govt_agent')
     expect((await b.call('POST', `/govt/users/${id}/disable`)).body.error).toBe(
@@ -390,48 +391,79 @@ describe('government users', () => {
       'cannot_change_self'
     )
 
-    // Promote the deputy, who then demotes the chief: allowed, one admin is left
+    // There is one government admin: the role can't go to anyone else
     expect(
-      (await b.call('PUT', `/govt/users/${otherId}/role`, { roleId: adminRole })).body.data.role.key
-    ).toBe('govt_admin')
-    const deputy = browser()
-    await deputy.call('POST', '/auth/login', { username: 'deputy', password: PASSWORD })
-    expect((await deputy.call('PUT', `/govt/users/${id}/role`, { roleId: agentRole })).status).toBe(
-      200
-    )
+      (await b.call('PUT', `/govt/users/${otherId}/role`, { roleId: adminRole })).body.error
+    ).toBe('admin_exists')
+    expect(
+      (
+        await b.call('POST', '/govt/users', {
+          username: 'second.admin',
+          fullName: 'Second Admin',
+          phone: '0915550000',
+          roleId: adminRole
+        })
+      ).body.error
+    ).toBe('admin_exists')
+    // …and isn't offered when creating or changing an account
+    const offered = (await b.call('GET', '/govt/users/roles')).body.data as { key: string }[]
+    expect(offered.map((r) => r.key)).toEqual(['govt_agent'])
     // A company's role can't be given to a government user
     const companyRoles = await getDb().select().from(roles).where(eq(roles.key, 'company_admin'))
     for (const role of companyRoles) {
       expect(
-        (await deputy.call('PUT', `/govt/users/${id}/role`, { roleId: role.id })).body.error
+        (await b.call('PUT', `/govt/users/${otherId}/role`, { roleId: role.id })).body.error
       ).toBe('role_not_found')
     }
-
-    // The chief is no longer an admin, so the deputy is the last one
-    const chief = await b.call('GET', '/govt/users')
-    expect(chief.status).toBe(403)
   })
 
-  test('two admins demoting each other at once leave one admin', async () => {
-    const chiefId = await createAccount('chief', 'govt_admin')
-    const deputyId = await createAccount('deputy', 'govt_admin')
-    const agent = { roleId: await govtRole('govt_agent') }
-    const results = await Promise.all([
-      changeRole(GOVT, chiefId, deputyId, agent),
-      changeRole(GOVT, deputyId, chiefId, agent)
-    ])
-    expect(results.map((r) => (r.ok ? 'ok' : r.error)).sort()).toEqual(['last_admin', 'ok'])
+  test('the database itself refuses a second government admin', async () => {
+    await createAccount('chief', 'govt_admin')
+    let caught: unknown = null
+    try {
+      await createAccount('deputy', 'govt_admin')
+    } catch (err) {
+      caught = err
+    }
+    expect(isUniqueViolation(caught, 'users_one_govt_admin_idx')).toBe(true)
+  })
+
+  test('user:create-admin creates the admin once; production refuses a second, development upserts', async () => {
+    const created = await createOrUpdateAdmin('first.admin', '0916660001', 'First Admin', true)
+    expect(created).toMatchObject({ ok: true, action: 'created', username: 'first.admin' })
+
+    const refused = await createOrUpdateAdmin('other.admin', '0916660002', 'Other Admin', true)
+    expect(refused.ok).toBe(false)
+    if (!refused.ok) expect(refused.message).toContain('already exists')
+
+    const updated = await createOrUpdateAdmin('renamed.admin', '0916660003', 'Renamed Admin', false)
+    expect(updated).toMatchObject({ ok: true, action: 'updated', username: 'renamed.admin' })
     const admins = await getDb()
       .select()
       .from(users)
       .where(eq(users.roleId, await govtRole('govt_admin')))
     expect(admins).toHaveLength(1)
+    expect(admins[0]).toMatchObject({
+      username: 'renamed.admin',
+      fullName: 'Renamed Admin',
+      phone: '+249916660003',
+      mustChangePassword: true,
+      disabledAt: null
+    })
+    // The new temporary password works
+    if (updated.ok) {
+      const login = await browser().call('POST', '/auth/login', {
+        username: 'renamed.admin',
+        password: updated.password
+      })
+      expect(login.status).toBe(200)
+    }
   })
 
-  test('a disabled admin does not count as the remaining one', async () => {
+  test('a disabled admin cannot leave the government without an active admin', async () => {
     const chiefId = await createAccount('chief', 'govt_admin')
-    const deputyId = await createAccount('deputy', 'govt_admin', { disabledAt: new Date() })
-    // Acting as the (disabled) deputy, as a request already past the permission check would
+    const deputyId = await createAccount('deputy', 'govt_agent', { disabledAt: new Date() })
+    // Acting as another account, as a request already past the permission check would
     const agent = { roleId: await govtRole('govt_agent') }
     expect(await changeRole(GOVT, deputyId, chiefId, agent)).toEqual({
       ok: false,

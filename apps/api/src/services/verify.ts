@@ -3,9 +3,12 @@
 // leaves here: a passenger trip only gives its head count.
 import { and, count, eq } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
-import { certificates, cities, getDb, manifests, payments, tripPassengers, vehicles } from '../db'
+import { cities, getDb, tripViews, vehicles } from '../db'
 import { QR_TOKEN_PATTERN, type ManifestVerification } from '@masarat/shared/billing'
 import type { FleetResult } from '@masarat/shared/fleet'
+
+// Reads live and archived trips alike (the all_* views)
+const { certificates, manifests, payments, tripPassengers } = tripViews
 
 const origin = alias(cities, 'verify_origin')
 const destination = alias(cities, 'verify_destination')

@@ -6,3 +6,6 @@ tsconfig.json
 tsconfig.*.json
 apps/desktop-demo
 **/drizzle
+.claude
+e2e/report
+e2e/results

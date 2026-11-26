@@ -2,7 +2,7 @@
 // government sees of it (dashboard, search, taxes and fees), and the pricing guard
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { eq, sql } from 'drizzle-orm'
-import { branches, getDb, manifests } from '../src/db'
+import { branches, getDb, isQueryTimeout, manifests, openUnlimitedDb } from '../src/db'
 import type { CompanyScope } from '../src/services/access'
 import { addVehicle } from '../src/services/fleet'
 import { addDriver } from '../src/services/drivers'
@@ -10,6 +10,7 @@ import {
   createTrip,
   deleteTrip,
   getReferenceData,
+  listSuggestions,
   listTrips,
   updateTrip
 } from '../src/services/trips'
@@ -170,6 +171,29 @@ describe('company trip', () => {
   })
 })
 
+describe('trip form suggestions', () => {
+  test('come from the trips booked in the last 30 days only', async () => {
+    const recent = await createTrip(scope, ownerId, {
+      ...tripInput,
+      shipper: { name: 'Recent Sender', address: 'Khartoum', phone: '0911111112' }
+    })
+    const old = await createTrip(scope, ownerId, {
+      ...tripInput,
+      shipper: { name: 'Old Sender', address: 'Khartoum', phone: '0911111113' }
+    })
+    if (!recent.ok || !old.ok) throw new Error('create failed')
+    await getDb()
+      .update(manifests)
+      .set({ createdAt: new Date(Date.now() - 40 * 86_400_000) })
+      .where(eq(manifests.id, old.data.id))
+    const names = (await listSuggestions(scope)).parties.map((p) => p.name)
+    expect(names).toContain('Recent Sender')
+    expect(names).not.toContain('Old Sender')
+    await deleteTrip(scope, recent.data.id)
+    await deleteTrip(scope, old.data.id)
+  })
+})
+
 describe('government', () => {
   test('the dashboard counts the paid bill', async () => {
     const [trip] = await listTrips(scope)
@@ -179,6 +203,10 @@ describe('government', () => {
     expect(data.byTax.reduce((sum, line) => sum + line.revenue, 0)).toBe(data.kpis.revenue)
     expect(data.recentBills.length).toBeGreaterThan(0)
     expect(trip).toBeDefined()
+    // Refreshing a paid trip again doesn't count it twice in the daily summary
+    for (const t of paid) await refreshBillStatus(scope, t.id)
+    const again = await getDashboard({ range: { preset: '30d' } }, DEFAULT_VIEW)
+    expect(again.kpis.revenue).toBe(data.kpis.revenue)
   })
 
   test('search ignores case and finds plates in Arabic digits', async () => {
@@ -208,8 +236,13 @@ describe('export', () => {
       'csv',
       'csv'
     ])
+    expect(result.data.download.name.endsWith('.zip')).toBe(true)
     expect(result.data.rows.trips).toBe(1)
     expect(result.data.rows.taxLines).toBe(4)
+    // The files are on disk until the download has been sent
+    expect(await Bun.file(result.data.download.path).exists()).toBe(true)
+    result.data.cleanup()
+    expect(await Bun.file(result.data.download.path).exists()).toBe(false)
   })
 })
 
@@ -397,5 +430,31 @@ describe('permissions', () => {
     )
     const allowed = [...row.def.matchAll(/'([a-z.]+)'/g)].map((m) => m[1])
     expect(allowed.sort()).toEqual([...PERMISSIONS].sort())
+  })
+})
+
+describe('time limits', () => {
+  test('API queries stop at the statement timeout; migrations have none', async () => {
+    const [api] = await getDb().execute<{ statement_timeout: string }>(sql`show statement_timeout`)
+    expect(api.statement_timeout).toBe('15s')
+    const unlimited = openUnlimitedDb()
+    const [migration] = await unlimited.db.execute<{ statement_timeout: string }>(
+      sql`show statement_timeout`
+    )
+    await unlimited.close()
+    expect(migration.statement_timeout).toBe('0')
+  })
+
+  test('a query past the limit answers query_timeout', async () => {
+    let caught: unknown = null
+    try {
+      await getDb().transaction(async (tx) => {
+        await tx.execute(sql`set local statement_timeout = 50`)
+        await tx.execute(sql`select pg_sleep(1)`)
+      })
+    } catch (err) {
+      caught = err
+    }
+    expect(isQueryTimeout(caught)).toBe(true)
   })
 })

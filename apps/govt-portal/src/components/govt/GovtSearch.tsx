@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { LoaderCircle, SearchX } from 'lucide-react'
-import type { GovtSearchInput, GovtSearchResult } from '@masarat/shared/billing'
-import { DEFAULT_PAGE_SIZE, type Page, type PageSize } from '@masarat/shared/paging'
+import type { GovtSearchInput } from '@masarat/shared/billing'
+import { DEFAULT_PAGE_SIZE, type PageSize } from '@masarat/shared/paging'
 import type { CityRecord, FleetErrorCode } from '@masarat/shared/fleet'
 import { useFormat } from '@masarat/ui/lib/format'
+import { errorCode, queryKeys, unwrap } from '@masarat/ui/lib/query'
 import { FormAlert } from '@masarat/ui/components/form/fields'
 import PlateBadge from '@masarat/ui/components/fleet/PlateBadge'
 import { STATUS_STYLES } from '@masarat/ui/components/trips/statusStyles'
@@ -25,28 +27,18 @@ function GovtSearch({
 }): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
-  const [results, setResults] = useState<Page<GovtSearchResult> | null>(null)
-  const [error, setError] = useState<FleetErrorCode | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE)
-
-  useEffect(() => {
-    let current = true
-    api.govt
-      .search({ ...input, page, pageSize })
-      .then((result) => {
-        if (!current) return
-        if (result.ok) {
-          setResults(result.data)
-          setError(null)
-        } else setError(result.error)
-      })
-      .catch(() => current && setError('unknown'))
-    // A newer search supersedes this one
-    return (): void => {
-      current = false
-    }
-  }, [input, page, pageSize])
+  // Each page of the results is cached (lib/query.ts): back from a trip, or to a page seen within
+  // the last minute, they show at once; while a new page loads, the last one stays
+  const request = { ...input, page, pageSize }
+  const search = useQuery({
+    queryKey: queryKeys.search(request),
+    queryFn: () => unwrap(api.govt.search(request)),
+    placeholderData: keepPreviousData
+  })
+  const results = search.data ?? null
+  const error = errorCode<FleetErrorCode>(search.error)
 
   if (error) return <FormAlert message={t(`fleet.errors.${error}`)} />
   if (!results) {
@@ -62,7 +54,9 @@ function GovtSearch({
       <div>
         <h2 className="text-lg font-semibold text-stone-900">{t('govt.search.resultsTitle')}</h2>
         <p className="text-sm text-stone-500">
-          {t('govt.search.resultCount', { count: format.number(results.total) })}
+          {t(results.more ? 'govt.search.resultCountMore' : 'govt.search.resultCount', {
+            count: format.number(results.total)
+          })}
         </p>
       </div>
 
@@ -151,6 +145,7 @@ function GovtSearch({
         page={results.page}
         pageSize={results.pageSize}
         total={results.total}
+        more={results.more}
         onPage={setPage}
         onPageSize={(size) => {
           setPageSize(size)

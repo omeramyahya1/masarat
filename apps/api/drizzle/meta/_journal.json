@@ -43,6 +43,62 @@
       "when": 1795354397171,
       "tag": "0005_drop_trip_date",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795529799150,
+      "tag": "0006_scale",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795531155862,
+      "tag": "0007_search_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795597986333,
+      "tag": "0008_people",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1795598013577,
+      "tag": "0009_drop_passenger_ids",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1795617326457,
+      "tag": "0010_app_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1795619141652,
+      "tag": "0011_archive",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1795619174089,
+      "tag": "0012_archive_views",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1795678710215,
+      "tag": "0013_dashboard_facts",
+      "breakpoints": true
     }
   ]
 }

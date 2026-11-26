@@ -41,6 +41,8 @@ export interface TripDetails {
   vehicleCapacity: number
   payment: PaymentRecord | null
   certificate: CertificateRecord | null
+  // Older than the live window: moved to the archive, read-only
+  archived: boolean
 }
 
 // What the documents' QR code encodes: the public verify page for this certificate, e.g.

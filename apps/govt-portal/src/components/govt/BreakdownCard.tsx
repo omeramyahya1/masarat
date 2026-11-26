@@ -20,6 +20,7 @@ function BreakdownCard({
   breakdownBy,
   sort,
   cities,
+  companyAvailable = true,
   onBreakdownChange,
   onSortChange,
   className
@@ -28,6 +29,8 @@ function BreakdownCard({
   breakdownBy: Breakdown
   sort: BreakdownSort
   cities: readonly CityRecord[]
+  // With a route or cargo filter there's no company breakdown (the aggregates can't split it)
+  companyAvailable?: boolean
   onBreakdownChange: (value: Breakdown) => void
   onSortChange: (value: BreakdownSort) => void
   className?: string
@@ -62,8 +65,11 @@ function BreakdownCard({
             onChange={(e) => onBreakdownChange(e.target.value as Breakdown)}
           >
             {BREAKDOWNS.map((b) => (
-              <option key={b} value={b}>
+              <option key={b} value={b} disabled={b === 'company' && !companyAvailable}>
                 {t(`govt.dashboard.breakdown.by.${b}`)}
+                {b === 'company' && !companyAvailable
+                  ? ` (${t('govt.dashboard.breakdown.companyUnavailable')})`
+                  : ''}
               </option>
             ))}
           </select>

@@ -4,6 +4,10 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import { getDb, manifests } from '../src/db'
 import { browser, resetData, signedIn, type Browser } from './helpers'
 
+// Trips list periods around the fixtures' dates (the list shows one period at a time)
+const TWO = 'from=2026-10-01&to=2026-11-30'
+const NOV = 'from=2026-11-01&to=2026-11-30'
+
 const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a])
 
 const OWNER = {
@@ -97,10 +101,18 @@ describe('access', () => {
     const ids = await setup(b)
     const trip = await b.call('POST', '/trips', tripInput(ids))
     const { b: other } = await signedIn('owner.two', 'company_admin')
-    expect((await other.call('PUT', `/vehicles/${ids.vehicleId}`, {})).status).toBe(404)
+    // A well-formed edit still finds nothing: the vehicle isn't theirs
+    const edit = {
+      plateNumber: 'KH 1/1',
+      registrationNo: 'R-1',
+      vehicleType: 'lorry',
+      capacity: 10,
+      capacityUnit: 'ton'
+    }
+    expect((await other.call('PUT', `/vehicles/${ids.vehicleId}`, edit)).status).toBe(404)
     expect((await other.call('GET', `/trips/${trip.body.data.id}`)).status).toBe(404)
     expect((await other.call('POST', `/trips/${trip.body.data.id}/bill`)).status).toBe(404)
-    expect((await other.call('GET', '/trips')).body.data.total).toBe(0)
+    expect((await other.call('GET', `/trips?${NOV}`)).body.data.total).toBe(0)
   })
 })
 
@@ -212,10 +224,13 @@ describe('paged trips list', () => {
       expect(res.status).toBe(200)
     }
 
-    const first = await b.call('GET', '/trips?pageSize=25&sort=departureAt&direction=desc')
+    const first = await b.call('GET', `/trips?${TWO}&pageSize=25&sort=departureAt&direction=desc`)
     expect(first.body.data).toMatchObject({ total: 30, overall: 30, page: 1, pageSize: 25 })
     expect(first.body.data.rows).toHaveLength(25)
-    const second = await b.call('GET', '/trips?pageSize=25&page=2&sort=departureAt&direction=desc')
+    const second = await b.call(
+      'GET',
+      `/trips?${TWO}&pageSize=25&page=2&sort=departureAt&direction=desc`
+    )
     expect(second.body.data.rows).toHaveLength(5)
     // Newest first, and no trip on both pages
     const dates = [...first.body.data.rows, ...second.body.data.rows].map(
@@ -227,13 +242,13 @@ describe('paged trips list', () => {
     )
     expect(allIds.size).toBe(30)
 
-    const kassala = await b.call('GET', '/trips?query=kassala')
+    const kassala = await b.call('GET', `/trips?${TWO}&query=kassala`)
     expect(kassala.body.data).toMatchObject({ total: 10, overall: 30 })
     const october = await b.call('GET', '/trips?from=2026-10-01&to=2026-10-31')
     expect(october.body.data.total).toBe(12)
 
     // Grouped by month across pages: page 1 holds November (18) and part of October
-    const grouped = await b.call('GET', '/trips?pageSize=25&group=month')
+    const grouped = await b.call('GET', `/trips?${TWO}&pageSize=25&group=month`)
     const groups = grouped.body.data.groups
     expect(groups.map((g: { key: string }) => g.key)).toEqual(['2026-11', '2026-10'])
     expect(groups.map((g: { count: number }) => g.count)).toEqual([18, 12])
@@ -247,7 +262,7 @@ describe('paged trips list', () => {
     }
     expect(groups[0].totalDue).toBe(await due('2026-11-01', '2026-11-30'))
     expect(grouped.body.data.rows[0].groupKey).toBe('2026-11')
-    const page2 = await b.call('GET', '/trips?pageSize=25&page=2&group=month')
+    const page2 = await b.call('GET', `/trips?${TWO}&pageSize=25&page=2&group=month`)
     expect(page2.body.data.groups).toEqual([
       { key: '2026-10', count: 12, totalDue: await due('2026-10-01', '2026-10-31') }
     ])
@@ -256,11 +271,63 @@ describe('paged trips list', () => {
     expect(count).toBe(30)
   }, 60_000)
 
+  test('shows one period at a time: the current month by default, at most 92 days', async () => {
+    const { b } = await signedIn('owner.one', 'company_admin', OWNER)
+    const ids = await setup(b)
+    const now = new Date()
+    const pad = (n: number): string => String(n).padStart(2, '0')
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+    await b.call(
+      'POST',
+      '/trips',
+      tripInput(ids, { departureAt: `${today}T08:00`, arrivalAt: `${today}T20:00` })
+    )
+    await b.call(
+      'POST',
+      '/trips',
+      tripInput(ids, { departureAt: '2025-01-10T08:00', arrivalAt: '2025-01-10T20:00' })
+    )
+    const current = await b.call('GET', '/trips')
+    expect(current.body.data).toMatchObject({ total: 1, overall: 1 })
+    expect(current.body.data.period.from).toBe(`${today.slice(0, 8)}01`)
+    const january = await b.call('GET', '/trips?from=2025-01-01&to=2025-01-31')
+    expect(january.body.data).toMatchObject({
+      total: 1,
+      period: { from: '2025-01-01', to: '2025-01-31' }
+    })
+    expect((await b.call('GET', '/trips?from=2025-01-01&to=2025-04-30')).body.error).toBe(
+      'invalid_period'
+    )
+    expect((await b.call('GET', '/trips?from=2025-02-01&to=2025-01-01')).body.error).toBe(
+      'invalid_period'
+    )
+  })
+
+  test('finds whole names only, whatever their Arabic spelling', async () => {
+    const { b } = await signedIn('owner.one', 'company_admin', OWNER)
+    const ids = await setup(b)
+    const trip = await b.call(
+      'POST',
+      '/trips',
+      tripInput(ids, { shipper: { name: 'أحمد علي', address: 'الخرطوم', phone: '0912345670' } })
+    )
+    expect(trip.status).toBe(200)
+    const found = async (query: string): Promise<number> =>
+      (await b.call('GET', `/trips?${NOV}&query=${encodeURIComponent(query)}`)).body.data.total
+    expect(await found('احمد علي')).toBe(1)
+    expect(await found('  أحمدُ   علي ')).toBe(1)
+    // Part of a name finds nothing
+    expect(await found('احمد')).toBe(0)
+    expect(await found('علي')).toBe(0)
+    // The trip number, whole
+    expect(await found(`#${trip.body.data.id}`)).toBe(1)
+  })
+
   test('a page past the end shows the last page', async () => {
     const { b } = await signedIn('owner.one', 'company_admin', OWNER)
     const ids = await setup(b)
     await b.call('POST', '/trips', tripInput(ids))
-    const result = await b.call('GET', '/trips?page=9')
+    const result = await b.call('GET', `/trips?${NOV}&page=9`)
     expect(result.body.data).toMatchObject({ page: 1, total: 1 })
   })
 })
@@ -303,12 +370,15 @@ describe('branches and roles', () => {
     const own = await clerk1.call('POST', '/trips', tripInput(ids, { branchId: branch2 }))
     expect(own.body.data.branchId).toBe(ids.branchId)
 
-    expect((await clerk1.call('GET', '/trips')).body.data).toMatchObject({ total: 1, overall: 1 })
-    expect((await clerk2.call('GET', '/trips')).body.data.total).toBe(1)
-    expect((await admin.call('GET', '/trips')).body.data.total).toBe(2)
+    expect((await clerk1.call('GET', `/trips?${NOV}`)).body.data).toMatchObject({
+      total: 1,
+      overall: 1
+    })
+    expect((await clerk2.call('GET', `/trips?${NOV}`)).body.data.total).toBe(1)
+    expect((await admin.call('GET', `/trips?${NOV}`)).body.data.total).toBe(2)
     expect((await clerk1.call('GET', `/trips/${atBranch2.body.data.id}`)).status).toBe(404)
     expect((await clerk1.call('POST', `/trips/${atBranch2.body.data.id}/bill`)).status).toBe(404)
-    const branchFilter = await admin.call('GET', `/trips?branchId=${branch2}&group=branch`)
+    const branchFilter = await admin.call('GET', `/trips?${NOV}&branchId=${branch2}&group=branch`)
     expect(branchFilter.body.data.groups).toEqual([
       expect.objectContaining({ key: String(branch2), count: 1 })
     ])

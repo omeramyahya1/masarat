@@ -1,5 +1,7 @@
-import { useEffect, useId, useMemo, useState, type FormEvent } from 'react'
+import { useId, useMemo, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useBranches } from '@masarat/ui/lib/queries'
+import { errorCode, queryClient, queryKeys } from '@masarat/ui/lib/query'
 import { LoaderCircle, Pencil, Plus, Store } from 'lucide-react'
 import type { TripReferenceData } from '@masarat/shared/fleet'
 import {
@@ -121,22 +123,11 @@ function BranchesPanel({
 }): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
-  const mounted = useMountedRef()
-  const [branches, setBranches] = useState<BranchRecord[] | null>(null)
-  const [error, setError] = useState<MemberErrorCode | null>(null)
+  // The cached list (lib/queries.ts), shared with the trips, the team and the templates
+  const branchesQuery = useBranches()
+  const branches = branchesQuery.data ?? null
+  const error = errorCode<MemberErrorCode>(branchesQuery.error)
   const [editing, setEditing] = useState<BranchRecord | 'new' | null>(null)
-  const [version, setVersion] = useState(0)
-
-  useEffect(() => {
-    api.company
-      .branches()
-      .then((result) => {
-        if (!mounted.current) return
-        if (!result.ok) return setError(result.error)
-        setBranches(result.data)
-      })
-      .catch(() => mounted.current && setError('unknown'))
-  }, [mounted, version])
 
   return (
     <section className="flex flex-col gap-4">
@@ -219,7 +210,7 @@ function BranchesPanel({
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null)
-            setVersion((v) => v + 1)
+            void queryClient.invalidateQueries({ queryKey: queryKeys.branches })
             onChanged()
           }}
         />

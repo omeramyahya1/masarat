@@ -1,18 +1,23 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { FileDown, LoaderCircle, RefreshCw } from 'lucide-react'
-import type { CityRecord, FleetErrorCode } from '@masarat/shared/fleet'
-import type { DashboardData } from '@masarat/shared/dashboard'
+import type { FleetErrorCode } from '@masarat/shared/fleet'
+import { mergeDashboard, type DashboardData } from '@masarat/shared/dashboard'
 import {
   DEFAULT_FILTERS,
   DEFAULT_VIEW,
   bucketsFor,
+  formatDay,
   type AnalyticsFilters,
-  type DashboardView,
-  type CompanyOption
+  type DashboardView
 } from '@masarat/shared/analytics'
 import { useFormat } from '@masarat/ui/lib/format'
 import { useMountedRef } from '@masarat/ui/lib/useMountedRef'
+import { useGovtReference } from '@masarat/ui/lib/queries'
+import { msUntilNextAggregation } from './dashboardData'
+import { errorCode, queryClient, queryKeys, unwrap } from '@masarat/ui/lib/query'
+import { useSessionState } from '@masarat/ui/lib/useSessionState'
 import { FormAlert } from '@masarat/ui/components/form/fields'
 import Menu from '@masarat/ui/components/ui/Menu'
 import AnalyticsFilterFields from './AnalyticsFilterFields'
@@ -38,78 +43,76 @@ function GovtDashboard({
   const { t } = useTranslation()
   const format = useFormat()
   const mounted = useMountedRef()
-  const [filters, setFilters] = useState<AnalyticsFilters>(DEFAULT_FILTERS)
-  const [view, setView] = useState<DashboardView>(DEFAULT_VIEW)
-  const [companies, setCompanies] = useState<CompanyOption[]>([])
-  // What the main process needs; the breakdown's sort is applied here without asking it again
-  const request = useMemo<DashboardView>(
-    () => ({ bucket: view.bucket, breakdown: view.breakdown, sort: 'revenue' }),
-    [view.bucket, view.breakdown]
+  // Kept for the session, so leaving the dashboard and coming back finds the same view
+  const [filters, setFilters] = useSessionState<AnalyticsFilters>(
+    'masarat.govt.dashboard.filters',
+    DEFAULT_FILTERS
   )
-  const [data, setData] = useState<DashboardData | null>(null)
-  const [cities, setCities] = useState<CityRecord[]>([])
-  const [error, setError] = useState<FleetErrorCode | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [reloadKey, setReloadKey] = useState(0)
+  const [view, setView] = useSessionState<DashboardView>(
+    'masarat.govt.dashboard.view',
+    DEFAULT_VIEW
+  )
+  // The company breakdown comes from a rollup without routes or cargo (the nightly aggregates):
+  // with a route or cargo filter it isn't offered, and the breakdown shows routes instead
+  const companyBreakdown =
+    !filters.originCityId &&
+    !filters.destinationCityId &&
+    !filters.originState &&
+    !filters.destinationState &&
+    !filters.cargoType
+  const breakdown = view.breakdown === 'company' && !companyBreakdown ? 'route' : view.breakdown
+  // What the API needs; the breakdown's sort is applied here without asking it again
+  const request = useMemo<DashboardView>(
+    () => ({ bucket: view.bucket, breakdown, sort: 'revenue' }),
+    [view.bucket, breakdown]
+  )
+  // Two parts, each cached (lib/query.ts): the history (whole past days from the nightly
+  // aggregates) is kept until the next night; today is asked for once, then on Refresh. Exact
+  // figures to the minute aren't needed: availability first. While other filters load, the last
+  // figures stay shown.
+  const historyQuery = useQuery({
+    queryKey: [...queryKeys.dashboard(filters, request), 'history', formatDay(new Date())],
+    queryFn: () => unwrap(api.govt.dashboardHistory(filters, request)),
+    staleTime: msUntilNextAggregation(),
+    gcTime: msUntilNextAggregation(),
+    refetchOnWindowFocus: false,
+    placeholderData: keepPreviousData
+  })
+  const todayQuery = useQuery({
+    queryKey: [...queryKeys.dashboard(filters, request), 'today'],
+    queryFn: () => unwrap(api.govt.dashboardToday(filters, request)),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    placeholderData: keepPreviousData
+  })
+  const data: DashboardData | null = useMemo(
+    () =>
+      historyQuery.data
+        ? mergeDashboard(filters, request, new Date(), historyQuery.data, todayQuery.data ?? null)
+        : null,
+    [filters, request, historyQuery.data, todayQuery.data]
+  )
+  // City names only label routes; if they fail to load, the next refresh retries them
+  const referenceQuery = useGovtReference()
+  const cities = referenceQuery.data?.cities ?? []
+  const [actionError, setError] = useState<FleetErrorCode | null>(null)
+  const error = actionError ?? errorCode<FleetErrorCode>(historyQuery.error ?? todayQuery.error)
+  const loading = historyQuery.isFetching || todayQuery.isFetching
   const [confirming, setConfirming] = useState(false)
   const [exporting, setExporting] = useState(false)
-  // City names only label routes; if they fail to load, the next refresh retries them
-  const [citiesFailed, setCitiesFailed] = useState(false)
-  const [citiesKey, setCitiesKey] = useState(0)
 
-  useEffect(() => {
-    api.govt
-      .listCompanies()
-      .then((result) => mounted.current && result.ok && setCompanies(result.data))
-      .catch(() => undefined)
-  }, [mounted])
-
-  useEffect(() => {
-    api.govt
-      .getReferenceData()
-      .then((result) => {
-        if (!mounted.current) return
-        if (result.ok) {
-          setCities(result.data.cities)
-          setCitiesFailed(false)
-        } else setCitiesFailed(true)
-      })
-      .catch(() => mounted.current && setCitiesFailed(true))
-  }, [mounted, citiesKey])
-
-  useEffect(() => {
-    let current = true
-    api.govt
-      .dashboard(filters, request)
-      .then((result) => {
-        if (!current) return
-        if (result.ok) {
-          setData(result.data)
-          setError(null)
-        } else setError(result.error)
-      })
-      .catch(() => current && setError('unknown'))
-      .finally(() => current && setLoading(false))
-    // A newer request (filter change or refresh) supersedes this one
-    return (): void => {
-      current = false
-    }
-  }, [filters, request, reloadKey])
-
-  // Loading is set here rather than in the effect, which would cost an extra render
   const reload = (): void => {
-    setLoading(true)
-    setReloadKey((key) => key + 1)
-    if (citiesFailed) setCitiesKey((key) => key + 1)
+    setError(null)
+    // Refresh asks only for today: the history doesn't change before the night
+    void todayQuery.refetch()
+    if (referenceQuery.isError) void referenceQuery.refetch()
   }
   const changeFilters = (next: AnalyticsFilters): void => {
-    setLoading(true)
     // A new range picks its own bucket size again
     if (next.range !== filters.range) setView((v) => ({ ...v, bucket: null }))
     setFilters(next)
   }
   const changeView = (patch: Partial<DashboardView>): void => {
-    if (patch.bucket !== undefined || patch.breakdown !== undefined) setLoading(true)
     setView((v) => ({ ...v, ...patch }))
   }
   // "Last 30 days", or the custom dates
@@ -175,12 +178,7 @@ function GovtDashboard({
 
   const filterBar = (
     <div className="card p-5">
-      <AnalyticsFilterFields
-        filters={filters}
-        cities={cities}
-        companies={companies}
-        onChange={changeFilters}
-      />
+      <AnalyticsFilterFields filters={filters} cities={cities} onChange={changeFilters} />
     </div>
   )
 
@@ -195,7 +193,6 @@ function GovtDashboard({
       initialFilters={filters}
       initialView={view}
       cities={cities}
-      companies={companies}
       onClose={() => setExporting(false)}
     />
   )
@@ -207,7 +204,8 @@ function GovtDashboard({
         if (!mounted.current) return
         setConfirming(false)
         if (failure) setError(failure)
-        else reload()
+        // Every company's data changed: everything cached goes
+        else void queryClient.invalidateQueries()
       }}
     />
   )
@@ -301,6 +299,7 @@ function GovtDashboard({
           breakdownBy={data.breakdownBy}
           sort={view.sort}
           cities={cities}
+          companyAvailable={companyBreakdown}
           onBreakdownChange={(breakdown) => changeView({ breakdown })}
           onSortChange={(sort) => changeView({ sort })}
           className="lg:col-span-2"

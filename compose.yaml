@@ -1,5 +1,10 @@
-# Local Postgres for development: `bun run db:up` (podman compose or docker compose)
-# Host port 5433, so it doesn't clash with another local Postgres on 5432
+# Local services for development and the tests: `bun run db:up` (podman compose or docker compose)
+#   Postgres  localhost:5433 (not 5432, so it doesn't clash with another local Postgres)
+#   Redis     localhost:6380 (upload staging and the public routes' rate limits, shared by every
+#             API instance)
+#   MinIO     localhost:9000 (S3-compatible storage for trip attachments), console on :9001
+#             (masarat / masarat-dev-secret)
+# MinIO's own images are no longer published; Chainguard builds it from the same source.
 services:
   postgres:
     image: public.ecr.aws/docker/library/postgres:18
@@ -17,5 +22,41 @@ services:
       timeout: 5s
       retries: 15
 
+  redis:
+    image: public.ecr.aws/docker/library/redis:7-alpine
+    # Ephemeral data only (staging tokens, rate-limit windows): no persistence needed
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    ports:
+      - '6380:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: masarat
+      MINIO_ROOT_PASSWORD: masarat-dev-secret
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - masarat-minio:/data
+
+  # Creates the buckets (development and tests), then exits; retried until MinIO answers. The
+  # image has no shell: the server's address and keys come from MC_HOST_local.
+  minio-init:
+    image: cgr.dev/chainguard/minio-client:latest
+    depends_on:
+      - minio
+    restart: on-failure
+    environment:
+      MC_HOST_local: http://masarat:masarat-dev-secret@minio:9000
+    command: ['mb', '--ignore-existing', 'local/masarat-documents', 'local/masarat-test']
+
 volumes:
   masarat-pg:
+  masarat-minio:

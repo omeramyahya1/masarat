@@ -73,7 +73,8 @@
       "password_change_required": "Please choose your own password first.",
       "forbidden": "You don't have access to this.",
       "invalid_phone": "Enter a Sudanese mobile number, e.g. 0912 345 678 or +249 91 234 5678.",
-      "phone_taken": "Another account already uses this phone number."
+      "phone_taken": "Another account already uses this phone number.",
+      "invalid_request": "The request is incomplete or not in the expected form. Reload the page and try again."
     },
     "demoAccounts": {
       "title": "Demo accounts",
@@ -310,6 +311,9 @@
       "invalid_document": "Choose a PDF, JPG or PNG file for one of this trip's document types.",
       "document_too_large": "The file is larger than 20 MB.",
       "zero_bill": "This trip's taxes and fees come to 0 SDG, so there is no bill to pay. The tax rates and fees need to be reviewed by the tax administration before this trip can be authorized.",
+      "query_timeout": "This took too long. Narrow the search or choose a shorter period, then try again.",
+      "export_too_large_for_excel": "Too many rows for Excel: {{rows}}. An Excel sheet holds at most {{limit}} rows. Choose CSV, or a shorter period.",
+      "export_too_large": "This export is too big to download as one archive. Choose a shorter period, fewer datasets, or one format.",
       "forbidden": "You don't have access to this.",
       "password_change_required": "Please choose your own password first.",
       "branch_required": "Choose the branch the trip is booked at.",
@@ -322,7 +326,9 @@
       "invalid_arrival": "The estimated arrival has to be after the departure.",
       "template_not_found": "This template could not be found.",
       "invalid_template": "A template needs a bus, a departure time (HH:MM) and a duration.",
-      "invalid_settings": "Enter a margin from 0 to 720 hours and a speed from 10 to 150 km/h."
+      "invalid_settings": "Enter a margin from 0 to 720 hours and a speed from 10 to 150 km/h.",
+      "invalid_period": "Choose a period of at most 92 days that ends after it starts.",
+      "invalid_request": "The request is incomplete or not in the expected form. Reload the page and try again."
     },
     "groupSummary": "{{count}} vehicles",
     "list": {
@@ -392,7 +398,9 @@
     "created": "Trip for {{plate}} saved as a draft. Amount due: {{amount}}.",
     "empty": {
       "title": "No trips yet",
-      "body": "Create a trip to calculate its transport tax."
+      "body": "Create a trip to calculate its transport tax.",
+      "periodTitle": "No trips in this period",
+      "periodBody": "Choose another month, or create a trip."
     },
     "noVehicles": {
       "title": "Add a vehicle first",
@@ -501,7 +509,8 @@
       "bookedBy": "Booked by",
       "arrivalAt": "Estimated arrival",
       "category": "Trip type",
-      "passengers": "Passengers"
+      "passengers": "Passengers",
+      "archived": "This trip is in the archive (older than a month): it can be viewed and printed, not changed."
     },
     "backToTrip": "Back to trip",
     "items": {
@@ -559,7 +568,7 @@
     },
     "groupSummary": "{{count}} trips · {{total}}",
     "list": {
-      "search": "Search by trip #, plate, city, driver, sender, receiver or item",
+      "search": "Search by trip #, plate, or a whole name: city, driver, sender, receiver, passenger or item",
       "status": "Status",
       "cargoType": "Cargo type",
       "vehicle": "Vehicle",
@@ -610,6 +619,17 @@
       "fare": "{{tickets}} tickets at {{price}} each",
       "tickets": "{{n}} tickets",
       "infantSeat": "An infant has to be on the seat of a passenger with a ticket."
+    },
+    "period": {
+      "previous": "Previous month",
+      "next": "Next month",
+      "custom": "Custom period",
+      "from": "From",
+      "to": "To",
+      "apply": "Show",
+      "range": "{{from}} – {{to}}",
+      "limit": "A period of up to 92 days.",
+      "reset": "Show this month"
     }
   },
   "billing": {
@@ -843,7 +863,8 @@
           "trips": "Trips",
           "name": "Name"
         },
-        "others": "Others"
+        "others": "Others",
+        "companyUnavailable": "not with a route or cargo filter"
       },
       "recent": {
         "title": "Latest bills",
@@ -956,6 +977,7 @@
       "clear": "Clear search",
       "resultsTitle": "Search results",
       "resultCount": "{{count}} trips found",
+      "resultCountMore": "More than {{count}} trips found. The newest {{count}} are shown: add a word, a number or a route to narrow the search.",
       "noResults": "No trips match this search.",
       "openTrip": "Open trip #{{id}}",
       "columns": {
@@ -1155,6 +1177,7 @@
     "pagination": {
       "label": "Pages",
       "range": "{{from}}–{{to}} of {{total}}",
+      "rangeMore": "{{from}}–{{to}} of {{total}}+",
       "previous": "Previous page",
       "next": "Next page",
       "page": "Page {{n}}",
@@ -1164,7 +1187,13 @@
   "shell": {
     "loading": "Loading…",
     "offline": "Masarat can't be reached right now. Check your connection and try again.",
-    "retry": "Try again"
+    "retry": "Try again",
+    "crash": {
+      "title": "Something went wrong",
+      "body": "This section couldn't be shown. Try again, or reload the page. Your saved data isn't affected.",
+      "retry": "Try again",
+      "reload": "Reload the page"
+    }
   },
   "site": {
     "nav": {
@@ -1324,6 +1353,7 @@
       "username_taken": "This username is already taken.",
       "user_not_found": "This account could not be found.",
       "last_admin": "There must always be at least one active admin.",
+      "admin_exists": "There is already a government admin. Only one government admin account can exist.",
       "cannot_change_self": "You can't change your own account here.",
       "not_signed_in": "Your session has ended. Please log in again.",
       "forbidden": "You don't have permission to do this.",
@@ -1339,7 +1369,8 @@
       "branch_required": "Choose the member's branch.",
       "branch_not_found": "This branch could not be found, or it is closed.",
       "branch_name_taken": "A branch with this name already exists.",
-      "city_not_found": "Choose the branch's city."
+      "city_not_found": "Choose the branch's city.",
+      "invalid_request": "The request is incomplete or not in the expected form. Reload the page and try again."
     },
     "empty": "No accounts yet.",
     "scopes": {

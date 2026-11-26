@@ -48,7 +48,9 @@ import { createCompany } from './companies'
 import { pricing } from './pricing'
 import { config } from '../config'
 import { certificateNoFor, manifestNoFor, validUntilFor } from './billing'
-import { removeTripFolder } from './documents'
+import { removeStoredObjects } from './documents'
+import { personKey, upsertPeople } from './trips'
+import { isSummaryStale, markSummaryStale, rebuildDailyRevenue } from './dailyRevenue'
 import { newBillId } from './esali'
 
 const DAY_MS = 86_400_000
@@ -455,6 +457,20 @@ async function createGovtAccounts(): Promise<void> {
       .from(roles)
       .where(and(isNull(roles.companyId), eq(roles.key, account.role)))
       .limit(1)
+    // There is one government admin: when the deployment's own admin exists, the demo one isn't made
+    if (account.role === 'govt_admin') {
+      const [admin] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.roleId, role.id))
+        .limit(1)
+      if (admin) {
+        log.warn('Demo government admin not created: a government admin already exists', {
+          username: account.username
+        })
+        continue
+      }
+    }
     await db.insert(users).values({
       kind: 'govt',
       roleId: role.id,
@@ -595,6 +611,7 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
   const companyById = new Map(seeded.map((c) => [c.id, c]))
 
   await db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL statement_timeout = 0`)
     // A trip's own rows, written in batches once every manifest has its id
     const itemRows: (typeof manifestCargoItems.$inferInsert)[] = []
     const trailerRows: (typeof manifestTrailers.$inferInsert)[] = []
@@ -731,6 +748,7 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
           .insert(manifests)
           .values({
             vehicleId: vehicle.id,
+            companyId: vehicle.companyId,
             branchId: branch.id,
             createdBy: branch.clerkId,
             originCityId: origin.id,
@@ -834,7 +852,11 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
 
     // Buses: one or two per company, each with a template for its usual route, and a year of
     // passenger trips
-    const passengerRows: (typeof tripPassengers.$inferInsert)[] = []
+    // Each passenger with the person they are (their ID), linked through the registry on insert
+    const passengerRows: {
+      row: typeof tripPassengers.$inferInsert
+      person: Pick<PassengerRecord, 'fullName' | 'idType' | 'idNumber'>
+    }[] = []
     const ticketRate = await pricing.ticketRatePerKm(tx)
     const nationalIds = new Set<string>()
     const nationalId = (): string => {
@@ -955,6 +977,7 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
           .insert(manifests)
           .values({
             vehicleId: bus.id,
+            companyId: bus.companyId,
             branchId: branch.id,
             createdBy: branch.clerkId,
             originCityId: origin.id,
@@ -984,11 +1007,17 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
           .returning({ id: manifests.id })
         passengerRows.push(
           ...passengers.map((p, position) => ({
-            manifestId,
-            position,
-            ...p,
-            createdAt,
-            updatedAt: createdAt
+            row: {
+              manifestId,
+              position,
+              fullName: p.fullName,
+              seatNo: p.seatNo,
+              isInfant: p.isInfant,
+              notes: p.notes,
+              createdAt,
+              updatedAt: createdAt
+            },
+            person: p
           }))
         )
         taxRows.push(
@@ -1039,7 +1068,21 @@ async function seedTrips(seeded: SeedCompany[]): Promise<void> {
       }
     }
 
-    await insertInBatches(passengerRows, (rows) => tx.insert(tripPassengers).values(rows))
+    await insertInBatches(passengerRows, async (batch) => {
+      const personIds = await upsertPeople(
+        tx,
+        batch.map((b) => b.person)
+      )
+      await tx.insert(tripPassengers).values(
+        batch.map(({ row, person }) => ({
+          ...row,
+          personId:
+            person.idType && person.idNumber
+              ? (personIds.get(personKey(person.idType, person.idNumber)) ?? null)
+              : null
+        }))
+      )
+    })
     await insertInBatches(itemRows, (rows) => tx.insert(manifestCargoItems).values(rows))
     await insertInBatches(trailerRows, (rows) => tx.insert(manifestTrailers).values(rows))
     await insertInBatches(taxRows, (rows) => tx.insert(manifestCharges).values(rows))
@@ -1066,7 +1109,9 @@ async function deleteDemoCompanies(): Promise<void> {
   // the roles
 
   // Folders of demo trips that had attachments, removed once the rows are gone for good
-  const folders = await getDb().transaction(async (tx) => {
+  const files = await getDb().transaction(async (tx) => {
+    // On a big database these deletes outlast the API's statement timeout
+    await tx.execute(sql`SET LOCAL statement_timeout = 0`)
     const demoVehicles = tx
       .select({ id: vehicles.id })
       .from(vehicles)
@@ -1088,10 +1133,9 @@ async function deleteDemoCompanies(): Promise<void> {
     await tx.delete(manifestTrailers).where(inArray(manifestTrailers.manifestId, demoManifests))
     // Files attached by hand to a demo company's trips go too
     const attached = await tx
-      .selectDistinct({ manifestId: tripDocuments.manifestId })
-      .from(tripDocuments)
+      .delete(tripDocuments)
       .where(inArray(tripDocuments.manifestId, demoManifests))
-    await tx.delete(tripDocuments).where(inArray(tripDocuments.manifestId, demoManifests))
+      .returning({ key: tripDocuments.storedName })
     await tx.delete(payments).where(inArray(payments.manifestId, demoManifests))
     await tx.delete(manifests).where(inArray(manifests.vehicleId, demoVehicles))
     await tx.delete(tripTemplates).where(inArray(tripTemplates.companyId, companyIds))
@@ -1101,16 +1145,10 @@ async function deleteDemoCompanies(): Promise<void> {
     await tx.delete(roles).where(inArray(roles.companyId, companyIds))
     await tx.delete(branches).where(inArray(branches.companyId, companyIds))
     await tx.delete(companies).where(inArray(companies.id, companyIds))
-    return attached.map((a) => a.manifestId)
+    return attached.map((a) => a.key)
   })
-  // A folder that can't be removed now is picked up by removeOrphanFolders on the next startup
-  for (const manifestId of folders) {
-    try {
-      removeTripFolder(manifestId)
-    } catch (err) {
-      log.error('Removing demo trip documents failed:', err)
-    }
-  }
+  // Their files, once the rows are gone
+  await removeStoredObjects(files)
 }
 
 // On startup: seed once if there are no demo companies yet, and make sure the demo government
@@ -1130,7 +1168,13 @@ async function withDemoDataLock(work: () => Promise<void>): Promise<void> {
 
 export async function ensureDemoData(): Promise<void> {
   await withDemoDataLock(async () => {
-    if ((await demoCompanyIds()).length === 0) await seedCompanies()
+    if ((await demoCompanyIds()).length === 0) {
+      // The seeded payments skip the payment flow, so the summary is rebuilt from them; until
+      // then it's marked stale, and a rebuild that fails is retried on the next startup
+      await markSummaryStale()
+      await seedCompanies()
+    }
+    if (await isSummaryStale()) await rebuildDailyRevenue()
     await createGovtAccounts()
   })
 }
@@ -1140,8 +1184,11 @@ export async function ensureDemoData(): Promise<void> {
 export async function regenerateDemoData(): Promise<void> {
   if (!config.demoMode) throw new Error('Demo data can only be regenerated in demo mode')
   await withDemoDataLock(async () => {
+    // The dashboard reads the payments themselves until the summary is rebuilt
+    await markSummaryStale()
     await deleteDemoCompanies()
     await seedCompanies()
+    await rebuildDailyRevenue()
     await createGovtAccounts()
   })
 }

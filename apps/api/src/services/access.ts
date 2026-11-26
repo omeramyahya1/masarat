@@ -1,7 +1,8 @@
 // The signed-in account as the rest of the API sees it: its company, role, branch and permissions,
 // loaded with every request (services/sessions.ts finds the user, the session middleware calls
 // accountOf). The scope helpers turn it into what the trip services filter by.
-import { and, eq, type SQL } from 'drizzle-orm'
+import type { AnyPgColumn } from 'drizzle-orm/pg-core'
+import { eq, type SQL } from 'drizzle-orm'
 import {
   branches,
   companies,
@@ -10,7 +11,6 @@ import {
   rolePermissions,
   roles,
   users,
-  vehicles,
   type User
 } from '../db'
 import type { AuthUser, BranchSummary, CompanyProfile } from '@masarat/shared/auth'
@@ -106,13 +106,19 @@ export function scopeOf(account: AuthUser): CompanyScope {
   return { companyId: account.company.id, branchId }
 }
 
-// The trips a scope may see, as a condition on a query that joins manifests with their vehicles:
-// the company's vehicles, and the member's branch when they're branch-scoped. Null (the
-// government) sees every trip.
-export function tripScopeCondition(scope: TripScope): SQL | undefined {
+// The trips a scope may see, as a condition on manifests alone: a branch-scoped member's branch,
+// or the company's trips. A branch is one company's (createTrip books only at the company's own
+// branches), so the branch alone is enough, and a count reads only the (branch_id, departure_at)
+// index; a company-wide member's reads (company_id, departure_at). Null (the government) sees
+// every trip.
+// `trips` is the live manifests table (writes) or the all_manifests view (reads that also reach
+// archived trips)
+export function tripScopeCondition(
+  scope: TripScope,
+  trips: { companyId: AnyPgColumn; branchId: AnyPgColumn } = manifests
+): SQL | undefined {
   if (scope === null) return undefined
-  return and(
-    eq(vehicles.companyId, scope.companyId),
-    scope.branchId === null ? undefined : eq(manifests.branchId, scope.branchId)
-  )
+  return scope.branchId === null
+    ? eq(trips.companyId, scope.companyId)
+    : eq(trips.branchId, scope.branchId)
 }

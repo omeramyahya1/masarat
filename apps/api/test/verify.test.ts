@@ -72,9 +72,23 @@ describe('verify', () => {
   })
 
   test('too many checks from one address are slowed down', async () => {
-    const b = browser()
-    let last = 0
-    for (let i = 0; i < 70; i++) last = (await b.call('GET', `/verify/${token}`)).status
-    expect(last).toBe(429)
+    const { config } = await import('../src/config')
+    const { getRedis } = await import('../src/services/redis')
+    // The real limit for this test (the others run with a high one), in a fresh window
+    const clear = async (): Promise<void> => {
+      const keys = (await getRedis().send('KEYS', ['rate:verify:*'])) as string[]
+      if (keys.length) await getRedis().del(...keys)
+    }
+    await clear()
+    config.verifyRateLimit = 60
+    try {
+      const b = browser()
+      let last = 0
+      for (let i = 0; i < 70; i++) last = (await b.call('GET', `/verify/${token}`)).status
+      expect(last).toBe(429)
+    } finally {
+      config.verifyRateLimit = 100_000
+      await clear()
+    }
   })
 })

@@ -5,6 +5,6 @@ export default defineConfig({
   out: './drizzle',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? 'postgres://masarat:masarat@localhost:5433/masarat'
+    url: process.env.MIGRATION_DATABASE_URL ?? 'postgres://masarat:masarat@localhost:5433/masarat'
   }
 })

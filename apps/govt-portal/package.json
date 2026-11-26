@@ -14,12 +14,13 @@
     "@masarat/api-client": "workspace:*",
     "@masarat/shared": "workspace:*",
     "@masarat/ui": "workspace:*",
+    "@tanstack/react-query": "^5.108.4",
     "i18next": "^27.1.3",
     "lucide-react": "^1.73.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "recharts": "^3.10.1",
-    "react-i18next": "^18.0.1"
+    "react-i18next": "^18.0.1",
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.5",

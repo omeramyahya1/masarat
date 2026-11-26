@@ -20,3 +20,8 @@ export function isUniqueViolation(error: unknown, constraint?: string): boolean 
   const found = pgError(error)
   return found?.code === '23505' && (!constraint || found.constraint_name === constraint)
 }
+
+// Postgres stopped the query at the statement timeout (57014, query_canceled)
+export function isQueryTimeout(error: unknown): boolean {
+  return pgError(error)?.code === '57014'
+}

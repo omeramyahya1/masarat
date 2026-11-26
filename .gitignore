@@ -22,5 +22,21 @@ masarat.db*
 
 # API file storage (trip attachments) in development
 storage/
+# API log files (LOG_DIR)
+logs/
 docs/system_docs
 apps/api/test/.storage/
+
+# Load test: generated data, results and the stack's state
+loadtest/data/
+loadtest/results/
+loadtest/.state/
+loadtest/.storage/
+
+# End-to-end runs: reports, traces and scratch files
+e2e/report/
+e2e/results/
+e2e/.storage/
+
+# Git worktrees of other branches
+.claude/worktrees/

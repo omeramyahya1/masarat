@@ -1,15 +1,8 @@
 // Filters shared by the government dashboard, its PDF report, the raw data export and the
-// government search. The main process turns them into query conditions; the renderer keeps them in
-// its state and sends them over IPC.
-import {
-  CARGO_TYPES,
-  TRIP_KINDS,
-  VEHICLE_TYPES,
-  type CargoType,
-  type TripKind,
-  type VehicleType
-} from './fleet'
-import { TRIP_CATEGORIES, type TripCategory } from './tax'
+// government search. The API turns them into query conditions (their request schema is in
+// schemas.ts); the portal keeps them in its state and sends them as JSON.
+import type { CargoType, TripKind, VehicleType } from './fleet'
+import type { TripCategory } from './tax'
 
 export const RANGE_PRESETS = ['7d', '30d', '90d', '12m', 'ytd'] as const
 export type RangePreset = (typeof RANGE_PRESETS)[number]
@@ -26,12 +19,11 @@ export interface AnalyticsFilters {
   destinationState?: string | null
   // Cargo or passenger trips
   category?: TripCategory | null
-  // Matches a trip that carries this type in any of its items
+  // The trip's main cargo type (its costliest item's type): the dashboard's daily aggregates are
+  // kept at that grain
   cargoType?: CargoType | null
   vehicleType?: VehicleType | null
   tripKind?: TripKind | null
-  // A transport company (companies.id)
-  companyId?: number | null
 }
 
 export const DEFAULT_FILTERS: AnalyticsFilters = { range: { preset: '30d' } }
@@ -45,8 +37,7 @@ export const FILTER_KEYS = [
   'category',
   'cargoType',
   'vehicleType',
-  'tripKind',
-  'companyId'
+  'tripKind'
 ] as const
 export type FilterKey = (typeof FILTER_KEYS)[number]
 
@@ -86,9 +77,6 @@ const MAX_DAY_BUCKETS = 45
 const MAX_WEEK_BUCKETS = 200
 // More points than this don't read as a chart
 export const MAX_BUCKETS = 400
-// The longest custom range accepted
-const MAX_RANGE_DAYS = 5 * 366
-
 const DAY_MS = 86_400_000
 
 const midnight = (date: Date): Date => {
@@ -172,56 +160,6 @@ export function resolveBucket(from: Date, to: Date, requested: BucketSize | null
 // Bucket sizes worth offering for a range
 export const bucketsFor = (from: Date, to: Date): BucketSize[] =>
   BUCKET_SIZES.filter((bucket) => bucketCount(from, to, bucket) <= MAX_BUCKETS)
-
-const isOneOf = <T>(list: readonly T[], value: unknown): value is T =>
-  (list as readonly unknown[]).includes(value)
-const optional = (value: unknown, check: (v: unknown) => boolean): boolean =>
-  value === undefined || value === null || check(value)
-const isId = (value: unknown): boolean => typeof value === 'number' && Number.isInteger(value)
-const isText = (value: unknown): boolean =>
-  typeof value === 'string' && value.length > 0 && value.length <= 80
-
-function isDateRange(value: unknown): value is DateRange {
-  const range = value as Partial<{ preset: unknown; from: unknown; to: unknown }> | null
-  if (!range || typeof range !== 'object') return false
-  if (isOneOf(RANGE_PRESETS, range.preset)) return true
-  if (range.preset !== 'custom') return false
-  const from = parseDay(range.from)
-  const to = parseDay(range.to)
-  return (
-    from !== null &&
-    to !== null &&
-    from <= to &&
-    (to.getTime() - from.getTime()) / DAY_MS <= MAX_RANGE_DAYS
-  )
-}
-
-// IPC input comes from the renderer, so every field is checked
-export function isAnalyticsFilters(value: unknown): value is AnalyticsFilters {
-  const f = value as Record<string, unknown> | null
-  if (!f || typeof f !== 'object' || !isDateRange(f.range)) return false
-  return (
-    optional(f.originCityId, isId) &&
-    optional(f.destinationCityId, isId) &&
-    optional(f.originState, isText) &&
-    optional(f.destinationState, isText) &&
-    optional(f.category, (v) => isOneOf(TRIP_CATEGORIES, v)) &&
-    optional(f.cargoType, (v) => isOneOf(CARGO_TYPES, v)) &&
-    optional(f.vehicleType, (v) => isOneOf(VEHICLE_TYPES, v)) &&
-    optional(f.tripKind, (v) => isOneOf(TRIP_KINDS, v)) &&
-    optional(f.companyId, isId)
-  )
-}
-
-export function isDashboardView(value: unknown): value is DashboardView {
-  if (!value || typeof value !== 'object') return false
-  const v = value as Partial<DashboardView>
-  return (
-    (v.bucket === null || isOneOf(BUCKET_SIZES, v.bucket)) &&
-    isOneOf(BREAKDOWNS, v.breakdown) &&
-    isOneOf(BREAKDOWN_SORTS, v.sort)
-  )
-}
 
 // A transport company, for the company filter
 export interface CompanyOption {

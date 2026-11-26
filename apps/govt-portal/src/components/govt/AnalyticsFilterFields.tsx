@@ -7,8 +7,7 @@ import {
   formatDay,
   hasFilter,
   type AnalyticsFilters,
-  type DateRange,
-  type CompanyOption
+  type DateRange
 } from '@masarat/shared/analytics'
 import { CARGO_TYPES, TRIP_KINDS, VEHICLE_TYPES, type CityRecord } from '@masarat/shared/fleet'
 import { TRIP_CATEGORIES } from '@masarat/shared/tax'
@@ -83,15 +82,10 @@ function parsePlace(value: string): { cityId: number | null; state: string | nul
 function AnalyticsFilterFields({
   filters,
   cities,
-  companies,
-  showCompany = true,
   onChange
 }: {
   filters: AnalyticsFilters
   cities: readonly CityRecord[]
-  companies: readonly CompanyOption[]
-  // The export dialog leaves out the company filter
-  showCompany?: boolean
   onChange: (filters: AnalyticsFilters) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
@@ -232,14 +226,6 @@ function AnalyticsFilterFields({
           options={TRIP_KINDS.map((k) => ({ value: k, label: t(`tripKinds.${k}`) }))}
           onChange={(value) => set('tripKind', (value || null) as AnalyticsFilters['tripKind'])}
         />
-        {showCompany && (
-          <FilterSelect
-            label={t('govt.filters.company')}
-            value={filters.companyId ? String(filters.companyId) : ''}
-            options={companies.map((o) => ({ value: String(o.id), label: o.name }))}
-            onChange={(value) => set('companyId', value ? Number(value) : null)}
-          />
-        )}
       </div>
 
       {active > 0 && (

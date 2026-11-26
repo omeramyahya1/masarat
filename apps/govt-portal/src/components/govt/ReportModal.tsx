@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useId, useMemo, useState, type ReactNode } f
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { LoaderCircle, Printer } from 'lucide-react'
-import { formatDay, type DashboardView, type CompanyOption } from '@masarat/shared/analytics'
+import { formatDay, type DashboardView } from '@masarat/shared/analytics'
 import type { DashboardData } from '@masarat/shared/dashboard'
 import type { CityRecord } from '@masarat/shared/fleet'
 import { createFormatters } from '@masarat/ui/lib/format'
@@ -50,14 +50,12 @@ function ReportModal({
   view,
   sections,
   cities,
-  companies,
   onClose
 }: {
   data: DashboardData
   view: DashboardView
   sections: ReadonlySet<ReportSection>
   cities: readonly CityRecord[]
-  companies: readonly CompanyOption[]
   onClose: () => void
 }): React.JSX.Element {
   const { t, i18n } = useTranslation()
@@ -89,7 +87,6 @@ function ReportModal({
     [ar('govt.filters.cargoType'), f.cargoType ? ar(`cargoTypes.${f.cargoType}`) : all],
     [ar('govt.filters.vehicleType'), f.vehicleType ? ar(`vehicleTypes.${f.vehicleType}`) : all],
     [ar('govt.filters.tripKind'), f.tripKind ? ar(`tripKinds.${f.tripKind}`) : all],
-    [ar('govt.filters.company'), companies.find((o) => o.id === f.companyId)?.name ?? all],
     [ar('govt.dashboard.revenue.groupBy'), ar(`govt.dashboard.revenue.buckets.${data.bucket}`)]
   ]
 

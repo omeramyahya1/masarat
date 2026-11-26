@@ -1,5 +1,7 @@
-import { useEffect, useId, useMemo, useState, type FormEvent } from 'react'
+import { useId, useMemo, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useDrivers, useSuggestions, useVehicles } from '@masarat/ui/lib/queries'
+import { errorCode, queryClient, queryKeys } from '@masarat/ui/lib/query'
 import { ArrowRight, Calculator, Info, LoaderCircle, Truck, Wand2 } from 'lucide-react'
 import {
   MAX_DOCUMENT_BYTES,
@@ -98,6 +100,9 @@ interface TripFormProps {
   onGoToVehicles: () => void
 }
 
+// Until the suggestions load
+const NO_SUGGESTIONS: TripSuggestions = { parties: [], packingTypes: [] }
+
 function TripForm({
   reference,
   branches,
@@ -126,7 +131,11 @@ function TripForm({
   const departureId = useId()
   const arrivalId = useId()
   const kindId = useId()
-  const [vehicles, setVehicles] = useState<VehicleRecord[] | null>(null)
+  // The cached lists (lib/queries.ts), shared with the Vehicles and Drivers sections
+  const vehiclesQuery = useVehicles()
+  const vehicles = vehiclesQuery.data ?? null
+  const drivers = useDrivers().data ?? []
+  const suggestions = useSuggestions().data ?? NO_SUGGESTIONS
   const from = trip ?? template
   const [vehicleId, setVehicleId] = useState(from ? String(from.vehicleId) : '')
   const [originId, setOriginId] = useState(from ? String(from.originCityId) : '')
@@ -172,30 +181,15 @@ function TripForm({
   const [trailers, setTrailers] = useState<PlateValue[]>(() =>
     (trip?.trailers ?? []).map(toPlateValue)
   )
-  const [drivers, setDrivers] = useState<DriverRecord[]>([])
   const [driverId, setDriverId] = useState(from?.driverId ? String(from.driverId) : '')
   const [shipper, setShipper] = useState<Party>(trip?.shipper ?? EMPTY_PARTY)
   const [receiver, setReceiver] = useState<Party>(trip?.receiver ?? EMPTY_PARTY)
-  const [suggestions, setSuggestions] = useState<TripSuggestions>({
-    parties: [],
-    packingTypes: []
-  })
   const [documents, setDocuments] = useState<DocumentDraft[]>(() => trip?.documents ?? [])
   const [documentBusy, setDocumentBusy] = useState<DocumentType | null>(null)
-  const [error, setError] = useState<FleetErrorCode | null>(null)
+  const [saveError, setError] = useState<FleetErrorCode | null>(null)
+  const error = saveError ?? errorCode<FleetErrorCode>(vehiclesQuery.error)
   const [pending, setPending] = useState(false)
   const mounted = useMountedRef()
-
-  useEffect(() => {
-    Promise.all([api.fleet.listVehicles(), api.fleet.listDrivers(), api.trips.suggestions()])
-      .then(([vehicleList, driverList, suggested]) => {
-        if (driverList.ok) setDrivers(driverList.data)
-        if (suggested.ok) setSuggestions(suggested.data)
-        if (vehicleList.ok) setVehicles(vehicleList.data)
-        else setError(vehicleList.error)
-      })
-      .catch(() => setError('unknown'))
-  }, [])
 
   const vehicle = vehicles?.find((v) => String(v.id) === vehicleId)
   // A bus carries passengers; anything else cargo
@@ -469,9 +463,11 @@ function TripForm({
             canAdd={can('drivers.manage')}
             onChange={setDriverId}
             onAdded={(driver) => {
-              setDrivers((current) =>
+              // Into the shared list at once (the Drivers section shows it too), then refreshed
+              queryClient.setQueryData<DriverRecord[]>(queryKeys.drivers, (current = []) =>
                 [...current, driver].sort((a, b) => a.name.localeCompare(b.name))
               )
+              void queryClient.invalidateQueries({ queryKey: queryKeys.drivers })
               setDriverId(String(driver.id))
             }}
           />

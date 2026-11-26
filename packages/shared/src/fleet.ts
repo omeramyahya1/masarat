@@ -381,6 +381,8 @@ export type FleetErrorCode =
   | 'unit_mismatch'
   | 'over_capacity'
   | 'invalid_date'
+  // A trips list period that isn't a valid range of at most MAX_PERIOD_DAYS days
+  | 'invalid_period'
   | 'manifest_not_found'
   | 'already_billed'
   | 'not_billed'
@@ -407,6 +409,12 @@ export type FleetErrorCode =
   | 'forbidden'
   // The account must replace its temporary password first
   | 'password_change_required'
+  // A query ran past the server's time limit (narrow the search or the period)
+  | 'query_timeout'
+  // A dataset has more rows than an Excel sheet holds (choose CSV or a shorter period)
+  | 'export_too_large_for_excel'
+  // An export too big to send as one ZIP (choose a shorter period, or fewer datasets or formats)
+  | 'export_too_large'
   | 'unknown'
 
 export type FleetResult<T> = { ok: true; data: T } | { ok: false; error: FleetErrorCode }
@@ -447,6 +455,18 @@ export type TripGroup = (typeof TRIP_GROUPS)[number]
 // "billed" also matches the legacy "paid" status
 export const TRIP_STATUS_FILTERS = ['draft', 'billed', 'certified'] as const
 
+// The longest period the trips list shows at once (about a quarter)
+export const MAX_PERIOD_DAYS = 92
+
+// A month as the trips list's period: its first and last day, YYYY-MM-DD (local, Sudan time)
+export function monthPeriod(year: number, month: number): { from: string; to: string } {
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  const last = new Date(year, month + 1, 0).getDate()
+  const y = new Date(year, month, 1)
+  const prefix = `${y.getFullYear()}-${pad(y.getMonth() + 1)}`
+  return { from: `${prefix}-01`, to: `${prefix}-${pad(last)}` }
+}
+
 export interface TripListQuery {
   page: number
   pageSize: PageSize
@@ -458,7 +478,8 @@ export interface TripListQuery {
   vehicleId?: number
   driverId?: number
   branchId?: number
-  // YYYY-MM-DD, both days included
+  // The period shown (by departure), YYYY-MM-DD, both days included; the current month when
+  // missing. Counts, groups, filters and the search all cover this period only.
   from?: string
   to?: string
   sort: TripSort

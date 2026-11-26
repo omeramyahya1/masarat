@@ -1,13 +1,24 @@
 import { and, eq, isNull, sql } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/postgres-js'
+import postgres from 'postgres'
 import { branches, cities, getDb, roles, users } from '../src/db'
+import { config } from '../src/config'
+
+// The owner's connection, for what the API's role may not do (TRUNCATE)
+const owner = drizzle(
+  postgres(config.migrationDatabaseUrl, { max: 1, idle_timeout: 1, onnotice: () => {} })
+)
 
 // Empties every table except the reference data the migrations seeded (the government's roles
 // among it)
 export async function resetData(): Promise<void> {
-  await getDb().execute(sql`
+  await owner.execute(sql`
     truncate sessions, login_attempts, esali_sim_bills, certificates, payments, manifest_charges,
       trip_documents, manifest_trailers, manifest_cargo_items, manifests, vehicles, drivers,
-      charge_changes, users restart identity cascade
+      charge_changes, daily_revenue, people, users,
+      archive.certificates, archive.payments, archive.manifest_charges, archive.trip_documents,
+      archive.trip_passengers, archive.manifest_trailers, archive.manifest_cargo_items,
+      archive.manifests restart identity cascade
   `)
   await getDb().execute(sql`delete from roles where company_id is not null`)
   await getDb().execute(sql`delete from branches`)

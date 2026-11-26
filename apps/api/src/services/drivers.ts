@@ -1,7 +1,7 @@
 // A company's drivers. Trips pick one; the manifest keeps its own copy of the name and phone,
 // so editing a driver later doesn't change manifests already issued.
 import { and, asc, count, eq, ne } from 'drizzle-orm'
-import { drivers, getDb, manifests, type Driver } from '../db'
+import { drivers, getDb, tripViews, type Driver } from '../db'
 import {
   MAX_DRIVER_NAME_LENGTH,
   type DriverInput,
@@ -9,6 +9,9 @@ import {
   type FleetResult
 } from '@masarat/shared/fleet'
 import { normalizeSudanPhone } from '@masarat/shared/phone'
+
+// Reads live and archived trips alike (the all_* views)
+const { manifests } = tripViews
 
 const toRecord = (driver: Driver, tripCount = 0): DriverRecord => ({
   id: driver.id,

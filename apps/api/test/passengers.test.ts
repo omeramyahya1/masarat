@@ -197,6 +197,41 @@ describe('passenger trips', () => {
   })
 })
 
+describe('the people registry', () => {
+  test('one person per ID across trips; each trip keeps the name as booked', async () => {
+    const { b } = await signedIn('owner.one', 'company_admin', OWNER)
+    const ids = await setup(b)
+    const first = await b.call('POST', '/trips', busTrip(ids))
+    expect(first.status).toBe(200)
+    // The same national ID booked again, under another spelling of the name
+    const passengers = (busTrip(ids).passengers as Record<string, unknown>[]).map((p) =>
+      p.idNumber === NID ? { ...p, fullName: 'فاطمه احمد' } : p
+    )
+    const second = await b.call('POST', '/trips', busTrip(ids, { passengers }))
+    expect(second.status).toBe(200)
+
+    const rows = await getDb().execute<{ id_type: string; full_name: string }>(
+      sql`select id_type, full_name from people order by id_type`
+    )
+    // Two people (the national ID and the passport), not four; the infant has no ID
+    expect(rows.map((r) => r.id_type)).toEqual(['national_id', 'passport'])
+    expect(rows.find((r) => r.id_type === 'national_id')?.full_name).toBe('فاطمه احمد')
+    const [{ linked, infants }] = await getDb().execute<{ linked: number; infants: number }>(
+      sql`select count(*) filter (where person_id is not null)::int as linked,
+                 count(*) filter (where is_infant and person_id is null)::int as infants
+          from trip_passengers`
+    )
+    expect(linked).toBe(4)
+    expect(infants).toBe(2)
+
+    // Each trip shows the name it was booked with, and the ID from the person
+    const view = async (id: number): Promise<{ fullName: string; idNumber: string | null }> =>
+      (await b.call('GET', `/trips/${id}`)).body.data.trip.passengers[0]
+    expect(await view(first.body.data.id)).toMatchObject({ fullName: 'فاطمة أحمد', idNumber: NID })
+    expect(await view(second.body.data.id)).toMatchObject({ fullName: 'فاطمه احمد', idNumber: NID })
+  })
+})
+
 describe('the government and passenger trips', () => {
   test('CSV cells a spreadsheet would run as formulas stay text; Excel dates are Sudan time', async () => {
     const { b } = await signedIn('owner.one', 'company_admin', OWNER)
@@ -264,10 +299,10 @@ describe('the government and passenger trips', () => {
     const plan = await getDb().transaction(async (tx) => {
       await tx.execute(sql`set local enable_seqscan = off`)
       return tx.execute<{ 'QUERY PLAN': string }>(
-        sql`explain select manifest_id from trip_passengers where id_number = ${NID}`
+        sql`explain select id from people where id_number = ${NID}`
       )
     })
-    expect(plan.map((r) => r['QUERY PLAN']).join('\n')).toContain('trip_passengers_id_number_idx')
+    expect(plan.map((r) => r['QUERY PLAN']).join('\n')).toContain('people_id_number_idx')
   })
 
   test('the passengers export leaves the ID numbers out unless asked', async () => {

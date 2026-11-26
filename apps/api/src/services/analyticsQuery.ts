@@ -2,12 +2,16 @@
 // dashboard, the report, the raw data export and the government search
 import { and, eq, exists, inArray, or, type SQL, type SQLWrapper } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
-import { cities, companies, getDb, manifestCargoItems, manifests, states, vehicles } from '../db'
+import { cities, companies, getDb, states, tripViews, vehicles } from '../db'
 import type { AnalyticsFilters } from '@masarat/shared/analytics'
 import type { CompanyOption } from '@masarat/shared/analytics'
 
-const originCity = alias(cities, 'filter_origin')
-const destinationCity = alias(cities, 'filter_destination')
+// Reads live and archived trips alike (the all_* views)
+const { manifestCargoItems, manifests } = tripViews
+
+// The trip's cities as the filters refer to them; a query using tripConditions joins these
+export const originCity = alias(cities, 'filter_origin')
+export const destinationCity = alias(cities, 'filter_destination')
 
 // A city's state, by the state's name
 const inState = (stateId: SQLWrapper, name: string): SQL =>
@@ -24,7 +28,6 @@ export function tripConditions(f: AnalyticsFilters): SQL | undefined {
     f.category ? eq(manifests.category, f.category) : undefined,
     f.tripKind ? eq(manifests.tripKind, f.tripKind) : undefined,
     f.vehicleType ? eq(vehicles.vehicleType, f.vehicleType) : undefined,
-    f.companyId ? eq(vehicles.companyId, f.companyId) : undefined,
     // Any item of that type (a trip can mix them), or the trip's own type for trips from before
     // cargo items existed
     f.cargoType

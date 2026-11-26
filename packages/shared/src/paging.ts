@@ -30,6 +30,10 @@ export interface Page<T> {
   pageSize: PageSize
   // The groups the rows on this page belong to, in order (grouped lists only)
   groups?: GroupSummary[]
+  // More rows match than `total`: the count stopped there (the government search, past 1,000)
+  more?: boolean
+  // The period the rows, counts and groups cover (the company's trips list), YYYY-MM-DD
+  period?: { from: string; to: string }
 }
 
 export const isPageSize = (value: unknown): value is PageSize =>

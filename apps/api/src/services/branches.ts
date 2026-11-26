@@ -1,7 +1,7 @@
 // A company's branches: where its clerks book trips. Often a booth at a land port, so a branch is
 // just a name and a city. A closed branch keeps its trips and members but takes no new trips.
 import { and, asc, count, eq } from 'drizzle-orm'
-import { branches, cities, getDb, isUniqueViolation, manifests, users, type Branch } from '../db'
+import { branches, cities, getDb, isUniqueViolation, tripViews, users, type Branch } from '../db'
 import {
   MAX_BRANCH_NAME_LENGTH,
   type BranchInput,
@@ -9,6 +9,9 @@ import {
   type MemberResult
 } from '@masarat/shared/members'
 import { toBranchSummary } from './access'
+
+// Reads live and archived trips alike (the all_* views)
+const { manifests } = tripViews
 
 const toRecord = (branch: Branch, memberCount: number, tripCount: number): BranchRecord => ({
   ...toBranchSummary(branch),

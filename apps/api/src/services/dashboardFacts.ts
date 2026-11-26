@@ -55,22 +55,26 @@ const addDays = (day: string, days: number): string => {
 const ts = (day: string): SQL => sql`${day}::date::timestamptz`
 
 // Every figure of [from, to) (local midnights), as rows shaped like dashboard_facts. Reads live and
-// archived trips (the all_* views). Days are Sudan days (the session's time zone).
-function factsSelect(from: SQL, to: SQL): SQL {
+// archived trips (the all_* views), or only the live tables for today: a trip paid, billed, booked
+// or issued today is still live (the archive only takes trips finished over HOT_DAYS ago), and
+// through the views Postgres has no statistics, so it misjudges the joins by thousands of times
+// and reads whole tables. Days are Sudan days (the session's time zone).
+function factsSelect(from: SQL, to: SQL, source: 'all' | 'live' = 'all'): SQL {
+  const t = (name: string): SQL => sql.raw(source === 'all' ? `all_${name}` : name)
   const dims = sql.raw(
     'm.origin_city_id, m.destination_city_id, m.category, m.trip_kind, v.vehicle_type, m.cargo_type'
   )
   return sql`
     WITH paid AS (
       SELECT p.manifest_id, p.amount, p.paid_at::date AS day, ${dims}, m.company_id
-      FROM all_payments p
-      JOIN all_manifests m ON m.id = p.manifest_id
+      FROM ${t('payments')} p
+      JOIN ${t('manifests')} m ON m.id = p.manifest_id
       JOIN vehicles v ON v.id = m.vehicle_id
       WHERE p.status = 'paid' AND p.paid_at >= ${from} AND p.paid_at < ${to}
     ),
     items AS (
       SELECT i.manifest_id, i.cargo_type, i.cost
-      FROM all_manifest_cargo_items i JOIN paid ON paid.manifest_id = i.manifest_id
+      FROM ${t('manifest_cargo_items')} i JOIN paid ON paid.manifest_id = i.manifest_id
     ),
     item_cost AS (SELECT manifest_id, sum(cost) AS cost FROM items GROUP BY manifest_id),
     -- Each paid trip's taxes split across its items by their cost; a trip without items counts
@@ -100,7 +104,7 @@ function factsSelect(from: SQL, to: SQL): SQL {
            vehicle_type, cargo_type, c.code,
            (array_agg(c.name ORDER BY c.id DESC))[1], (array_agg(c.name_ar ORDER BY c.id DESC))[1],
            sum(c.amount)::float8, count(*)::int
-    FROM paid JOIN all_manifest_charges c ON c.manifest_id = paid.manifest_id
+    FROM paid JOIN ${t('manifest_charges')} c ON c.manifest_id = paid.manifest_id
     GROUP BY 1, 3, 4, 5, 6, 7, 8, 9
     UNION ALL
     SELECT day, 'company', NULL, NULL, category, trip_kind, vehicle_type, NULL,
@@ -108,26 +112,26 @@ function factsSelect(from: SQL, to: SQL): SQL {
     FROM paid GROUP BY 1, 5, 6, 7, 9
     UNION ALL
     SELECT m.created_at::date, 'status', ${dims}, m.status, NULL, NULL, 0, count(*)::int
-    FROM all_manifests m JOIN vehicles v ON v.id = m.vehicle_id
+    FROM ${t('manifests')} m JOIN vehicles v ON v.id = m.vehicle_id
     WHERE m.created_at >= ${from} AND m.created_at < ${to}
     GROUP BY 1, 3, 4, 5, 6, 7, 8, 9
     UNION ALL
     SELECT p.created_at::date, 'billed', ${dims}, '', NULL, NULL, sum(p.amount)::float8,
            count(*)::int
-    FROM all_payments p JOIN all_manifests m ON m.id = p.manifest_id
+    FROM ${t('payments')} p JOIN ${t('manifests')} m ON m.id = p.manifest_id
     JOIN vehicles v ON v.id = m.vehicle_id
     WHERE p.created_at >= ${from} AND p.created_at < ${to}
     GROUP BY 1, 3, 4, 5, 6, 7, 8
     UNION ALL
     SELECT p.created_at::date, 'billed_paid', ${dims}, '', NULL, NULL, sum(p.amount)::float8,
            count(*)::int
-    FROM all_payments p JOIN all_manifests m ON m.id = p.manifest_id
+    FROM ${t('payments')} p JOIN ${t('manifests')} m ON m.id = p.manifest_id
     JOIN vehicles v ON v.id = m.vehicle_id
     WHERE p.status = 'paid' AND p.created_at >= ${from} AND p.created_at < ${to}
     GROUP BY 1, 3, 4, 5, 6, 7, 8
     UNION ALL
     SELECT c.issued_at::date, 'certificates', ${dims}, '', NULL, NULL, 0, count(*)::int
-    FROM all_certificates c JOIN all_manifests m ON m.id = c.manifest_id
+    FROM ${t('certificates')} c JOIN ${t('manifests')} m ON m.id = c.manifest_id
     JOIN vehicles v ON v.id = m.vehicle_id
     WHERE c.issued_at >= ${from} AND c.issued_at < ${to}
     GROUP BY 1, 3, 4, 5, 6, 7, 8`
@@ -409,7 +413,7 @@ export async function dashboardToday(
   const part = hasToday
     ? await summarize(
         // Nothing stored for today: all of it live, up to now
-        sql`(SELECT ${FACT_COLUMNS} FROM (${factsSelect(ts(todayDay), sql`${to.toISOString()}::timestamptz`)}) live) f`,
+        sql`(SELECT ${FACT_COLUMNS} FROM (${factsSelect(ts(todayDay), sql`${to.toISOString()}::timestamptz`, 'live')}) live) f`,
         filters,
         view,
         +start,

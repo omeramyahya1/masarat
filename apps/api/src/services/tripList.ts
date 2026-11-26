@@ -330,7 +330,10 @@ export async function listTripsPage(
     }))
   }
 
-  const records = await toTripRecords(rows.map((row) => row.trip))
+  const records = await toTripRecords(
+    rows.map((row) => row.trip),
+    'list'
+  )
   return {
     ok: true,
     data: {

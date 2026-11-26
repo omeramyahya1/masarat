@@ -177,46 +177,62 @@ const party = (name: string | null, address: string | null, phone: string | null
   phone: phone ?? ''
 })
 
-// Adds the cargo items, tax lines and trailers to manifest rows, with one query per table
-export async function toTripRecords(rows: readonly TripRow[]): Promise<TripRecord[]> {
+// Adds the cargo items, passengers, tax lines, trailers and documents to manifest rows, with one
+// query per table. For the trips list (`list`), only the cargo items, which give the cargo types it
+// shows; the rest stay empty (a trip's page loads them in full), which spares the list four
+// queries per page, the passengers' with their ID numbers among them.
+export async function toTripRecords(
+  rows: readonly TripRow[],
+  detail: 'full' | 'list' = 'full'
+): Promise<TripRecord[]> {
   if (rows.length === 0) return []
   const db = getDb()
   const ids = rows.map((r) => r.id)
+  const full = detail === 'full'
+  const none = Promise.resolve([] as never[])
   const [itemRows, passengerRows, lineRows, trailerRows, documentRows] = await Promise.all([
     db
       .select()
       .from(v.manifestCargoItems)
       .where(inArray(v.manifestCargoItems.manifestId, ids))
       .orderBy(asc(v.manifestCargoItems.position)),
-    db
-      .select({
-        manifestId: v.tripPassengers.manifestId,
-        fullName: v.tripPassengers.fullName,
-        idType: people.idType,
-        idNumber: people.idNumber,
-        seatNo: v.tripPassengers.seatNo,
-        isInfant: v.tripPassengers.isInfant,
-        notes: v.tripPassengers.notes
-      })
-      .from(v.tripPassengers)
-      .leftJoin(people, eq(people.id, v.tripPassengers.personId))
-      .where(inArray(v.tripPassengers.manifestId, ids))
-      .orderBy(asc(v.tripPassengers.position)),
-    db
-      .select()
-      .from(v.manifestCharges)
-      .where(inArray(v.manifestCharges.manifestId, ids))
-      .orderBy(asc(v.manifestCharges.position), asc(v.manifestCharges.id)),
-    db
-      .select()
-      .from(v.manifestTrailers)
-      .where(inArray(v.manifestTrailers.manifestId, ids))
-      .orderBy(asc(v.manifestTrailers.position)),
-    db
-      .select()
-      .from(v.tripDocuments)
-      .where(inArray(v.tripDocuments.manifestId, ids))
-      .orderBy(asc(v.tripDocuments.id))
+    !full
+      ? none
+      : db
+          .select({
+            manifestId: v.tripPassengers.manifestId,
+            fullName: v.tripPassengers.fullName,
+            idType: people.idType,
+            idNumber: people.idNumber,
+            seatNo: v.tripPassengers.seatNo,
+            isInfant: v.tripPassengers.isInfant,
+            notes: v.tripPassengers.notes
+          })
+          .from(v.tripPassengers)
+          .leftJoin(people, eq(people.id, v.tripPassengers.personId))
+          .where(inArray(v.tripPassengers.manifestId, ids))
+          .orderBy(asc(v.tripPassengers.position)),
+    !full
+      ? none
+      : db
+          .select()
+          .from(v.manifestCharges)
+          .where(inArray(v.manifestCharges.manifestId, ids))
+          .orderBy(asc(v.manifestCharges.position), asc(v.manifestCharges.id)),
+    !full
+      ? none
+      : db
+          .select()
+          .from(v.manifestTrailers)
+          .where(inArray(v.manifestTrailers.manifestId, ids))
+          .orderBy(asc(v.manifestTrailers.position)),
+    !full
+      ? none
+      : db
+          .select()
+          .from(v.tripDocuments)
+          .where(inArray(v.tripDocuments.manifestId, ids))
+          .orderBy(asc(v.tripDocuments.id))
   ])
   const items = new Map<number, CargoItemRecord[]>()
   for (const item of itemRows) {

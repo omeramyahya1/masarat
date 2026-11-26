@@ -37,7 +37,12 @@ export const GOVT_PERMISSIONS = [
   'govt.charges',
   // The validity margin and average speeds (Settings)
   'govt.settings',
-  'govt.users'
+  'govt.users',
+  // Report an issued clearance (a trip's receipt and manifest) for a supervisor to review
+  'govt.reports.create',
+  // The Reports section: dismiss a report or revoke the clearance, and cancel a trip whose bill
+  // isn't paid yet
+  'govt.reports.review'
 ] as const
 export type GovtPermission = (typeof GOVT_PERMISSIONS)[number]
 
@@ -56,7 +61,8 @@ const IMPLIES: Partial<Record<Permission, readonly Permission[]>> = {
   'templates.use': ['trips.edit'],
   'templates.manage': ['templates.use'],
   'fleet.manage': ['fleet.view'],
-  'drivers.manage': ['drivers.view']
+  'drivers.manage': ['drivers.view'],
+  'govt.reports.review': ['govt.reports.create']
 }
 
 // The permissions with everything they imply, in the lists' order
@@ -85,24 +91,28 @@ export const COMPANY_PERMISSION_GROUPS: Record<string, readonly CompanyPermissio
 export const ROLE_SCOPES = ['branch', 'company'] as const
 export type RoleScope = (typeof ROLE_SCOPES)[number]
 
-// The roles every company starts with, and the government's two
+// The roles every company starts with, and the government's three
 export const BUILTIN_ROLE_KEYS = [
   'company_admin',
   'clerk',
   'accountant',
   'govt_admin',
+  'govt_supervisor',
   'govt_agent'
 ] as const
 export type BuiltinRoleKey = (typeof BUILTIN_ROLE_KEYS)[number]
 
 export const COMPANY_ROLE_KEYS = ['company_admin', 'clerk', 'accountant'] as const
-export const GOVT_ROLE_KEYS = ['govt_admin', 'govt_agent'] as const
+// Highest first: the admin, the supervisor (reviews reports), the agent
+export const GOVT_ROLE_KEYS = ['govt_admin', 'govt_supervisor', 'govt_agent'] as const
+export type GovtRoleKey = (typeof GOVT_ROLE_KEYS)[number]
 
 // Roles nobody can edit: their permissions come from here, not the database, so a permission
 // added later reaches them at once
 export const LOCKED_ROLE_KEYS: readonly BuiltinRoleKey[] = [
   'company_admin',
   'govt_admin',
+  'govt_supervisor',
   'govt_agent'
 ]
 
@@ -124,10 +134,23 @@ export const BUILTIN_ROLES: Record<
     permissions: ['trips.view', 'trips.bill', 'fleet.view', 'drivers.view']
   },
   govt_admin: { kind: 'govt', scope: 'company', permissions: GOVT_PERMISSIONS },
+  // Reviews the reports agents file: dismisses them or revokes the clearance, and cancels trips
+  // whose bill isn't paid yet
+  govt_supervisor: {
+    kind: 'govt',
+    scope: 'company',
+    permissions: [
+      'govt.dashboard',
+      'govt.search',
+      'govt.exports',
+      'govt.reports.create',
+      'govt.reports.review'
+    ]
+  },
   govt_agent: {
     kind: 'govt',
     scope: 'company',
-    permissions: ['govt.dashboard', 'govt.search', 'govt.exports']
+    permissions: ['govt.dashboard', 'govt.search', 'govt.exports', 'govt.reports.create']
   }
 }
 

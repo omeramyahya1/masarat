@@ -10,6 +10,7 @@ export const ACCOUNTS = {
   clerk: { username: 'nile.clerk1', password: 'nile2026' },
   accountant: { username: 'nile.accountant', password: 'nile2026' },
   govtAdmin: { username: 'ministry.demo', password: 'govt2026' },
+  supervisor: { username: 'ministry.supervisor', password: 'govt2026' },
   agent: { username: 'ministry.agent', password: 'govt2026' }
 } as const
 type Account = { username: string; password: string }

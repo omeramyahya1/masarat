@@ -44,7 +44,9 @@ describe('verify', () => {
         'departureAt',
         'arrivalAt',
         'passengers',
+        'revokedAt',
         'tripKind',
+        'underReview',
         'validUntil'
       ].sort()
     )

@@ -37,6 +37,7 @@ import {
   TRIP_CATEGORIES
 } from '@masarat/shared/tax'
 import { ID_TYPES } from '@masarat/shared/passengers'
+import { DECISION_ACTIONS, REPORT_REASONS, REPORT_STATUSES } from '@masarat/shared/reviews'
 import {
   BUILTIN_ROLE_KEYS,
   PERMISSIONS,
@@ -877,6 +878,69 @@ export const dashboardFacts = pgTable(
   ]
 )
 
+// The government's review of issued clearances (packages/shared/src/reviews.ts). Both tables point
+// to a trip by its id without a foreign key: the trip may move to the archive (services/archive.ts
+// keeps a trip live while it has an open report), and its id stays the same there. Rows are never
+// deleted, except with the demo companies' trips.
+//
+// A report filed on a certified trip by a government user, and what a supervisor did with it.
+// One open report per trip (trip_reports_one_open_idx).
+export const tripReports = pgTable(
+  'trip_reports',
+  {
+    id,
+    manifestId: integer('manifest_id').notNull(),
+    reason: text('reason', { enum: REPORT_REASONS }).notNull(),
+    note: text('note').notNull(),
+    status: text('status', { enum: REPORT_STATUSES }).notNull().default('open'),
+    reportedBy: integer('reported_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    // The supervisor who dismissed it or revoked the clearance, when, and their note
+    resolvedBy: integer('resolved_by').references(() => users.id, { onDelete: 'restrict' }),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolutionNote: text('resolution_note'),
+    ...timestamps
+  },
+  (t) => [
+    index('trip_reports_manifest_id_idx').on(t.manifestId),
+    uniqueIndex('trip_reports_one_open_idx')
+      .on(t.manifestId)
+      .where(sql`${t.status} = 'open'`),
+    // The Reports section: newest first, by status or all of them
+    index('trip_reports_status_created_idx').on(t.status, t.createdAt),
+    index('trip_reports_created_idx').on(t.createdAt),
+    check('trip_reports_reason_check', sql`${t.reason} IN (${inList(REPORT_REASONS)})`),
+    check('trip_reports_status_check', sql`${t.status} IN (${inList(REPORT_STATUSES)})`),
+    check('trip_reports_resolved_check', sql`(${t.status} = 'open') = (${t.resolvedAt} IS NULL)`)
+  ]
+)
+
+// What a supervisor decided about a trip, kept for good: its clearance revoked (from a report) or
+// the trip cancelled before its bill was paid. The trip's status says so too (revoked /
+// cancelled); this is who, when and why. One per trip: both are final.
+export const tripDecisions = pgTable(
+  'trip_decisions',
+  {
+    id,
+    manifestId: integer('manifest_id').notNull().unique(),
+    action: text('action', { enum: DECISION_ACTIONS }).notNull(),
+    reason: text('reason', { enum: REPORT_REASONS }).notNull(),
+    // Shown to the company
+    note: text('note').notNull(),
+    // The report it came from (a revoke), or null (a cancel)
+    reportId: integer('report_id').references(() => tripReports.id, { onDelete: 'restrict' }),
+    decidedBy: integer('decided_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [
+    check('trip_decisions_action_check', sql`${t.action} IN (${inList(DECISION_ACTIONS)})`),
+    check('trip_decisions_reason_check', sql`${t.reason} IN (${inList(REPORT_REASONS)})`)
+  ]
+)
+
 export type User = typeof users.$inferSelect
 export type Company = typeof companies.$inferSelect
 export type Branch = typeof branches.$inferSelect
@@ -898,4 +962,6 @@ export type NewManifest = typeof manifests.$inferInsert
 export type Payment = typeof payments.$inferSelect
 export type NewPayment = typeof payments.$inferInsert
 export type Certificate = typeof certificates.$inferSelect
+export type TripReport = typeof tripReports.$inferSelect
+export type TripDecisionRow = typeof tripDecisions.$inferSelect
 export type NewCertificate = typeof certificates.$inferInsert

@@ -12,6 +12,8 @@ import {
   companies,
   drivers,
   esaliSimBills,
+  tripDecisions,
+  tripReports,
   getDb,
   manifestCargoItems,
   manifests,
@@ -1126,6 +1128,9 @@ async function deleteDemoCompanies(): Promise<void> {
       .where(inArray(payments.manifestId, demoManifests))
 
     await tx.delete(esaliSimBills).where(inArray(esaliSimBills.billId, demoBills))
+    // Their reviews point to the trips by id (no foreign key)
+    await tx.delete(tripDecisions).where(inArray(tripDecisions.manifestId, demoManifests))
+    await tx.delete(tripReports).where(inArray(tripReports.manifestId, demoManifests))
     await tx.delete(certificates).where(inArray(certificates.manifestId, demoManifests))
     await tx.delete(manifestCargoItems).where(inArray(manifestCargoItems.manifestId, demoManifests))
     await tx.delete(tripPassengers).where(inArray(tripPassengers.manifestId, demoManifests))

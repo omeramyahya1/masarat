@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { LayoutDashboard, Percent, SlidersHorizontal, UsersRound } from 'lucide-react'
+import { Flag, LayoutDashboard, Percent, SlidersHorizontal, UsersRound } from 'lucide-react'
 import type { Permission } from '@masarat/shared/permissions'
 import type { GovtSearchInput } from '@masarat/shared/billing'
 import TeamPanel from '@masarat/ui/components/members/TeamPanel'
@@ -12,15 +12,17 @@ import TripDetails from '@masarat/ui/components/trips/TripDetails'
 import GovtDashboard from './GovtDashboard'
 import GovtSearch from './GovtSearch'
 import GovtSearchBar from './GovtSearchBar'
+import ReportsPanel from './ReportsPanel'
 import SettingsPanel from './SettingsPanel'
 import TaxSettings from './TaxSettings'
 import { api } from '@masarat/api-client'
 
-type Section = 'overview' | 'taxes' | 'settings' | 'users'
+type Section = 'overview' | 'reports' | 'taxes' | 'settings' | 'users'
 
 // Each section, and what the user's role needs to see it
 const SECTIONS: { id: Section; needs: Permission; icon: typeof LayoutDashboard }[] = [
   { id: 'overview', needs: 'govt.dashboard', icon: LayoutDashboard },
+  { id: 'reports', needs: 'govt.reports.review', icon: Flag },
   { id: 'taxes', needs: 'govt.charges', icon: Percent },
   { id: 'settings', needs: 'govt.settings', icon: SlidersHorizontal },
   { id: 'users', needs: 'govt.users', icon: UsersRound }
@@ -28,13 +30,15 @@ const SECTIONS: { id: Section; needs: Permission; icon: typeof LayoutDashboard }
 
 const SECTION_LABELS: Record<Section, string> = {
   overview: 'govt.overview',
+  reports: 'review.section.tab',
   taxes: 'govt.taxes.tab',
   settings: 'govt.settings.tab',
   users: 'members.tab'
 }
 
-// Government home: the collection overview, and for admins the taxes and fees and the government
-// accounts; a search across every company's trips, and a read-only view of any trip
+// Government home: the collection overview, for supervisors and admins the reports on issued
+// clearances, and for admins the taxes and fees and the government accounts; a search across every
+// company's trips, and a read-only view of any trip (where clearances are reported and reviewed)
 function GovtWorkspace(): React.JSX.Element {
   const { t } = useTranslation()
   const can = useCan()
@@ -103,6 +107,8 @@ function GovtWorkspace(): React.JSX.Element {
           <ErrorBoundary key={section}>
             {section === 'overview' ? (
               <GovtDashboard onOpenTrip={setOpenTrip} />
+            ) : section === 'reports' ? (
+              <ReportsPanel cities={reference?.cities ?? []} onOpenTrip={setOpenTrip} />
             ) : section === 'taxes' ? (
               <TaxSettings />
             ) : section === 'settings' ? (

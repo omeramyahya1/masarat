@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CircleAlert, CircleCheckBig, Clock, LoaderCircle } from 'lucide-react'
+import {
+  CircleAlert,
+  CircleCheckBig,
+  Clock,
+  LoaderCircle,
+  ShieldAlert,
+  ShieldX
+} from 'lucide-react'
 import type { ManifestVerification } from '@masarat/shared/billing'
 import type { FleetErrorCode } from '@masarat/shared/fleet'
 import { useFormat } from '@masarat/ui/lib/format'
@@ -17,7 +24,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
 }
 
 // What a manifest's QR code opens: whether it's valid, and the details an officer compares with
-// the printed copy. Public: no sign-in, and nothing personal is shown.
+// the printed copy. Public: no sign-in, and nothing personal is shown. A revoked clearance says so
+// (the vehicle isn't cleared to travel); one a supervisor is reviewing stays valid, with a warning.
 function VerifyPage({ token }: { token: string }): React.JSX.Element {
   const { t } = useTranslation()
   const format = useFormat()
@@ -65,24 +73,48 @@ function VerifyPage({ token }: { token: string }): React.JSX.Element {
   }
 
   const valid = result.status === 'valid'
+  const revoked = result.status === 'revoked'
+  const Icon = revoked ? ShieldX : valid ? CircleCheckBig : Clock
   return (
     <div className="flex flex-1 items-start justify-center px-4 py-10 sm:px-6">
       <div className="card w-full max-w-md overflow-hidden">
         <div
           className={`flex flex-col items-center gap-2 px-6 py-6 text-center ${
-            valid ? 'bg-brand-50 text-brand-800' : 'bg-amber-50 text-amber-800'
+            revoked
+              ? 'bg-red-50 text-red-800'
+              : valid
+                ? 'bg-brand-50 text-brand-800'
+                : 'bg-amber-50 text-amber-800'
           }`}
         >
-          {valid ? <CircleCheckBig size={44} /> : <Clock size={44} />}
+          <Icon size={44} />
           <h1 className="text-xl font-bold">
-            {t(valid ? 'site.verify.valid' : 'site.verify.expired')}
+            {t(
+              revoked ? 'site.verify.revoked' : valid ? 'site.verify.valid' : 'site.verify.expired'
+            )}
           </h1>
           <p className="text-sm">
-            {t(valid ? 'site.verify.validUntil' : 'site.verify.expiredOn', {
-              date: format.dateTime(result.validUntil)
-            })}
+            {revoked
+              ? result.revokedAt !== null
+                ? t('site.verify.revokedOn', { date: format.dateTime(result.revokedAt) })
+                : t('site.verify.revokedNoDate')
+              : t(valid ? 'site.verify.validUntil' : 'site.verify.expiredOn', {
+                  date: format.dateTime(result.validUntil)
+                })}
           </p>
         </div>
+        {result.underReview && (
+          <div
+            className="flex gap-3 border-b border-amber-200 bg-amber-50 px-6 py-3 text-sm text-amber-900"
+            role="alert"
+          >
+            <ShieldAlert size={20} className="mt-0.5 shrink-0" />
+            <div className="flex flex-col gap-0.5">
+              <span className="font-semibold">{t('site.verify.underReview.title')}</span>
+              <span>{t('site.verify.underReview.body')}</span>
+            </div>
+          </div>
+        )}
         <dl className="px-6 py-4">
           <Row label={t('site.verify.fields.manifestNo')}>
             <span dir="ltr" className="font-mono">

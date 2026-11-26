@@ -25,6 +25,15 @@ import { DATE_BASES, EXPORT_DATASETS, EXPORT_FORMATS, EXPORT_STATUSES } from './
 import { ID_TYPES } from './passengers'
 import { PAGE_SIZES, DEFAULT_PAGE_SIZE } from './paging'
 import { COMPANY_PERMISSIONS, ROLE_SCOPES } from './permissions'
+import {
+  REPORT_REASONS,
+  REPORT_STATUSES,
+  type CancelTripInput,
+  type DecisionInput,
+  type DismissInput,
+  type ReportInput,
+  type ReportListQuery
+} from './reviews'
 import { CHARGE_KINDS, TRIP_CATEGORIES } from './tax'
 
 // A schema whose parsed value is assignable to T
@@ -281,3 +290,30 @@ export const chargeSchema = z.object({
   passengerValue: z.number().nullable(),
   active: z.boolean()
 })
+
+// --- Government: reports and decisions (reviews.ts) ---------------------------------------------
+
+// Notes get a generous cap here; cleanNote applies the real limit (invalid_review)
+const reviewNote = text(2_000)
+
+export const reportSchema = shape<ReportInput>()(
+  z.object({ manifestId: id, reason: z.enum(REPORT_REASONS), note: reviewNote })
+)
+
+export const dismissSchema = shape<DismissInput>()(z.object({ note: reviewNote }))
+
+export const decisionSchema = shape<DecisionInput>()(
+  z.object({ reason: z.enum(REPORT_REASONS).optional(), note: reviewNote })
+)
+
+export const cancelTripSchema = shape<CancelTripInput>()(
+  z.object({ reason: z.enum(REPORT_REASONS), note: reviewNote })
+)
+
+export const reportListQuerySchema = shape<ReportListQuery>()(
+  z.object({
+    status: optionalQuery(z.enum(REPORT_STATUSES)),
+    page: optionalQuery(queryInt),
+    pageSize: optionalQuery(queryInt)
+  })
+)

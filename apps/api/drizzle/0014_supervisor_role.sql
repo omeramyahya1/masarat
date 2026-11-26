@@ -1,0 +1,4 @@
+ALTER TABLE "role_permissions" DROP CONSTRAINT "role_permissions_permission_check";--> statement-breakpoint
+ALTER TABLE "roles" DROP CONSTRAINT "roles_key_check";--> statement-breakpoint
+ALTER TABLE "role_permissions" ADD CONSTRAINT "role_permissions_permission_check" CHECK ("role_permissions"."permission" IN ('trips.view', 'trips.edit', 'trips.bill', 'templates.use', 'templates.manage', 'fleet.view', 'fleet.manage', 'drivers.view', 'drivers.manage', 'company.profile', 'branches.manage', 'members.manage', 'roles.manage', 'govt.dashboard', 'govt.search', 'govt.exports', 'govt.charges', 'govt.settings', 'govt.users', 'govt.reports.create', 'govt.reports.review'));--> statement-breakpoint
+ALTER TABLE "roles" ADD CONSTRAINT "roles_key_check" CHECK ("roles"."key" IS NULL OR "roles"."key" IN ('company_admin', 'clerk', 'accountant', 'govt_admin', 'govt_supervisor', 'govt_agent'));

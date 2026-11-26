@@ -3,19 +3,13 @@
 //   FLOWS=verify,govtReview runs only those. DURATION=5m by default (3h for a soak test).
 //   k6 run -e SCALE=1 loadtest/k6/mixed.js
 import { thresholds } from './lib.js'
-export {
-  booking,
-  browse,
-  govtDashboard,
-  govtReview,
-  exportData,
-  verify,
-  login
-} from './flows.js'
+export { booking, browse, govtDashboard, govtReview, exportData, verify, login } from './flows.js'
 
 const SCALE = Number(__ENV.SCALE || 1)
 const DURATION = __ENV.DURATION || '5m'
-const FLOWS = (__ENV.FLOWS || 'booking,browse,govtDashboard,govtReview,exportData,verify').split(',')
+const FLOWS = (__ENV.FLOWS || 'booking,browse,govtDashboard,govtReview,exportData,verify').split(
+  ','
+)
 
 // Per-second rates at SCALE=1 (see loadtest/README.md for where they come from), and how many
 // VUs each needs at that rate (rate × the seconds an iteration takes, with room to spare)

@@ -18,9 +18,7 @@ import {
   mustHave,
   pick,
   randomIp,
-  searchTerms,
   signIn,
-  tripIds,
   upload,
   validTokens
 } from './lib.js'
@@ -196,7 +194,10 @@ export function govtDashboard() {
   if (!dashboardView || Math.random() < 0.3) {
     const filters = { range: pick(RANGES) }
     if (Math.random() < 0.3) filters.category = pick(['cargo', 'passenger'])
-    dashboardView = { filters, view: { bucket: null, breakdown: pick(BREAKDOWNS), sort: 'revenue' } }
+    dashboardView = {
+      filters,
+      view: { bucket: null, breakdown: pick(BREAKDOWNS), sort: 'revenue' }
+    }
     api('POST', '/govt/dashboard/history', { kind: 'dashboard', body: dashboardView })
   }
   api('POST', '/govt/dashboard/today', { kind: 'dashboard', body: dashboardView })
@@ -207,11 +208,10 @@ export function govtDashboard() {
 export function govtReview() {
   if (!signIn(govtAgents)) return
   const term = Math.random() < 0.9 ? pick(recentTerms) : pick(olderTerms)
-  const results = api(
-    'GET',
-    `/govt/search?query=${encodeURIComponent(term)}&page=1&pageSize=25`,
-    { kind: 'read', name: 'GET /govt/search' }
-  )
+  const results = api('GET', `/govt/search?query=${encodeURIComponent(term)}&page=1&pageSize=25`, {
+    kind: 'read',
+    name: 'GET /govt/search'
+  })
   const found =
     results && results.rows && results.rows.length
       ? pick(results.rows).manifestId

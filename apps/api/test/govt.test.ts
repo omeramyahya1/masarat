@@ -15,7 +15,7 @@ import { SEARCH_CAP } from '../src/services/govtTrips'
 import { BREAKDOWNS } from '@masarat/shared/analytics'
 import { certificates, getDb, manifests, payments, tripDocuments, vehicles } from '../src/db'
 import { eq, sql } from 'drizzle-orm'
-import { resetData, signedIn, type Browser } from './helpers'
+import { resetData, signedIn, type Browser, exportThrough } from './helpers'
 
 const LABELS = { columns: {}, sheets: {}, values: {} }
 let govt: Browser
@@ -331,7 +331,7 @@ describe('export', () => {
   }
 
   test('one Excel workbook downloads as is', async () => {
-    const result = await govt.call('POST', '/govt/exports', { ...input, formats: ['xlsx'] })
+    const result = await exportThrough(govt, { ...input, formats: ['xlsx'] })
     expect(result.status).toBe(200)
     expect(result.headers.get('content-type')).toContain('spreadsheetml')
     expect(result.headers.get('content-disposition')).toMatch(
@@ -343,7 +343,7 @@ describe('export', () => {
   })
 
   test('Excel and CSV together come as one ZIP', async () => {
-    const result = await govt.call('POST', '/govt/exports', { ...input, formats: ['xlsx', 'csv'] })
+    const result = await exportThrough(govt, { ...input, formats: ['xlsx', 'csv'] })
     expect(result.headers.get('content-type')).toBe('application/zip')
     const names = Object.keys(unzipSync(new Uint8Array(result.body))).sort()
     expect(names).toHaveLength(3)
@@ -352,7 +352,7 @@ describe('export', () => {
   })
 
   test('a long export is read in batches, every trip once, in departure order', async () => {
-    const all = await govt.call('POST', '/govt/exports', {
+    const all = await exportThrough(govt, {
       ...input,
       datasets: ['trips', 'taxLines'],
       formats: ['csv']
@@ -360,7 +360,7 @@ describe('export', () => {
     const before = exportLimits.batch
     exportLimits.batch = 7
     try {
-      const batched = await govt.call('POST', '/govt/exports', {
+      const batched = await exportThrough(govt, {
         ...input,
         datasets: ['trips', 'taxLines'],
         formats: ['csv']
@@ -392,11 +392,11 @@ describe('export', () => {
     const before = exportLimits.excelRows
     exportLimits.excelRows = 5
     try {
-      const excel = await govt.call('POST', '/govt/exports', { ...input, formats: ['xlsx'] })
-      expect(excel.status).toBe(413)
+      const excel = await exportThrough(govt, { ...input, formats: ['xlsx'] })
+      expect(excel.status).toBe('failed')
       expect(excel.body.error).toBe('export_too_large_for_excel')
       expect(excel.body.rows.trips).toBeGreaterThan(5)
-      const csv = await govt.call('POST', '/govt/exports', { ...input, formats: ['csv'] })
+      const csv = await exportThrough(govt, { ...input, formats: ['csv'] })
       expect(csv.status).toBe(200)
     } finally {
       exportLimits.excelRows = before
@@ -407,10 +407,10 @@ describe('export', () => {
     const before = exportLimits.zipBytes
     exportLimits.zipBytes = 10
     try {
-      const both = await govt.call('POST', '/govt/exports', { ...input, formats: ['xlsx', 'csv'] })
-      expect(both.status).toBe(413)
+      const both = await exportThrough(govt, { ...input, formats: ['xlsx', 'csv'] })
+      expect(both.status).toBe('failed')
       expect(both.body.error).toBe('export_too_large')
-      const one = await govt.call('POST', '/govt/exports', {
+      const one = await exportThrough(govt, {
         ...input,
         datasets: ['trips'],
         formats: ['csv']
@@ -423,7 +423,7 @@ describe('export', () => {
   })
 
   test('malformed options are refused', async () => {
-    const result = await govt.call('POST', '/govt/exports', {
+    const result = await exportThrough(govt, {
       ...input,
       formats: ['xlsx'],
       labels: {}

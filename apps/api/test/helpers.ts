@@ -190,3 +190,22 @@ export async function signedIn(
   await b.call('POST', '/auth/login', { username, password: PASSWORD })
   return { b, ...account }
 }
+
+// An export the way the portal runs one: queued through the API, prepared by the export worker
+// (run here, in this process, until the queue is empty), then its file downloaded. Answers the
+// file's response, or, when the export failed or was refused, its job (`status: 'failed'`) or the
+// queue's refusal.
+export async function exportThrough(
+  b: Browser,
+  input: unknown
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- checked field by field
+): Promise<{ status: number | 'failed'; body: any; headers: Headers }> {
+  const queued = await b.call('POST', '/govt/exports', input)
+  if (queued.status !== 202) return queued
+  const { drainExports } = await import('../src/services/exportWorker')
+  await drainExports()
+  const job = await b.call('GET', `/govt/exports/${queued.body.data.id}`)
+  if (job.body.data.status !== 'done')
+    return { status: 'failed', body: job.body.data, headers: job.headers }
+  return b.call('GET', `/govt/exports/${queued.body.data.id}/file`)
+}

@@ -5,8 +5,9 @@
   "description": "Masarat API (Hono on Bun), used by the owner and government portals",
   "type": "module",
   "scripts": {
-    "dev": "bun --watch src/index.ts",
+    "dev": "bun --watch src/index.ts & bun --watch src/exportWorker.ts & wait",
     "start": "bun src/index.ts",
+    "worker:exports": "bun src/exportWorker.ts",
     "typecheck": "tsc -p tsconfig.json",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun src/db/migrate.ts",

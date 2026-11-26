@@ -129,3 +129,27 @@ export const EXCEL_MAX_ROWS = 1_048_575
 
 // Rows written per dataset
 export type ExportRows = Partial<Record<ExportDataset, number>>
+
+// Exports run as jobs on the export worker (apps/api/src/exportWorker.ts), queued in Redis: the
+// API queues one, the portal follows it and downloads the file once it's ready
+export const EXPORT_JOB_STATUSES = ['queued', 'running', 'done', 'failed', 'cancelled'] as const
+export type ExportJobStatus = (typeof EXPORT_JOB_STATUSES)[number]
+
+// How long a finished export's file can be downloaded
+export const EXPORT_FILE_TTL_MS = 60 * 60 * 1000
+
+export interface ExportJob {
+  id: string
+  status: ExportJobStatus
+  // While queued: how many exports are ahead of it
+  ahead: number | null
+  createdAt: number
+  startedAt: number | null
+  finishedAt: number | null
+  // Why it failed (the same codes as before exports were queued) and, for the size limits, the
+  // counts per dataset
+  error: 'export_too_large_for_excel' | 'export_too_large' | 'export_failed' | null
+  rows: ExportRows | null
+  // Once done: the file to download (one file, or a ZIP of several)
+  fileName: string | null
+}

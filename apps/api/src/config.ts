@@ -72,6 +72,9 @@ export function buildConfig(env: Env) {
     // REQUEST_TIMEOUT_S (at most 255). Migrations and seeding have no limit.
     statementTimeoutMs: positiveNumber('STATEMENT_TIMEOUT_MS', 15_000),
     exportStatementTimeoutMs: positiveNumber('EXPORT_STATEMENT_TIMEOUT_MS', 120_000),
+    // Exports prepared at once by the export workers; unset: one per active government admin or
+    // supervisor (services/exportQueue.ts)
+    exportConcurrency: env.EXPORT_CONCURRENCY ? positiveNumber('EXPORT_CONCURRENCY', 1) : null,
     requestTimeoutS: Math.min(255, positiveNumber('REQUEST_TIMEOUT_S', 30)),
     // How long a stopping API waits for the requests in flight
     shutdownGraceMs: positiveNumber('SHUTDOWN_GRACE_MS', 25_000),

@@ -55,6 +55,9 @@ const STATUS: Record<string, ContentfulStatusCode> = {
   not_certified: 409,
   not_pending: 409,
   trip_cancelled: 409,
+  export_in_progress: 409,
+  export_not_found: 404,
+  export_not_ready: 409,
   invalid_request: 400,
   unknown: 500
 }

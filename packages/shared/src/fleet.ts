@@ -439,6 +439,14 @@ export type FleetErrorCode =
   | 'export_too_large_for_excel'
   // An export too big to send as one ZIP (choose a shorter period, or fewer datasets or formats)
   | 'export_too_large'
+  // The account already has an export queued or being prepared (one at a time)
+  | 'export_in_progress'
+  // No such export for this account (or its file has expired)
+  | 'export_not_found'
+  // The export's file isn't ready yet
+  | 'export_not_ready'
+  // The export stopped on the server (an error, or the worker stopped); start it again
+  | 'export_failed'
   | 'unknown'
 
 export type FleetResult<T> = { ok: true; data: T } | { ok: false; error: FleetErrorCode }

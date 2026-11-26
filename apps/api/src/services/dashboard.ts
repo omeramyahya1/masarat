@@ -6,10 +6,19 @@
 import { and, count, desc, eq, gte, lt, ne, sql, sum, type SQL } from 'drizzle-orm'
 import { type PgSelect } from 'drizzle-orm/pg-core'
 import {
+  archive,
+  certificates as liveCertificates,
   companies,
   dailyRevenue,
   getDb,
+  manifestCargoItems,
+  manifestCharges as liveManifestCharges,
+  manifests as liveManifests,
+  manifestTrailers,
+  payments as livePayments,
   states,
+  tripDocuments,
+  tripPassengers,
   tripViews,
   vehicles,
   type RevenueDimension
@@ -39,6 +48,18 @@ import { cargoSharesSql, dayOf, isSummaryStale } from './dailyRevenue'
 
 // Reads live and archived trips alike (the all_* views)
 const { certificates, manifestCharges, manifests, payments } = tripViews
+
+// The live tables, as a set like tripViews and archive
+const liveTables: typeof archive = {
+  manifests: liveManifests,
+  manifestCargoItems,
+  manifestTrailers,
+  tripPassengers,
+  tripDocuments,
+  manifestCharges: liveManifestCharges,
+  payments: livePayments,
+  certificates: liveCertificates
+}
 
 const RECENT_BILLS = 10
 
@@ -694,6 +715,9 @@ export async function getDashboard(
 // The figures that describe the present, whatever the period: certified trips still valid, bills
 // waiting for payment, the fleet and companies, and the latest bills of the range. Today's part of
 // the dashboard carries them (services/dashboardFacts.ts); the trip filters apply as everywhere.
+// They read the live and the archive tables, each on its own, never the all_* views: Postgres has
+// no statistics for a view, so it planned these as scans of a month of trips (seconds each on a
+// 2-core database). Bills waiting for payment are never archived, so they're counted live only.
 export async function currentFigures(
   filters: AnalyticsFilters,
   from: Date,
@@ -701,74 +725,85 @@ export async function currentFigures(
   now: Date = new Date()
 ): Promise<DashboardNow> {
   const db = getDb()
-  const tripFilter = tripConditions(filters)
+  type Tables = typeof archive
   // Each row joined to its trip by the trip's key when a trip filter is set (see getDashboard)
   const withTrips = <T extends PgSelect>(
+    t: Tables,
     query: T,
-    manifestId: typeof payments.manifestId | typeof certificates.manifestId | null,
+    manifestId: Tables['payments']['manifestId'] | null,
     where: SQL | undefined
   ): T => {
+    const tripFilter = tripConditions(filters, t)
     if (!tripFilter) return query.where(where) as unknown as T
     let joined = query as unknown as PgSelect
-    if (manifestId) joined = joined.innerJoin(manifests, eq(manifestId, manifests.id)) as never
+    if (manifestId) joined = joined.innerJoin(t.manifests, eq(manifestId, t.manifests.id)) as never
     joined = joined
-      .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-      .innerJoin(originCity, eq(manifests.originCityId, originCity.id))
-      .innerJoin(destinationCity, eq(manifests.destinationCityId, destinationCity.id)) as never
+      .innerJoin(vehicles, eq(t.manifests.vehicleId, vehicles.id))
+      .innerJoin(originCity, eq(t.manifests.originCityId, originCity.id))
+      .innerJoin(destinationCity, eq(t.manifests.destinationCityId, destinationCity.id)) as never
     return joined.where(and(where, tripFilter)) as unknown as T
   }
-  const billColumns = {
-    id: payments.id,
-    manifestId: payments.manifestId,
-    billId: payments.billId,
-    createdAt: payments.createdAt,
-    paidAt: payments.paidAt,
-    status: payments.status,
-    amount: payments.amount,
-    companyName: companies.name,
-    plateNumber: vehicles.plateNumber,
-    originCityId: manifests.originCityId,
-    destinationCityId: manifests.destinationCityId
-  }
-  const latestBills = (
-    when: typeof payments.paidAt | typeof payments.createdAt,
-    which: SQL
-  ): Promise<BillRow[]> =>
-    db
-      .select(billColumns)
-      .from(payments)
-      .innerJoin(manifests, eq(payments.manifestId, manifests.id))
-      .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-      .innerJoin(companies, eq(manifests.companyId, companies.id))
+  const activeOf = (t: Tables): Promise<{ value: number }[]> =>
+    withTrips(
+      t,
+      db
+        .select({ value: count() })
+        .from(t.certificates)
+        .innerJoin(t.manifests, eq(t.certificates.manifestId, t.manifests.id))
+        .$dynamic(),
+      null,
+      and(eq(t.manifests.status, 'certified'), gte(t.certificates.validUntil, now))
+    )
+  // The range's latest paid (or unpaid) bills in one set of tables
+  const latestBills = (t: Tables, paid: boolean): Promise<BillRow[]> => {
+    const when = paid ? t.payments.paidAt : t.payments.createdAt
+    return db
+      .select({
+        id: t.payments.id,
+        manifestId: t.payments.manifestId,
+        billId: t.payments.billId,
+        createdAt: t.payments.createdAt,
+        paidAt: t.payments.paidAt,
+        status: t.payments.status,
+        amount: t.payments.amount,
+        companyName: companies.name,
+        plateNumber: vehicles.plateNumber,
+        originCityId: t.manifests.originCityId,
+        destinationCityId: t.manifests.destinationCityId
+      })
+      .from(t.payments)
+      .innerJoin(t.manifests, eq(t.payments.manifestId, t.manifests.id))
+      .innerJoin(vehicles, eq(t.manifests.vehicleId, vehicles.id))
+      .innerJoin(companies, eq(t.manifests.companyId, companies.id))
       .where(
-        and(which, gte(when, from), lt(when, to), inFilteredTrips(payments.manifestId, filters))
+        and(
+          paid ? eq(t.payments.status, 'paid') : ne(t.payments.status, 'paid'),
+          gte(when, from),
+          lt(when, to),
+          inFilteredTrips(t.payments.manifestId, filters, t)
+        )
       )
-      .orderBy(desc(when), desc(payments.id))
+      .orderBy(desc(when), desc(t.payments.id))
       .limit(RECENT_BILLS)
+  }
   const vehicleScope = filters.vehicleType
     ? eq(vehicles.vehicleType, filters.vehicleType)
     : undefined
   const countOf = (rows: { value: number }[]): number => rows[0]?.value ?? 0
 
-  const [[pending], activeRows, vehicleRows, companyRows, latestPaid, latestUnpaid] =
+  const [[pending], activeLive, activeArchived, vehicleRows, companyRows, ...latest] =
     await Promise.all([
       withTrips(
+        liveTables,
         db
-          .select({ bills: count(), amount: sum(payments.amount) })
-          .from(payments)
+          .select({ bills: count(), amount: sum(livePayments.amount) })
+          .from(livePayments)
           .$dynamic(),
-        payments.manifestId,
-        eq(payments.status, 'pending')
+        livePayments.manifestId,
+        eq(livePayments.status, 'pending')
       ),
-      withTrips(
-        db
-          .select({ value: count() })
-          .from(certificates)
-          .innerJoin(manifests, eq(certificates.manifestId, manifests.id))
-          .$dynamic(),
-        null,
-        and(eq(manifests.status, 'certified'), gte(certificates.validUntil, now))
-      ),
+      activeOf(liveTables),
+      activeOf(archive),
       db.select({ value: count() }).from(vehicles).where(vehicleScope),
       filters.vehicleType
         ? db
@@ -776,11 +811,15 @@ export async function currentFigures(
             .from(vehicles)
             .where(vehicleScope)
         : db.select({ value: count() }).from(companies),
-      latestBills(payments.paidAt, eq(payments.status, 'paid')),
-      latestBills(payments.createdAt, ne(payments.status, 'paid'))
+      latestBills(liveTables, true),
+      latestBills(liveTables, false),
+      latestBills(archive, true),
+      latestBills(archive, false)
     ])
+  const activeRows = [{ value: countOf(activeLive) + countOf(activeArchived) }]
 
-  const recentBills = [...latestPaid, ...latestUnpaid]
+  const recentBills = latest
+    .flat()
     .map((bill) => ({ ...bill, at: (bill.paidAt ?? bill.createdAt).getTime() }))
     .sort((a, b) => b.at - a.at || b.id - a.id)
     .slice(0, RECENT_BILLS)

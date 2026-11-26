@@ -3,11 +3,11 @@
 import { and, eq, inArray, type SQL, type SQLWrapper } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { cities, companies, getDb, states, tripViews, vehicles } from '../db'
+
+// A set of trip tables: the all_* views (default), the live tables or the archive's
+type TripTables = Pick<typeof tripViews, 'manifests'>
 import type { AnalyticsFilters } from '@masarat/shared/analytics'
 import type { CompanyOption } from '@masarat/shared/analytics'
-
-// Reads live and archived trips alike (the all_* views)
-const { manifests } = tripViews
 
 // The trip's cities as the filters refer to them; a query using tripConditions joins these
 export const originCity = alias(cities, 'filter_origin')
@@ -19,7 +19,10 @@ const inState = (stateId: SQLWrapper, name: string): SQL =>
 
 // Conditions on the trip itself (route, kind, trip type, vehicle, cargo); the date range is applied by each
 // query to the date it is about. Undefined when no such filter is set.
-export function tripConditions(f: AnalyticsFilters): SQL | undefined {
+export function tripConditions(
+  f: AnalyticsFilters,
+  { manifests }: TripTables = tripViews
+): SQL | undefined {
   const conditions: (SQL | undefined)[] = [
     f.originCityId ? eq(manifests.originCityId, f.originCityId) : undefined,
     f.destinationCityId ? eq(manifests.destinationCityId, f.destinationCityId) : undefined,
@@ -37,8 +40,12 @@ export function tripConditions(f: AnalyticsFilters): SQL | undefined {
 
 // "This manifest id is one of the filtered trips", for queries that start from payments,
 // certificates, tax lines or cargo items. Undefined when no trip filter is set.
-export function inFilteredTrips(column: SQLWrapper, f: AnalyticsFilters): SQL | undefined {
-  const conditions = tripConditions(f)
+export function inFilteredTrips(
+  column: SQLWrapper,
+  f: AnalyticsFilters,
+  { manifests }: TripTables = tripViews
+): SQL | undefined {
+  const conditions = tripConditions(f, { manifests })
   if (!conditions) return undefined
   return inArray(
     column,

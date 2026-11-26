@@ -1,13 +1,21 @@
 // The whole national workload at once, each kind of user at its own arrival rate.
 //   SCALE=1 is the target (20,000 trips a day); 0.25 and 0.5 are 5,000 and 10,000.
-//   FLOWS=verify,govt runs only those. DURATION=5m by default (3h for a soak test).
+//   FLOWS=verify,govtReview runs only those. DURATION=5m by default (3h for a soak test).
 //   k6 run -e SCALE=1 loadtest/k6/mixed.js
 import { thresholds } from './lib.js'
-export { booking, browse, govt, exportData, verify, login } from './flows.js'
+export {
+  booking,
+  browse,
+  govtDashboard,
+  govtReview,
+  exportData,
+  verify,
+  login
+} from './flows.js'
 
 const SCALE = Number(__ENV.SCALE || 1)
 const DURATION = __ENV.DURATION || '5m'
-const FLOWS = (__ENV.FLOWS || 'booking,browse,govt,exportData,verify').split(',')
+const FLOWS = (__ENV.FLOWS || 'booking,browse,govtDashboard,govtReview,exportData,verify').split(',')
 
 // Per-second rates at SCALE=1 (see loadtest/README.md for where they come from), and how many
 // VUs each needs at that rate (rate × the seconds an iteration takes, with room to spare)
@@ -16,8 +24,11 @@ const TARGET = {
   booking: { perMinute: 51, vusPerUnit: 0.6 },
   // 5,000 members online, a page view every ~35 s
   browse: { perMinute: 140 * 60, vusPerUnit: 0.02 },
-  // ~300 government staff: 2 dashboard visits (dashboard, search, trip) a second
-  govt: { perMinute: 120, vusPerUnit: 0.2 },
+  // 100 government staff. 5 seniors follow the dashboard, each about once a minute (a new view
+  // 3 times in 10, otherwise a refresh of today); 95 agents each search and review about once a
+  // minute
+  govtDashboard: { perMinute: 5, vusPerUnit: 1 },
+  govtReview: { perMinute: 95, vusPerUnit: 0.1 },
   // One Excel export a minute
   exportData: { perMinute: 1, vusPerUnit: 1 },
   // 100 checkpoint scans a second

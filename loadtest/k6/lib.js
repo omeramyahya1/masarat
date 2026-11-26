@@ -15,6 +15,9 @@ export const PASSWORD = users.password
 export const clerks = new SharedArray('clerks', () => users.clerks)
 export const accountants = new SharedArray('accountants', () => users.accountants)
 export const govtUsers = new SharedArray('govt', () => users.govt)
+// The government's 100 people: 5 seniors who follow the dashboard, 95 agents who search and review
+export const govtSeniors = new SharedArray('govtSeniors', () => users.govt.slice(0, 5))
+export const govtAgents = new SharedArray('govtAgents', () => users.govt.slice(5, 100))
 export const validTokens = new SharedArray('valid', () => load('verify.json').valid)
 export const expiredTokens = new SharedArray('expired', () => load('verify.json').expired)
 const search = load('search.json')
@@ -25,6 +28,14 @@ export const searchTerms = new SharedArray('search', () => [
   ...search.idNumbers.map((id) => id)
 ])
 export const tripIds = new SharedArray('tripIds', () => search.tripIds)
+// What agents look up: this week's trips 9 times in 10, older ones otherwise (the seeder writes
+// both; an older data file has only the mixed lists)
+const recent = search.recent || search
+const older = search.older || search
+const termsOf = (s) => [...s.billIds, ...s.manifestNos, ...s.tripIds.map((id) => `#${id}`)]
+export const recentTerms = new SharedArray('recentTerms', () => termsOf(recent))
+export const olderTerms = new SharedArray('olderTerms', () => termsOf(older))
+export const recentTripIds = new SharedArray('recentTripIds', () => recent.tripIds)
 
 export const pick = (list) => list[Math.floor(Math.random() * list.length)]
 
@@ -113,6 +124,9 @@ const ENDPOINTS = [
   'POST /trips/:id/simulate-payment',
   'POST /trips/:id/refresh',
   'POST /govt/dashboard',
+  'POST /govt/dashboard/history',
+  'POST /govt/dashboard/today',
+  'GET /govt/documents/:id/file',
   'GET /govt/search',
   'GET /govt/trips/:id',
   'POST /govt/exports',

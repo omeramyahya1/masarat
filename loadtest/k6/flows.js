@@ -9,7 +9,12 @@ import {
   api,
   clerks,
   expiredTokens,
+  govtAgents,
+  govtSeniors,
   govtUsers,
+  olderTerms,
+  recentTerms,
+  recentTripIds,
   mustHave,
   pick,
   randomIp,
@@ -173,7 +178,9 @@ export function browse() {
   }
 }
 
-// Government staff: the dashboard with a filter, then a search and a trip from it
+// The 5 senior government staff follow the dashboard. Its history (whole past days, from the
+// nightly aggregates) is fetched when they open it or change the filters, as the portal caches it
+// until the next night; otherwise they refresh, which fetches today only.
 const RANGES = [
   { preset: '30d' },
   { preset: '30d' },
@@ -182,25 +189,42 @@ const RANGES = [
   { preset: '12m' }
 ]
 const BREAKDOWNS = ['route', 'originState', 'destinationState', 'cargoType', 'company', 'tripKind']
-export function govt() {
-  if (!signIn(govtUsers)) return
-  const filters = { range: pick(RANGES) }
-  if (Math.random() < 0.3) filters.category = pick(['cargo', 'passenger'])
-  api('POST', '/govt/dashboard', {
-    kind: 'dashboard',
-    body: { filters, view: { bucket: null, breakdown: pick(BREAKDOWNS), sort: 'revenue' } }
-  })
+let dashboardView = null
+export function govtDashboard() {
+  if (!signIn(govtSeniors)) return
+  // A new view 3 times in 10 (and the first time); otherwise a refresh of today
+  if (!dashboardView || Math.random() < 0.3) {
+    const filters = { range: pick(RANGES) }
+    if (Math.random() < 0.3) filters.category = pick(['cargo', 'passenger'])
+    dashboardView = { filters, view: { bucket: null, breakdown: pick(BREAKDOWNS), sort: 'revenue' } }
+    api('POST', '/govt/dashboard/history', { kind: 'dashboard', body: dashboardView })
+  }
+  api('POST', '/govt/dashboard/today', { kind: 'dashboard', body: dashboardView })
+}
+
+// The other 95 government agents review: they search (this week's trips 9 times in 10), open a
+// trip, and look at one of its documents about a third of the time
+export function govtReview() {
+  if (!signIn(govtAgents)) return
+  const term = Math.random() < 0.9 ? pick(recentTerms) : pick(olderTerms)
   const results = api(
     'GET',
-    `/govt/search?query=${encodeURIComponent(pick(searchTerms))}&page=1&pageSize=25`,
-    {
-      kind: 'read',
-      name: 'GET /govt/search'
-    }
+    `/govt/search?query=${encodeURIComponent(term)}&page=1&pageSize=25`,
+    { kind: 'read', name: 'GET /govt/search' }
   )
   const found =
-    results && results.rows && results.rows.length ? pick(results.rows).manifestId : pick(tripIds)
-  api('GET', `/govt/trips/${found}`, { kind: 'read', name: 'GET /govt/trips/:id' })
+    results && results.rows && results.rows.length
+      ? pick(results.rows).manifestId
+      : pick(recentTripIds)
+  const trip = api('GET', `/govt/trips/${found}`, { kind: 'read', name: 'GET /govt/trips/:id' })
+  const documents = trip && trip.trip && trip.trip.documents
+  if (documents && documents.length && Math.random() < 0.3) {
+    api('GET', `/govt/documents/${documents[0].id}/file`, {
+      kind: 'read',
+      name: 'GET /govt/documents/:id/file',
+      expect: 'raw'
+    })
+  }
 }
 
 // An occasional export: a month of trips and bills as Excel

@@ -6,14 +6,15 @@ Finds the hardware Masarat needs in production. The test loads the API and Postg
 
 The targets: **5,000–20,000 trips a day**, **1,000–5,000 users online**, and **10–100 checkpoint scans a second**. SCALE=1 is the top of each range. SCALE=0.25 and 0.5 are 5,000 and 10,000 trips a day. Every rate is in `TARGET` in `k6/mixed.js`.
 
-| Flow (`k6/flows.js`)                                                                             | At SCALE=1                                        | Where it comes from                                                                                                              |
-| ------------------------------------------------------------------------------------------------ | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `booking`: a clerk books a trip and takes it to the authorized manifest                          | 51 trips a minute (0.85/s), about 9 requests each | 20,000 trips a day, 15% of them in the peak hour. A third of cargo trips also attach an invoice and a packing list of 1 MB each. |
-| `browse`: members follow their trips (lists, filters, groups, search, a trip, vehicles, drivers) | 140 page views a second                           | 5,000 members online, one page view every ~35 s. 4 in 5 are clerks (their branch), 1 in 5 accountants (the whole company).       |
-| `govt`: the dashboard with a filter, then a search and a trip                                    | 2 visits a second                                 | ~300 government staff online                                                                                                     |
-| `exportData`: a month of trips and bills as Excel                                                | 1 a minute                                        |                                                                                                                                  |
-| `verify`: a QR scan at a checkpoint                                                              | 100 a second                                      | Every trip scanned at 3–5 checkpoints, mostly in the morning. 9 in 10 scans are valid documents, 1 in 10 expired.                |
-| `login`: a fresh sign-in (Argon2id)                                                              | 6 a second                                        | The shift-start rush: 5,000 sign-ins in 15 minutes. Not in the mixed run by default; run it on its own with `FLOWS=login`.       |
+| Flow (`k6/flows.js`)                                                                                                          | At SCALE=1                                        | Where it comes from                                                                                                              |
+| ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `booking`: a clerk books a trip and takes it to the authorized manifest                                                       | 51 trips a minute (0.85/s), about 9 requests each | 20,000 trips a day, 15% of them in the peak hour. A third of cargo trips also attach an invoice and a packing list of 1 MB each. |
+| `browse`: members follow their trips (lists, filters, groups, search, a trip, vehicles, drivers)                              | 140 page views a second                           | 5,000 members online, one page view every ~35 s. 4 in 5 are clerks (their branch), 1 in 5 accountants (the whole company).       |
+| `govtDashboard`: a senior opens the dashboard (history and today) or refreshes it (today only)                                | 5 a minute                                        | 5 senior government staff, each about once a minute; a new view 3 times in 10                                                    |
+| `govtReview`: an agent searches (this week's trips 9 times in 10), opens a trip, and a third of the time one of its documents | 95 a minute                                       | 95 government agents, each about once a minute (100 government staff in all)                                                     |
+| `exportData`: a month of trips and bills as Excel                                                                             | 1 a minute                                        |                                                                                                                                  |
+| `verify`: a QR scan at a checkpoint                                                                                           | 100 a second                                      | Every trip scanned at 3–5 checkpoints, mostly in the morning. 9 in 10 scans are valid documents, 1 in 10 expired.                |
+| `login`: a fresh sign-in (Argon2id)                                                                                           | 6 a second                                        | The shift-start rush: 5,000 sign-ins in 15 minutes. Not in the mixed run by default; run it on its own with `FLOWS=login`.       |
 
 **The data.** The tables are seeded at production size, because the dashboard, the search and the lists slow down as they grow. Production keeps a month of history, so the seeder fills 30 days (`--days`). At 20,000 trips a day, with 10% of trips by bus (`--bus-share`), that comes to:
 
@@ -63,7 +64,7 @@ taskset -c 12-19 loadtest/stack.sh seed --trips-per-day 20000 --days 30 --bus-sh
 
 # 2. Smoke test: every flow, briefly, with no errors
 loadtest/stack.sh api-up 0-1 20
-(cd loadtest/k6 && k6 run -e SCALE=0.05 -e DURATION=30s -e FLOWS=booking,browse,govt,exportData,verify,login mixed.js)
+(cd loadtest/k6 && k6 run -e SCALE=0.05 -e DURATION=30s -e FLOWS=booking,browse,govtDashboard,govtReview,exportData,verify,login mixed.js)
 
 # 3. One size at the target load, or a series of loads until it fails
 loadtest/run.sh api2-db4 0-1 4-7 8g 20 1
@@ -74,6 +75,9 @@ loadtest/run.sh verify-only 0-1 4-7 8g 20 1 3m verify
 
 # 5. Soak: the target for 3 hours (memory growth, sessions, Redis, the log files)
 loadtest/run.sh soak 0-1 4-7 8g 20 1 3h
+
+# New k6 data files (users, lookups by age) from data already seeded, without reseeding
+loadtest/stack.sh seed --data-only
 
 # The table of every run so far
 bun loadtest/summarize.ts

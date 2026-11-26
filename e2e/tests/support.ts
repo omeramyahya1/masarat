@@ -112,3 +112,18 @@ export async function authorizedTrip(api: APIRequestContext): Promise<number> {
   expect(refreshed.data.trip.status).toBe('certified')
   return id
 }
+
+// A data export through the API: queued, prepared by the export worker, then its file (the text)
+export async function exportText(api: APIRequestContext, input: unknown): Promise<string> {
+  const queued = await api.post('/govt/exports', { data: input })
+  expect(queued.status(), 'export queued').toBe(202)
+  const id = (await queued.json()).data.id
+  await expect
+    .poll(async () => (await (await api.get(`/govt/exports/${id}`)).json()).data.status, {
+      timeout: 60_000
+    })
+    .toBe('done')
+  const file = await api.get(`/govt/exports/${id}/file`)
+  expect(file.ok()).toBeTruthy()
+  return file.text()
+}

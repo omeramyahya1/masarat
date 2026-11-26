@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import {
   ArrowLeft,
   ArrowRight,
+  Ban,
   Check,
   CircleAlert,
   CircleCheckBig,
@@ -15,6 +16,7 @@ import {
   Pencil,
   ReceiptText,
   RefreshCw,
+  ShieldX,
   Trash2
 } from 'lucide-react'
 import {
@@ -623,6 +625,26 @@ function TripDetails({
                 </button>
               )}
             </>
+          ) : payment.status === 'cancelled' ? (
+            <div className="flex flex-col gap-2 rounded-lg border border-red-200 bg-red-50/60 p-4">
+              <span className="flex items-center gap-2 text-xs font-medium text-red-800">
+                <Ban size={14} />
+                {t('billing.cancelled.label')}
+              </span>
+              <span
+                dir="ltr"
+                className="font-mono text-lg font-semibold tracking-wide text-stone-500 line-through rtl:text-right"
+              >
+                {groupDigits(payment.billId)}
+              </span>
+              <div className="flex items-baseline justify-between text-sm">
+                <span className="text-stone-500">{t('billing.amountDue')}</span>
+                <span className="font-semibold tabular-nums">
+                  {format.currency(payment.amount)}
+                </span>
+              </div>
+              <span className="text-sm text-stone-600">{t('billing.cancelled.body')}</span>
+            </div>
           ) : payment.status !== 'paid' || !certificate ? (
             <>
               <div className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50/60 p-4">
@@ -674,11 +696,19 @@ function TripDetails({
             </>
           ) : (
             <>
-              <div className="flex flex-col items-center gap-2 rounded-lg bg-brand-50 px-4 py-5 text-center">
-                <CircleCheckBig size={36} className="text-brand-700" />
-                <span className="font-semibold text-brand-800">{t('billing.paid.title')}</span>
-                <span className="text-sm text-brand-800/80">{t('billing.paid.body')}</span>
-              </div>
+              {trip.status === 'revoked' ? (
+                <div className="flex flex-col items-center gap-2 rounded-lg bg-red-50 px-4 py-5 text-center">
+                  <ShieldX size={36} className="text-red-700" />
+                  <span className="font-semibold text-red-800">{t('billing.revoked.title')}</span>
+                  <span className="text-sm text-red-800/80">{t('billing.revoked.body')}</span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2 rounded-lg bg-brand-50 px-4 py-5 text-center">
+                  <CircleCheckBig size={36} className="text-brand-700" />
+                  <span className="font-semibold text-brand-800">{t('billing.paid.title')}</span>
+                  <span className="text-sm text-brand-800/80">{t('billing.paid.body')}</span>
+                </div>
+              )}
               <dl className="divide-y divide-stone-100 text-sm">
                 <Row label={t('billing.paid.billId')}>
                   <span dir="ltr" className="font-mono text-xs">
@@ -712,14 +742,18 @@ function TripDetails({
                   {format.date(certificate.validUntil)}
                 </Row>
               </dl>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => setShowCertificate(true)}
-              >
-                <FileBadge size={16} />
-                {t('billing.paid.show')}
-              </button>
+              {/* A revoked clearance's documents are no longer valid: the company can't print them;
+                  the government still opens them to review */}
+              {(readOnly || trip.status !== 'revoked') && (
+                <button
+                  type="button"
+                  className={`btn ${trip.status === 'revoked' ? 'btn-secondary' : 'btn-primary'}`}
+                  onClick={() => setShowCertificate(true)}
+                >
+                  <FileBadge size={16} />
+                  {t('billing.paid.show')}
+                </button>
+              )}
             </>
           )}
         </aside>

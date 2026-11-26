@@ -213,3 +213,23 @@ describe('archived trips stay readable', () => {
     expect((await owner.call('DELETE', `/vehicles/${vehicleId}`)).body.error).toBe('vehicle_in_use')
   })
 })
+
+describe('regenerating demo data with archived demo trips', () => {
+  test('the archived demo trips go too, and the demo is seeded again', async () => {
+    const { ensureDemoData, regenerateDemoData } = await import('../src/services/demoData')
+    await ensureDemoData()
+    // The demo's history reaches back a year: most of it moves to the archive
+    expect(await archiveDueTrips()).toBeGreaterThan(0)
+    await regenerateDemoData()
+    const [row] = await getDb().execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM archive.manifests m
+      JOIN vehicles v ON v.id = m.vehicle_id
+      JOIN companies c ON c.id = v.company_id
+      WHERE c.is_demo`)
+    expect(row.n).toBe(0)
+    const [live] = await getDb().execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM manifests m JOIN companies c ON c.id = m.company_id
+      WHERE c.is_demo`)
+    expect(live.n).toBeGreaterThan(0)
+  }, 180_000)
+})

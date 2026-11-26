@@ -37,3 +37,6 @@ loadtest/.storage/
 e2e/report/
 e2e/results/
 e2e/.storage/
+
+# Git worktrees of other branches
+.claude/worktrees/

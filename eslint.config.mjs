@@ -7,7 +7,18 @@ import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
 
 export default defineConfig(
   // apps/desktop-demo is a separate bun project with its own lint config
-  { ignores: ['**/node_modules', '**/dist', '**/out', 'apps/desktop-demo/**'] },
+  {
+    ignores: [
+      '**/node_modules',
+      '**/dist',
+      '**/out',
+      'apps/desktop-demo/**',
+      // Other checkouts of the repo (git worktrees), linted in their own right
+      '.claude/**',
+      'e2e/report/**',
+      'e2e/results/**'
+    ]
+  },
   tseslint.configs.recommended,
   eslintPluginReact.configs.flat.recommended,
   eslintPluginReact.configs.flat['jsx-runtime'],

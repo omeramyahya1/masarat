@@ -21,7 +21,19 @@ process.env.DATABASE_URL = appUrl.toString()
 process.env.DEMO_MODE = 'true'
 // Every dashboard computed afresh (the cache has its own test)
 process.env.DASHBOARD_CACHE_S = '0'
+// Every test request comes from the same (unknown) IP: the verify limit has its own test
+process.env.VERIFY_RATE_LIMIT = '100000'
 process.env.STORAGE_DIR = `${import.meta.dir}/.storage`
+// Their own Redis database, emptied first, so rate-limit windows and staged uploads from an earlier
+// run (or the dev API) don't carry over
+const testRedis = process.env.TEST_REDIS_URL ?? 'redis://localhost:6380/2'
+process.env.REDIS_URL = testRedis
+{
+  const { RedisClient } = await import('bun')
+  const redis = new RedisClient(testRedis)
+  await redis.send('FLUSHDB', [])
+  redis.close()
+}
 // Attachments go to the tests' own bucket (compose.yaml creates it)
 process.env.S3_BUCKET = process.env.TEST_S3_BUCKET ?? 'masarat-test'
 

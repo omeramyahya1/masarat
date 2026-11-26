@@ -234,6 +234,8 @@ describe('shared state: object storage and Redis', () => {
       if (keys.length) await getRedis().del(...keys)
     }
     await clear()
+    const { config } = await import('../src/config')
+    config.verifyRateLimit = 60
     try {
       const statuses: number[] = []
       for (let i = 0; i < 61; i++) {
@@ -242,6 +244,7 @@ describe('shared state: object storage and Redis', () => {
       expect(statuses.slice(0, 60).every((s) => s !== 429)).toBe(true)
       expect(statuses[60]).toBe(429)
     } finally {
+      config.verifyRateLimit = 100_000
       await clear()
     }
   })

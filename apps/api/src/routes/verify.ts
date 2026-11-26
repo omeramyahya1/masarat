@@ -1,12 +1,13 @@
 // Public: what the QR code on the receipt and manifest opens. No session needed.
 import { Hono } from 'hono'
+import { config } from '../config'
 import { verifyManifest } from '../services/verify'
 import { send, type AppEnv } from '../http/context'
 import { rateLimit } from '../http/rateLimit'
 import { doc } from '../http/validate'
 
 // Generous for officers scanning at a checkpoint, too slow for guessing tokens
-const VERIFY_LIMIT = rateLimit('verify', 60, 60 * 1000)
+const VERIFY_LIMIT = rateLimit('verify', () => config.verifyRateLimit, 60 * 1000)
 
 export const verifyRoutes = new Hono<AppEnv>().get(
   '/:token',

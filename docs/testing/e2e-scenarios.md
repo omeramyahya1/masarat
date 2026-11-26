@@ -8,7 +8,7 @@ What a person does with Masarat, as scenarios and cases, from sign-in to the che
 - **The browser and language.** The tests run in Chromium with the English interface (one case checks Arabic).
 - **Results.** A run leaves an HTML report in `e2e/report/`. A failed case also keeps a trace and a screenshot, in `e2e/results/`.
 
-**The data.** The demo companies and accounts (CLAUDE.md, _Demo accounts_): `nile.transport` (company admin), `nile.clerk1` (a branch clerk), `nile.accountant`, `ministry.demo` (the government admin) and `ministry.agent`. Cases that need a trip in a particular state create it through the API as the member would, then check it in the browser.
+**The data.** The demo companies and accounts (CLAUDE.md, _Demo accounts_): `nile.transport` (company admin), `nile.clerk1` (a branch clerk), `nile.accountant`, `ministry.demo` (the government admin), `ministry.supervisor` and `ministry.agent`. Cases that need a trip in a particular state create it through the API as the member would, then check it in the browser.
 
 ## Sessions and access (AUTH)
 
@@ -110,3 +110,14 @@ What a person does with Masarat, as scenarios and cases, from sign-in to the che
 | ------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | ARC-01 | An archived trip is still found | Move the month-old finished trips to the archive (`bun run --filter @masarat/api trips:archive`); open an older month in Trips; open one of its trips | The trips are listed; the trip opens read-only, marked as archived |
 | ARC-02 | The government finds it         | Search the archived trip's number                                                                                                                     | Found, and opens                                                   |
+
+## Review: reports, revocation and cancellation (REV)
+
+| Id     | Case                                   | Steps                                                                                                            | Expected                                                                                                        |
+| ------ | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| REV-01 | An agent reports a clearance           | As `ministry.agent`, search an authorized trip, open it, _Report_ with a reason and a note                       | "Reported — under review" on the trip; no _Report_ button any more; a second report is refused                  |
+| REV-02 | The verify page while a report is open | Open the reported trip's verify link                                                                             | "Valid manifest" with a "Reported — under review" band; no note, names or IDs                                   |
+| REV-03 | A supervisor dismisses a report        | As `ministry.supervisor`, Reports → open the report → _Dismiss_ with a note                                      | The report is listed as Dismissed; the trip stays Authorized                                                    |
+| REV-04 | A supervisor revokes a clearance       | Reports → open the report → _Revoke clearance_ with a note; then open the trip's verify link                     | The trip shows "Clearance revoked"; the verify page says "Revoked manifest" and that it isn't cleared to travel |
+| REV-05 | The company sees the outcome           | As the company admin, open the revoked trip                                                                      | "Clearance revoked" with the supervisor's reason and note; the agent's report isn't shown; no documents button  |
+| REV-06 | A supervisor cancels an unpaid trip    | As the supervisor, open a trip pending payment → _Cancel trip_ with a reason and a note; then pay and refresh it | "Trip cancelled" and "Bill cancelled"; refreshing after paying is refused and issues nothing                    |

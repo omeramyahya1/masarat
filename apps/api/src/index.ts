@@ -14,6 +14,7 @@ import { markStopping } from './services/health'
 import { scheduleJob, stopJobs } from './services/jobs'
 import { assertPricingAllowed } from './services/pricing'
 import { nightlyArchive } from './services/archive'
+import { nightlyDashboardAggregate } from './services/dashboardFacts'
 import { purgeExpired } from './services/sessions'
 import { closeRedis } from './services/redis'
 
@@ -58,6 +59,14 @@ scheduleJob({
 })
 // Finished trips older than HOT_DAYS move to the archive, in the quiet hours (services/archive.ts)
 scheduleJob({ name: 'trips.archive', everyMs: HOUR_MS, exclusive: true, run: nightlyArchive })
+// The dashboard's aggregates of the past days, once a night from 01:00 (services/dashboardFacts.ts);
+// on a new database the first run fills them from the history
+scheduleJob({
+  name: 'dashboard.aggregate',
+  everyMs: HOUR_MS,
+  exclusive: true,
+  run: nightlyDashboardAggregate
+})
 // Each instance deletes its own old log files
 scheduleJob({
   name: 'logs.cleanup',

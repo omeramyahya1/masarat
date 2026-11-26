@@ -44,7 +44,7 @@ import type {
   ManifestVerification,
   TripDetails
 } from '@masarat/shared/billing'
-import type { DashboardData } from '@masarat/shared/dashboard'
+import type { DashboardData, DashboardHistory, DashboardToday } from '@masarat/shared/dashboard'
 import type { AnalyticsFilters, DashboardView, CompanyOption } from '@masarat/shared/analytics'
 import type { ExportInput, ExportRows } from '@masarat/shared/exports'
 import type { SystemSettings } from '@masarat/shared/settings'
@@ -141,6 +141,16 @@ export interface GovtAPI {
   users: MembersAPI
   getReferenceData: () => Promise<FleetResult<TripReferenceData>>
   dashboard: (filters: AnalyticsFilters, view: DashboardView) => Promise<FleetResult<DashboardData>>
+  // The dashboard in two parts the portal adds together (mergeDashboard): whole past days from the
+  // nightly aggregates, and today
+  dashboardHistory: (
+    filters: AnalyticsFilters,
+    view: DashboardView
+  ) => Promise<FleetResult<DashboardHistory>>
+  dashboardToday: (
+    filters: AnalyticsFilters,
+    view: DashboardView
+  ) => Promise<FleetResult<DashboardToday>>
   listCompanies: () => Promise<FleetResult<CompanyOption[]>>
   // Trips of every company by bill ID, receipt/manifest number, trip number, plate, name or route
   // One page of the matches (input.page, input.pageSize)
@@ -363,6 +373,9 @@ const govt: GovtAPI = {
   users: membersAt('/govt/users'),
   getReferenceData: () => request('GET', '/govt/reference'),
   dashboard: (filters, view) => request('POST', '/govt/dashboard', { filters, view }),
+  dashboardHistory: (filters, view) =>
+    request('POST', '/govt/dashboard/history', { filters, view }),
+  dashboardToday: (filters, view) => request('POST', '/govt/dashboard/today', { filters, view }),
   listCompanies: () => request('GET', '/govt/companies'),
   search: (input) => request('GET', `/govt/search${queryString(input)}`),
   getTrip: (id) => request('GET', `/govt/trips/${id}`),

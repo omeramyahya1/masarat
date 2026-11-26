@@ -30,6 +30,7 @@ import {
   type BreakdownRow,
   type CargoSlice,
   type DashboardData,
+  type DashboardNow,
   type RevenuePoint,
   type TaxSlice
 } from '@masarat/shared/dashboard'
@@ -574,16 +575,14 @@ export async function getDashboard(
 
   // Vehicle counts follow the vehicle and company filters only
   const vehicleScope = and(
-    filters.vehicleType ? eq(vehicles.vehicleType, filters.vehicleType) : undefined,
-    filters.companyId ? eq(vehicles.companyId, filters.companyId) : undefined
+    filters.vehicleType ? eq(vehicles.vehicleType, filters.vehicleType) : undefined
   )
-  const companyCountQuery =
-    filters.vehicleType || filters.companyId
-      ? db
-          .select({ value: sql<number>`count(distinct ${vehicles.companyId})`.mapWith(Number) })
-          .from(vehicles)
-          .where(vehicleScope)
-      : db.select({ value: count() }).from(companies)
+  const companyCountQuery = filters.vehicleType
+    ? db
+        .select({ value: sql<number>`count(distinct ${vehicles.companyId})`.mapWith(Number) })
+        .from(vehicles)
+        .where(vehicleScope)
+    : db.select({ value: count() }).from(companies)
 
   const byCargoQuery = figures.byCargo(from, to)
   const [
@@ -677,6 +676,120 @@ export async function getDashboard(
     byTax,
     breakdown,
     statusCounts,
+    recentBills: recentBills.map((bill) => ({
+      manifestId: bill.manifestId,
+      billId: bill.billId,
+      amount: bill.amount,
+      companyName: bill.companyName,
+      plateNumber: bill.plateNumber,
+      originCityId: bill.originCityId,
+      destinationCityId: bill.destinationCityId,
+      createdAt: bill.createdAt.getTime(),
+      paidAt: bill.paidAt?.getTime() ?? null,
+      status: bill.status === 'paid' ? 'paid' : 'pending'
+    }))
+  }
+}
+
+// The figures that describe the present, whatever the period: certified trips still valid, bills
+// waiting for payment, the fleet and companies, and the latest bills of the range. Today's part of
+// the dashboard carries them (services/dashboardFacts.ts); the trip filters apply as everywhere.
+export async function currentFigures(
+  filters: AnalyticsFilters,
+  from: Date,
+  to: Date,
+  now: Date = new Date()
+): Promise<DashboardNow> {
+  const db = getDb()
+  const tripFilter = tripConditions(filters)
+  // Each row joined to its trip by the trip's key when a trip filter is set (see getDashboard)
+  const withTrips = <T extends PgSelect>(
+    query: T,
+    manifestId: typeof payments.manifestId | typeof certificates.manifestId | null,
+    where: SQL | undefined
+  ): T => {
+    if (!tripFilter) return query.where(where) as unknown as T
+    let joined = query as unknown as PgSelect
+    if (manifestId) joined = joined.innerJoin(manifests, eq(manifestId, manifests.id)) as never
+    joined = joined
+      .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
+      .innerJoin(originCity, eq(manifests.originCityId, originCity.id))
+      .innerJoin(destinationCity, eq(manifests.destinationCityId, destinationCity.id)) as never
+    return joined.where(and(where, tripFilter)) as unknown as T
+  }
+  const billColumns = {
+    id: payments.id,
+    manifestId: payments.manifestId,
+    billId: payments.billId,
+    createdAt: payments.createdAt,
+    paidAt: payments.paidAt,
+    status: payments.status,
+    amount: payments.amount,
+    companyName: companies.name,
+    plateNumber: vehicles.plateNumber,
+    originCityId: manifests.originCityId,
+    destinationCityId: manifests.destinationCityId
+  }
+  const latestBills = (
+    when: typeof payments.paidAt | typeof payments.createdAt,
+    which: SQL
+  ): Promise<BillRow[]> =>
+    db
+      .select(billColumns)
+      .from(payments)
+      .innerJoin(manifests, eq(payments.manifestId, manifests.id))
+      .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
+      .innerJoin(companies, eq(manifests.companyId, companies.id))
+      .where(
+        and(which, gte(when, from), lt(when, to), inFilteredTrips(payments.manifestId, filters))
+      )
+      .orderBy(desc(when), desc(payments.id))
+      .limit(RECENT_BILLS)
+  const vehicleScope = filters.vehicleType
+    ? eq(vehicles.vehicleType, filters.vehicleType)
+    : undefined
+  const countOf = (rows: { value: number }[]): number => rows[0]?.value ?? 0
+
+  const [[pending], activeRows, vehicleRows, companyRows, latestPaid, latestUnpaid] =
+    await Promise.all([
+      withTrips(
+        db
+          .select({ bills: count(), amount: sum(payments.amount) })
+          .from(payments)
+          .$dynamic(),
+        payments.manifestId,
+        eq(payments.status, 'pending')
+      ),
+      withTrips(
+        db
+          .select({ value: count() })
+          .from(certificates)
+          .innerJoin(manifests, eq(certificates.manifestId, manifests.id))
+          .$dynamic(),
+        null,
+        and(eq(manifests.status, 'certified'), gte(certificates.validUntil, now))
+      ),
+      db.select({ value: count() }).from(vehicles).where(vehicleScope),
+      filters.vehicleType
+        ? db
+            .select({ value: sql<number>`count(distinct ${vehicles.companyId})`.mapWith(Number) })
+            .from(vehicles)
+            .where(vehicleScope)
+        : db.select({ value: count() }).from(companies),
+      latestBills(payments.paidAt, eq(payments.status, 'paid')),
+      latestBills(payments.createdAt, ne(payments.status, 'paid'))
+    ])
+
+  const recentBills = [...latestPaid, ...latestUnpaid]
+    .map((bill) => ({ ...bill, at: (bill.paidAt ?? bill.createdAt).getTime() }))
+    .sort((a, b) => b.at - a.at || b.id - a.id)
+    .slice(0, RECENT_BILLS)
+  return {
+    activeTrips: countOf(activeRows),
+    pendingBills: pending?.bills ?? 0,
+    pendingAmount: total(pending?.amount ?? null),
+    vehicles: countOf(vehicleRows),
+    companies: countOf(companyRows),
     recentBills: recentBills.map((bill) => ({
       manifestId: bill.manifestId,
       billId: bill.billId,

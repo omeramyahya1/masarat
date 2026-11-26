@@ -11,7 +11,13 @@ import {
 import { config } from '../config'
 import { listCompanies } from '../services/analyticsQuery'
 import { getTripDetails } from '../services/billing'
-import { cachedDashboard, clearDashboardCache } from '../services/dashboardCache'
+import {
+  cachedDashboard,
+  cachedHistory,
+  cachedToday,
+  clearDashboardCache
+} from '../services/dashboardCache'
+import { aggregateDashboard, resetDashboardFacts } from '../services/dashboardFacts'
 import { regenerateDemoData } from '../services/demoData'
 import { liftRequestTimeout } from '../http/timeout'
 import { findOwnedDocumentFile } from '../services/documents'
@@ -64,6 +70,28 @@ export const govtRoutes = new Hono<AppEnv>()
     async (c) => {
       const { filters, view } = c.req.valid('json')
       return send(c, { ok: true, data: await cachedDashboard(filters, view) })
+    }
+  )
+  // The dashboard in two parts the portal adds together: whole past days from the nightly
+  // aggregates, and today live (services/dashboardFacts.ts)
+  .post(
+    '/dashboard/history',
+    doc(G, 'The dashboard up to yesterday, from the nightly aggregates'),
+    requirePermission('govt.dashboard'),
+    body(dashboardRequestSchema, 'missing_fields'),
+    async (c) => {
+      const { filters, view } = c.req.valid('json')
+      return send(c, { ok: true, data: await cachedHistory(filters, view) })
+    }
+  )
+  .post(
+    '/dashboard/today',
+    doc(G, "The dashboard's today: live figures and the present"),
+    requirePermission('govt.dashboard'),
+    body(dashboardRequestSchema, 'missing_fields'),
+    async (c) => {
+      const { filters, view } = c.req.valid('json')
+      return send(c, { ok: true, data: await cachedToday(filters, view) })
     }
   )
   .get(
@@ -151,6 +179,9 @@ export const govtRoutes = new Hono<AppEnv>()
     if (!config.demoMode) return fail(c, 'forbidden')
     liftRequestTimeout(c)
     await regenerateDemoData()
+    // Every day's figures changed: the aggregates are computed again, and the cache dropped
+    await resetDashboardFacts()
+    await aggregateDashboard()
     await clearDashboardCache()
     return send(c, { ok: true, data: null })
   })

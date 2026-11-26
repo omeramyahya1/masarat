@@ -21,6 +21,7 @@ import { hashPassword } from '../services/auth'
 import { ensureDemoData } from '../services/demoData'
 import { objectStore } from '../services/storage'
 import { markSummaryStale, rebuildDailyRevenue } from '../services/dailyRevenue'
+import { aggregateDashboard, resetDashboardFacts } from '../services/dashboardFacts'
 
 const { values: args } = parseArgs({
   args: process.argv.slice(2),
@@ -31,7 +32,9 @@ const { values: args } = parseArgs({
     // How many different people the passengers are; empty = about 2.5 trips each in a month
     people: { type: 'string' },
     'clerks-per-branch': { type: 'string', default: '4' },
-    'govt-users': { type: 'string', default: '300' },
+    'govt-users': { type: 'string', default: '100' },
+    // Only write the k6 data files, from data already seeded
+    'data-only': { type: 'boolean', default: false },
     workers: { type: 'string', default: '6' },
     out: { type: 'string', default: '../../loadtest/data' }
   }
@@ -41,6 +44,7 @@ const TRIPS_PER_DAY = Number(args['trips-per-day'])
 const DAYS = Number(args.days)
 const CLERKS_PER_BRANCH = Number(args['clerks-per-branch'])
 const GOVT_USERS = Number(args['govt-users'])
+const DATA_ONLY = args['data-only'] === true
 const WORKERS = Number(args.workers)
 const OUT_DIR = resolve(args.out!)
 // Everyone the load test signs in as has this password
@@ -97,6 +101,70 @@ const sql = postgres(config.migrationDatabaseUrl, {
 const started = Date.now()
 const elapsed = (): string => `${((Date.now() - started) / 1000).toFixed(0)}s`
 const step = (message: string): void => console.log(`[${elapsed()}] ${message}`)
+
+// The files the k6 scripts read: who to sign in as, and real values to look up
+async function writeDataFiles(): Promise<void> {
+  // What the k6 scripts need: who to sign in as, and real values to look up
+  mkdirSync(OUT_DIR, { recursive: true })
+  const usernames = async (pattern: string): Promise<string[]> =>
+    (
+      await sql<
+        { username: string }[]
+      >`SELECT username FROM users WHERE username LIKE ${pattern} ORDER BY id`
+    ).map((u) => u.username)
+  const write = (name: string, data: unknown): void =>
+    writeFileSync(resolve(OUT_DIR, name), JSON.stringify(data))
+  write('users.json', {
+    password: LOAD_PASSWORD,
+    clerks: await usernames('lt.c%.clerk%'),
+    accountants: await usernames('lt.c%.acct'),
+    admins: await usernames('lt.c%.admin'),
+    govt: await usernames('lt.govt%')
+  })
+  const column = async (query: string): Promise<string[]> =>
+    (await sql.unsafe<{ v: string }[]>(query)).map((r) => r.v)
+  // Spread over the whole history: every 37th row, shuffled (a full scan, but only once)
+  const sample = (select: string, from: string, where = 'true', limit = 1000): Promise<string[]> =>
+    column(
+      `SELECT ${select} AS v FROM ${from} WHERE ${where} AND id % 37 = 0 ORDER BY random() LIMIT ${limit}`
+    )
+  write('verify.json', {
+    valid: await column(
+      `SELECT qr_token AS v FROM certificates WHERE valid_until > now() ORDER BY random() LIMIT 5000`
+    ),
+    expired: await sample('qr_token', 'certificates', 'valid_until <= now()')
+  })
+  // Lookups, from the whole history, and split by age: government agents mostly look up this
+  // week's trips (k6 govtReview)
+  const lookups = async (since: string, until: string): Promise<Record<string, string[]>> => ({
+    billIds: await column(
+      `SELECT bill_id AS v FROM payments WHERE created_at >= ${since} AND created_at < ${until} ORDER BY random() LIMIT 1000`
+    ),
+    manifestNos: await column(
+      `SELECT manifest_no AS v FROM certificates WHERE issued_at >= ${since} AND issued_at < ${until} ORDER BY random() LIMIT 1000`
+    ),
+    tripIds: await column(
+      `SELECT id::text AS v FROM manifests WHERE departure_at >= ${since} AND departure_at < ${until} ORDER BY random() LIMIT 1000`
+    )
+  })
+  write('search.json', {
+    billIds: await sample('bill_id', 'payments'),
+    manifestNos: await sample('manifest_no', 'certificates'),
+    plates: await column(`SELECT plate_number AS v FROM vehicles ORDER BY random() LIMIT 1000`),
+    idNumbers: await sample('id_number', 'people'),
+    tripIds: await sample('id::text', 'manifests'),
+    recent: await lookups(`now() - interval '7 days'`, `now()`),
+    older: await lookups(`'-infinity'`, `now() - interval '7 days'`)
+  })
+}
+
+// --data-only: the files for the k6 scripts again, from the data already seeded
+if (DATA_ONLY) {
+  await writeDataFiles()
+  step('Data files written')
+  await sql.end()
+  process.exit(0)
+}
 
 const [{ count: existing }] = await sql<{ count: number }[]>`
   SELECT count(*)::int AS count FROM companies WHERE name LIKE 'LT %'`
@@ -497,48 +565,17 @@ const summary = openUnlimitedDb()
 await rebuildDailyRevenue(summary.db)
 await summary.close()
 
+step("Aggregating the dashboard's days")
+await resetDashboardFacts()
+await aggregateDashboard()
+await closeDb()
+
 step('Analyzing')
 await sql.unsafe(
   `DROP TABLE lt_company, lt_truck, lt_bus, lt_driver, lt_branch, lt_route; ANALYZE;`
 )
 
-// What the k6 scripts need: who to sign in as, and real values to look up
-mkdirSync(OUT_DIR, { recursive: true })
-const usernames = async (pattern: string): Promise<string[]> =>
-  (
-    await sql<
-      { username: string }[]
-    >`SELECT username FROM users WHERE username LIKE ${pattern} ORDER BY id`
-  ).map((u) => u.username)
-const write = (name: string, data: unknown): void =>
-  writeFileSync(resolve(OUT_DIR, name), JSON.stringify(data))
-write('users.json', {
-  password: LOAD_PASSWORD,
-  clerks: await usernames('lt.c%.clerk%'),
-  accountants: await usernames('lt.c%.acct'),
-  admins: await usernames('lt.c%.admin'),
-  govt: await usernames('lt.govt%')
-})
-const column = async (query: string): Promise<string[]> =>
-  (await sql.unsafe<{ v: string }[]>(query)).map((r) => r.v)
-// Spread over the whole history: every 37th row, shuffled (a full scan, but only once)
-const sample = (select: string, from: string, where = 'true', limit = 1000): Promise<string[]> =>
-  column(
-    `SELECT ${select} AS v FROM ${from} WHERE ${where} AND id % 37 = 0 ORDER BY random() LIMIT ${limit}`
-  )
-write('verify.json', {
-  valid: await column(
-    `SELECT qr_token AS v FROM certificates WHERE valid_until > now() ORDER BY random() LIMIT 5000`
-  ),
-  expired: await sample('qr_token', 'certificates', 'valid_until <= now()')
-})
-write('search.json', {
-  billIds: await sample('bill_id', 'payments'),
-  manifestNos: await sample('manifest_no', 'certificates'),
-  plates: await column(`SELECT plate_number AS v FROM vehicles ORDER BY random() LIMIT 1000`),
-  idNumbers: await sample('id_number', 'people'),
-  tripIds: await sample('id::text', 'manifests')
-})
+await writeDataFiles()
 const [size] = await sql<
   { size: string }[]
 >`SELECT pg_size_pretty(pg_database_size(current_database())) AS size`

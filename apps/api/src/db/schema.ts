@@ -828,6 +828,55 @@ export const dailyRevenue = pgTable(
   ]
 )
 
+// The government dashboard's nightly aggregates (services/dashboardFacts.ts): every figure of a past
+// day, at the grain of the dashboard's filters (origin and destination city, kind of trip, trip
+// type, vehicle type, main cargo type), so any filtered dashboard adds up a few thousand rows a day
+// instead of reading every trip. `kind` says which figure a row holds and by which date:
+//   paid          revenue (value) and trips (n) by the day the bill was paid
+//   cargo         the paid revenue split across the trips' cargo (key: a cargo type or passengers)
+//   charge        the paid revenue by tax or fee (key: its code; name, name_ar: its latest name)
+//   company       paid revenue by transport company (key: its id), by kind of trip, trip type and
+//                 vehicle type only (no route or cargo: per company that would be a row per trip)
+//   status        trips by the day they were booked (key: their status when aggregated)
+//   billed        bills by the day they were issued (value: amount), and billed_paid: of those,
+//                 the paid ones when aggregated
+//   certificates  documents issued that day (n)
+// Rebuilt each night for the last DASHBOARD_RECOMPUTE_DAYS days (statuses and payments of recent
+// trips still change); older days stay as they were.
+export const DASHBOARD_FACT_KINDS = [
+  'paid',
+  'cargo',
+  'charge',
+  'company',
+  'status',
+  'billed',
+  'billed_paid',
+  'certificates'
+] as const
+
+export const dashboardFacts = pgTable(
+  'dashboard_facts',
+  {
+    day: date('day', { mode: 'string' }).notNull(),
+    kind: text('kind', { enum: DASHBOARD_FACT_KINDS }).notNull(),
+    originCityId: integer('origin_city_id'),
+    destinationCityId: integer('destination_city_id'),
+    category: text('category'),
+    tripKind: text('trip_kind'),
+    vehicleType: text('vehicle_type'),
+    cargoType: text('cargo_type'),
+    key: text('key').notNull().default(''),
+    name: text('name'),
+    nameAr: text('name_ar'),
+    value: doublePrecision('value').notNull().default(0),
+    n: integer('n').notNull().default(0)
+  },
+  (t) => [
+    index('dashboard_facts_kind_day_idx').on(t.kind, t.day),
+    check('dashboard_facts_kind_check', sql`${t.kind} IN (${inList(DASHBOARD_FACT_KINDS)})`)
+  ]
+)
+
 export type User = typeof users.$inferSelect
 export type Company = typeof companies.$inferSelect
 export type Branch = typeof branches.$inferSelect

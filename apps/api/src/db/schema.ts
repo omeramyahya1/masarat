@@ -445,7 +445,12 @@ function defineTripTables(table: PgTableFn, id: typeof liveId) {
       carrierName: text('carrier_name'),
       carrierAddress: text('carrier_address'),
       carrierTin: text('carrier_tin'),
-      ...timestamps
+      ...timestamps,
+      // The names' search keys (masarat_name_key, migration 0008), kept by Postgres: the trips
+      // search compares whole names by them without computing the key for every trip
+      driverNameKey: text('driver_name_key').generatedAlwaysAs(sql`masarat_name_key(driver_name)`),
+      shipperNameKey: text('shipper_name_key').generatedAlwaysAs(sql`masarat_name_key(shipper_name)`),
+      receiverNameKey: text('receiver_name_key').generatedAlwaysAs(sql`masarat_name_key(receiver_name)`)
     },
     (t) => [
       index('manifests_vehicle_id_idx').on(t.vehicleId),
@@ -507,7 +512,9 @@ function defineTripTables(table: PgTableFn, id: typeof liveId) {
       packingType: text('packing_type'),
       packageCount: integer('package_count'),
       notes: text('notes'),
-      ...timestamps
+      ...timestamps,
+      // The name's search key, kept by Postgres (as the trip's names')
+      nameKey: text('name_key').generatedAlwaysAs(sql`masarat_name_key(name)`)
     },
     (t) => [
       index('manifest_cargo_items_manifest_id_idx').on(t.manifestId),
@@ -557,7 +564,9 @@ function defineTripTables(table: PgTableFn, id: typeof liveId) {
       seatNo: integer('seat_no').notNull(),
       isInfant: boolean('is_infant').notNull().default(false),
       notes: text('notes'),
-      ...timestamps
+      ...timestamps,
+      // The booked name's search key, kept by Postgres (as the trip's names')
+      fullNameKey: text('full_name_key').generatedAlwaysAs(sql`masarat_name_key(full_name)`)
     },
     (t) => [
       index('trip_passengers_manifest_id_idx').on(t.manifestId),

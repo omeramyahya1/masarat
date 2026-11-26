@@ -33,9 +33,11 @@ const CHILDREN = [
   archive.certificates
 ]
 
+// The columns a copy writes: not the generated ones (the name keys), which Postgres computes
 const columnList = (table: PgTable): SQL =>
   sql.raw(
     Object.values(getTableColumns(table))
+      .filter((column) => !column.generated)
       .map((column) => `"${column.name}"`)
       .join(', ')
   )

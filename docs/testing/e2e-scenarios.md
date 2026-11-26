@@ -97,11 +97,12 @@ What a person does with Masarat, as scenarios and cases, from sign-in to the che
 
 ## Caching (CCH)
 
-| Id     | Case                       | Steps                                               | Expected                                                                 |
-| ------ | -------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------ |
-| CCH-01 | Sections don't refetch     | Trips → Vehicles → Drivers → Trips, within a minute | No new requests to the API after the first visit to each                 |
-| CCH-02 | A change updates the lists | Add a driver                                        | The Drivers list shows them at once, and the trip form's driver list too |
-| CCH-03 | Pages seen before          | Previous month, then back to the current one        | No request for the month already seen                                    |
+| Id     | Case                       | Steps                                               | Expected                                                                                          |
+| ------ | -------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| CCH-01 | Sections don't refetch     | Trips → Vehicles → Drivers → Trips, within a minute | No new requests to the API after the first visit to each                                          |
+| CCH-02 | A change updates the lists | Add a driver                                        | The Drivers list shows them at once, and the trip form's driver list too                          |
+| CCH-03 | Pages seen before          | Previous month, then back to the current one        | No request for the month already seen                                                             |
+| CCH-04 | The dashboard's refresh    | On the dashboard, _Refresh_                         | Only today's figures are asked for; the history (nightly aggregates) is kept until the next night |
 
 ## The archive (ARC)
 

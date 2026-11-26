@@ -863,7 +863,8 @@
           "trips": "Trips",
           "name": "Name"
         },
-        "others": "Others"
+        "others": "Others",
+        "companyUnavailable": "not with a route or cargo filter"
       },
       "recent": {
         "title": "Latest bills",

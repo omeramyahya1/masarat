@@ -42,3 +42,19 @@ test.describe('Caching', () => {
     expect(calls).toEqual([])
   })
 })
+
+test.describe('Caching: the government dashboard', () => {
+  test('CCH-04 Refresh asks for today only; the history is kept until the night', async ({
+    page
+  }) => {
+    await logIn(page, ACCOUNTS.agent, URLS.govt)
+    await expect(page.getByText('Revenue collected').first()).toBeVisible()
+    const calls: string[] = []
+    page.on('request', (r) => {
+      if (r.url().startsWith(`${URLS.api}/govt/dashboard`)) calls.push(new URL(r.url()).pathname)
+    })
+    await page.getByRole('button', { name: 'Refresh' }).click()
+    await page.waitForLoadState('networkidle')
+    expect(calls).toEqual(['/govt/dashboard/today'])
+  })
+})

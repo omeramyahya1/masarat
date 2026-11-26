@@ -9,8 +9,7 @@ import {
   type Breakdown,
   type BreakdownSort,
   type BucketSize,
-  type DashboardView,
-  type CompanyOption
+  type DashboardView
 } from '@masarat/shared/analytics'
 import type { DashboardData } from '@masarat/shared/dashboard'
 import type { CityRecord, FleetErrorCode } from '@masarat/shared/fleet'
@@ -22,7 +21,8 @@ import DataExportFields from './DataExportFields'
 import ReportModal from './ReportModal'
 import { REPORT_SECTIONS, type ReportSection } from './reportSections'
 import { Segmented } from './parts'
-import { api } from '@masarat/api-client'
+import { errorCode } from '@masarat/ui/lib/query'
+import { loadDashboard } from './dashboardData'
 
 type Tab = 'report' | 'data'
 
@@ -50,24 +50,18 @@ function ExportDialog({
   initialFilters,
   initialView,
   cities,
-  companies,
   onClose
 }: {
   initialFilters: AnalyticsFilters
   initialView: DashboardView
   cities: readonly CityRecord[]
-  companies: readonly CompanyOption[]
   onClose: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const titleId = useId()
   const mounted = useMountedRef()
   const [tab, setTab] = useState<Tab>('report')
-  // Exports cover every company, so the dashboard's company filter isn't carried over
-  const [filters, setFilters] = useState<AnalyticsFilters>(() => ({
-    ...initialFilters,
-    companyId: null
-  }))
+  const [filters, setFilters] = useState<AnalyticsFilters>(initialFilters)
   const [view, setView] = useState<DashboardView>(initialView)
   const [sections, setSections] = useState<ReadonlySet<ReportSection>>(
     () => new Set(REPORT_SECTIONS)
@@ -88,12 +82,11 @@ function ExportDialog({
     setPending(true)
     setError(null)
     try {
-      const result = await api.govt.dashboard(filters, view)
-      if (!mounted.current) return
-      if (result.ok) setReport(result.data)
-      else setError(result.error)
-    } catch {
-      if (mounted.current) setError('unknown')
+      // The same figures as the dashboard: the nightly aggregates and today, added together
+      const data = await loadDashboard(filters, view)
+      if (mounted.current) setReport(data)
+    } catch (err) {
+      if (mounted.current) setError(errorCode<FleetErrorCode>(err) ?? 'unknown')
     } finally {
       if (mounted.current) setPending(false)
     }
@@ -132,13 +125,7 @@ function ExportDialog({
           <legend className="px-1 text-sm font-semibold text-stone-800">
             {t('govt.export.parameters')}
           </legend>
-          <AnalyticsFilterFields
-            filters={filters}
-            cities={cities}
-            companies={companies}
-            showCompany={false}
-            onChange={setFilters}
-          />
+          <AnalyticsFilterFields filters={filters} cities={cities} onChange={setFilters} />
         </fieldset>
 
         {error && <FormAlert message={t(`fleet.errors.${error}`)} />}
@@ -248,7 +235,6 @@ function ExportDialog({
           view={view}
           sections={sections}
           cities={cities}
-          companies={companies}
           onClose={() => setReport(null)}
         />
       )}

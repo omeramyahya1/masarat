@@ -1,6 +1,6 @@
 // The government's trip search: by E-Sali bill ID, receipt or manifest number, trip number,
 // plate, company or city name, and by route
-import { and, count, desc, eq, or, sql, type SQL, type SQLWrapper } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, or, sql, type SQL, type SQLWrapper } from 'drizzle-orm'
 import { cities, companies, getDb, people, tripViews, vehicles } from '../db'
 import type { GovtSearchInput, GovtSearchResult } from '@masarat/shared/billing'
 import { DEFAULT_PAGE_SIZE, isPageSize, type Page } from '@masarat/shared/paging'
@@ -163,28 +163,41 @@ export async function searchTrips(
     Number.isInteger(input?.page) && (input.page as number) > 0 ? (input.page as number) : 1
   const page = Math.min(requested, pages)
 
-  const rows = await db
-    .select({
-      manifestId: manifests.id,
-      manifestNo: certificates.manifestNo,
-      billId: payments.billId,
-      companyName: companies.name,
-      plateNumber: vehicles.plateNumber,
-      originCityId: manifests.originCityId,
-      destinationCityId: manifests.destinationCityId,
-      departureAt: manifests.departureAt,
-      amount: manifests.taxAmount,
-      status: manifests.status
-    })
-    .from(manifests)
-    .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
-    .innerJoin(companies, eq(manifests.companyId, companies.id))
-    .leftJoin(payments, eq(payments.manifestId, manifests.id))
-    .leftJoin(certificates, eq(certificates.manifestId, manifests.id))
-    .where(where)
-    .orderBy(desc(manifests.departureAt), desc(manifests.id))
-    .limit(pageSize)
-    .offset((page - 1) * pageSize)
+  // The page's trips first, from the trips alone; then their bills and documents. Joined through
+  // the live + archive views before the page is cut, Postgres misjudges the joins (it has no
+  // statistics for the views) and may read every payment and certificate
+  const ids = (
+    await db
+      .select({ id: manifests.id })
+      .from(manifests)
+      .where(where)
+      .orderBy(desc(manifests.departureAt), desc(manifests.id))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize)
+  ).map((r) => r.id)
+  const rows =
+    ids.length === 0
+      ? []
+      : await db
+          .select({
+            manifestId: manifests.id,
+            manifestNo: certificates.manifestNo,
+            billId: payments.billId,
+            companyName: companies.name,
+            plateNumber: vehicles.plateNumber,
+            originCityId: manifests.originCityId,
+            destinationCityId: manifests.destinationCityId,
+            departureAt: manifests.departureAt,
+            amount: manifests.taxAmount,
+            status: manifests.status
+          })
+          .from(manifests)
+          .innerJoin(vehicles, eq(manifests.vehicleId, vehicles.id))
+          .innerJoin(companies, eq(manifests.companyId, companies.id))
+          .leftJoin(payments, eq(payments.manifestId, manifests.id))
+          .leftJoin(certificates, eq(certificates.manifestId, manifests.id))
+          .where(inArray(manifests.id, ids))
+          .orderBy(desc(manifests.departureAt), desc(manifests.id))
 
   return {
     ok: true,

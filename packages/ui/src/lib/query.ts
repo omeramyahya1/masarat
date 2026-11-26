@@ -61,7 +61,9 @@ export const queryKeys = {
   search: (params: unknown) => ['govt', 'search', params] as const,
   charges: ['govt', 'charges'] as const,
   reports: (params: unknown) => ['govt', 'reports', params] as const,
-  settings: ['govt', 'settings'] as const
+  settings: ['govt', 'settings'] as const,
+  // The account's latest data export (queued, being prepared, or done)
+  exportJob: ['govt', 'exportJob'] as const
 }
 
 // After a trip changed (saved, billed, paid, deleted): its lists, its page, and the vehicles' and

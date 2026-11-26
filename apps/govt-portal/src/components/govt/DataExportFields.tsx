@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { LoaderCircle } from 'lucide-react'
 import type { AnalyticsFilters } from '@masarat/shared/analytics'
@@ -12,6 +13,7 @@ import {
   type DateBasis,
   type ExportDataset,
   type ExportFormat,
+  type ExportJob,
   type ExportLabels,
   type ExportRows,
   type ExportStatus
@@ -32,6 +34,7 @@ import { useMountedRef } from '@masarat/ui/lib/useMountedRef'
 import { FormAlert } from '@masarat/ui/components/form/fields'
 import { saveFile } from '@masarat/ui/lib/saveFile'
 import { api } from '@masarat/api-client'
+import { errorCode, queryKeys, unwrap } from '@masarat/ui/lib/query'
 
 // Labels for a list of stored values, from one translation group
 const labelsFor = (
@@ -39,8 +42,13 @@ const labelsFor = (
   translate: (value: string) => string
 ): Record<string, string> => Object.fromEntries(values.map((v) => [v, translate(v)]))
 
+const IN_PROGRESS: readonly ExportJob['status'][] = ['queued', 'running']
+
 // The data tab of the export dialog: datasets, which date the period applies to, the trip
-// status, and the file format. The files are written in Arabic.
+// status, and the file format. The files are written in Arabic. The export worker prepares them:
+// the dialog queues the export, follows it (the account's latest export, polled while it's queued
+// or being prepared, so closing and reopening the dialog picks it up again), and saves the file
+// when it's ready.
 function DataExportFields({
   filters,
   onClose
@@ -57,11 +65,48 @@ function DataExportFields({
   const [formats, setFormats] = useState<ReadonlySet<ExportFormat>>(() => new Set(['xlsx']))
   // Passengers' ID numbers are personal data: left out of the files unless asked for
   const [includeIdNumbers, setIncludeIdNumbers] = useState(false)
-  const [pending, setPending] = useState(false)
+  const queryClient = useQueryClient()
+  const [starting, setStarting] = useState(false)
   const [error, setError] = useState<FleetErrorCode | null>(null)
   // Rows per dataset of the last file downloaded
   const [result, setResult] = useState<ExportRows | null>(null)
-  const [tooLarge, setTooLarge] = useState<ExportRows | null>(null)
+  // The export queued from this dialog: its file is saved as soon as it's ready
+  const [startedHere, setStartedHere] = useState<string | null>(null)
+  const saved = useRef<string | null>(null)
+
+  const job = useQuery({
+    queryKey: queryKeys.exportJob,
+    queryFn: () => unwrap(api.govt.exports.current()),
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+    refetchInterval: (query) =>
+      query.state.data && IN_PROGRESS.includes(query.state.data.status) ? 2_000 : false
+  })
+  const current = job.data ?? null
+  const inProgress = current !== null && IN_PROGRESS.includes(current.status)
+
+  const saveExport = async (id: string): Promise<void> => {
+    saved.current = id
+    try {
+      const response = await api.govt.exports.file(id)
+      if (!response.ok) {
+        if (mounted.current) setError(response.error)
+        return
+      }
+      // Saved even if the dialog was closed meanwhile
+      saveFile(response.data)
+      if (mounted.current) setResult(response.data.rows)
+    } catch {
+      if (mounted.current) setError('unknown')
+    }
+  }
+
+  // The export queued here is saved once it's ready; an earlier one waits for Download
+  useEffect(() => {
+    if (current?.status === 'done' && current.id === startedHere && saved.current !== current.id) {
+      void saveExport(current.id)
+    }
+  })
 
   // Everything the API writes into the files, in Arabic
   const labels = useMemo<ExportLabels>(() => {
@@ -100,12 +145,11 @@ function DataExportFields({
     })
 
   const runExport = async (): Promise<void> => {
-    setPending(true)
+    setStarting(true)
     setError(null)
-    setTooLarge(null)
     setResult(null)
     try {
-      const response = await api.govt.exportData({
+      const response = await api.govt.exports.start({
         filters,
         dateBasis,
         status,
@@ -116,22 +160,42 @@ function DataExportFields({
         labels
       })
       if (!response.ok) {
-        if (mounted.current) {
-          setError(response.error)
-          // Which datasets are over Excel's limit, and by how much
-          setTooLarge('rows' in response ? response.rows : null)
-        }
+        if (mounted.current) setError(response.error)
+        // Another export of this account is under way: show it
+        if (response.error === 'export_in_progress') void job.refetch()
         return
       }
-      // Saved even if the dialog was closed meanwhile
-      saveFile(response.data)
-      if (mounted.current) setResult(response.data.rows)
+      setStartedHere(response.data.id)
+      queryClient.setQueryData(queryKeys.exportJob, response.data)
     } catch {
       if (mounted.current) setError('unknown')
     } finally {
-      if (mounted.current) setPending(false)
+      if (mounted.current) setStarting(false)
     }
   }
+
+  const cancelExport = async (): Promise<void> => {
+    if (!current) return
+    const response = await api.govt.exports.cancel(current.id)
+    if (response.ok) queryClient.setQueryData(queryKeys.exportJob, response.data)
+    else if (mounted.current) setError(response.error)
+  }
+
+  // A failed export's reason, with the counts when a dataset is over Excel's limit
+  const failure: FleetErrorCode | null =
+    error ??
+    (current?.status === 'failed' ? current.error : null) ??
+    errorCode<FleetErrorCode>(job.error)
+  const tooLarge = current?.status === 'failed' ? current.rows : null
+  const rowsText = (rows: ExportRows): string =>
+    format.list(
+      EXPORT_DATASETS.filter((d) => rows[d] !== undefined).map((d) =>
+        t('govt.export.rowCount', {
+          dataset: t(`govt.export.datasets.${d}`),
+          count: format.number(rows[d] ?? 0)
+        })
+      )
+    )
 
   return (
     <>
@@ -235,10 +299,10 @@ function DataExportFields({
         </p>
       </fieldset>
 
-      {error && (
+      {failure && (
         <FormAlert
           message={
-            error === 'export_too_large_for_excel' && tooLarge
+            failure === 'export_too_large_for_excel' && tooLarge
               ? t('fleet.errors.export_too_large_for_excel', {
                   rows: format.list(
                     EXPORT_DATASETS.filter((d) => (tooLarge[d] ?? 0) > EXCEL_MAX_ROWS).map((d) =>
@@ -250,24 +314,52 @@ function DataExportFields({
                   ),
                   limit: format.number(EXCEL_MAX_ROWS)
                 })
-              : t(`fleet.errors.${error}`)
+              : t(`fleet.errors.${failure}`)
           }
         />
       )}
-      {result && (
+      {inProgress && (
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-lg border border-brand-200 bg-brand-50 p-3 text-sm text-brand-900"
+        >
+          <LoaderCircle size={16} className="mt-0.5 shrink-0 animate-spin" />
+          <div className="flex flex-1 flex-col gap-1">
+            <span>
+              {current.status === 'queued'
+                ? current.ahead
+                  ? t('govt.export.queued', { count: current.ahead })
+                  : t('govt.export.queuedNext')
+                : t('govt.export.preparing')}
+            </span>
+            <span className="text-xs text-brand-800">{t('govt.export.keepsGoing')}</span>
+          </div>
+          <button type="button" className="btn btn-secondary py-1 text-xs" onClick={cancelExport}>
+            {t('govt.export.cancelExport')}
+          </button>
+        </div>
+      )}
+      {result ? (
         <FormAlert
           tone="success"
-          message={t('govt.export.dataSaved', {
-            rows: format.list(
-              EXPORT_DATASETS.filter((d) => result[d] !== undefined).map((d) =>
-                t('govt.export.rowCount', {
-                  dataset: t(`govt.export.datasets.${d}`),
-                  count: format.number(result[d] ?? 0)
-                })
-              )
-            )
-          })}
+          message={t('govt.export.dataSaved', { rows: rowsText(result) })}
         />
+      ) : (
+        current?.status === 'done' &&
+        current.id !== startedHere && (
+          <div className="flex items-center gap-3 rounded-lg border border-stone-200 p-3 text-sm">
+            <span className="flex-1">
+              {t('govt.export.ready', { rows: rowsText(current.rows ?? {}) })}
+            </span>
+            <button
+              type="button"
+              className="btn btn-secondary py-1 text-xs"
+              onClick={() => void saveExport(current.id)}
+            >
+              {t('govt.export.download')}
+            </button>
+          </div>
+        )
       )}
 
       <div className="flex justify-end gap-2 border-t border-stone-200 pt-4">
@@ -277,10 +369,10 @@ function DataExportFields({
         <button
           type="button"
           className="btn btn-primary"
-          disabled={pending || datasets.size === 0 || formats.size === 0}
+          disabled={starting || inProgress || datasets.size === 0 || formats.size === 0}
           onClick={runExport}
         >
-          {pending && <LoaderCircle size={16} className="animate-spin" />}
+          {starting && <LoaderCircle size={16} className="animate-spin" />}
           {t('govt.export.exportData')}
         </button>
       </div>

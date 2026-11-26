@@ -315,6 +315,10 @@
       "query_timeout": "This took too long. Narrow the search or choose a shorter period, then try again.",
       "export_too_large_for_excel": "Too many rows for Excel: {{rows}}. An Excel sheet holds at most {{limit}} rows. Choose CSV, or a shorter period.",
       "export_too_large": "This export is too big to download as one archive. Choose a shorter period, fewer datasets, or one format.",
+      "export_in_progress": "You already have an export being prepared. Wait for it to finish, or cancel it first.",
+      "export_not_found": "That export is no longer available. Start it again.",
+      "export_not_ready": "The export isn’t ready yet.",
+      "export_failed": "The export stopped before it finished. Start it again.",
       "forbidden": "You don't have access to this.",
       "password_change_required": "Please choose your own password first.",
       "branch_required": "Choose the branch the trip is booked at.",
@@ -1063,7 +1067,15 @@
       "dataSaved": "Downloaded: {{rows}}.",
       "rowCount": "{{dataset}} {{count}} rows",
       "includeIdNumbers": "Include passengers' ID numbers",
-      "includeIdNumbersHint": "Personal data: only when the file needs them, and handle it with care."
+      "includeIdNumbersHint": "Personal data: only when the file needs them, and handle it with care.",
+      "queued_one": "Waiting for its turn: {{count}} export ahead of it.",
+      "queued_other": "Waiting for its turn: {{count}} exports ahead of it.",
+      "queuedNext": "Waiting for its turn: next in line.",
+      "preparing": "Preparing the files…",
+      "keepsGoing": "You can close this window: the export goes on, and it’s here when you come back (for an hour once it’s ready).",
+      "cancelExport": "Cancel export",
+      "ready": "Your last export is ready: {{rows}}.",
+      "download": "Download"
     },
     "settings": {
       "tab": "Settings",

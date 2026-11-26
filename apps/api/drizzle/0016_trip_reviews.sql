@@ -29,6 +29,9 @@ CREATE TABLE "trip_reports" (
 	CONSTRAINT "trip_reports_resolved_check" CHECK (("trip_reports"."status" = 'open') = ("trip_reports"."resolved_at" IS NULL))
 );
 --> statement-breakpoint
+-- The status checks only gain values (revoked, cancelled): every existing row already passes
+-- them, so they are added NOT VALID, without reading the trip tables (new and changed rows are
+-- still checked). On a big database this keeps the migration to a brief lock.
 ALTER TABLE "archive"."manifests" DROP CONSTRAINT "manifests_status_check";--> statement-breakpoint
 ALTER TABLE "archive"."payments" DROP CONSTRAINT "payments_status_check";--> statement-breakpoint
 ALTER TABLE "esali_sim_bills" DROP CONSTRAINT "esali_sim_bills_status_check";--> statement-breakpoint
@@ -42,8 +45,8 @@ CREATE INDEX "trip_reports_manifest_id_idx" ON "trip_reports" USING btree ("mani
 CREATE UNIQUE INDEX "trip_reports_one_open_idx" ON "trip_reports" USING btree ("manifest_id") WHERE "trip_reports"."status" = 'open';--> statement-breakpoint
 CREATE INDEX "trip_reports_status_created_idx" ON "trip_reports" USING btree ("status","created_at");--> statement-breakpoint
 CREATE INDEX "trip_reports_created_idx" ON "trip_reports" USING btree ("created_at");--> statement-breakpoint
-ALTER TABLE "archive"."manifests" ADD CONSTRAINT "manifests_status_check" CHECK ("archive"."manifests"."status" IN ('draft', 'billed', 'paid', 'certified', 'revoked', 'cancelled'));--> statement-breakpoint
-ALTER TABLE "archive"."payments" ADD CONSTRAINT "payments_status_check" CHECK ("archive"."payments"."status" IN ('pending', 'paid', 'expired', 'failed', 'cancelled'));--> statement-breakpoint
-ALTER TABLE "esali_sim_bills" ADD CONSTRAINT "esali_sim_bills_status_check" CHECK ("esali_sim_bills"."status" IN ('pending', 'paid', 'expired', 'failed', 'cancelled'));--> statement-breakpoint
-ALTER TABLE "manifests" ADD CONSTRAINT "manifests_status_check" CHECK ("manifests"."status" IN ('draft', 'billed', 'paid', 'certified', 'revoked', 'cancelled'));--> statement-breakpoint
-ALTER TABLE "payments" ADD CONSTRAINT "payments_status_check" CHECK ("payments"."status" IN ('pending', 'paid', 'expired', 'failed', 'cancelled'));
+ALTER TABLE "archive"."manifests" ADD CONSTRAINT "manifests_status_check" CHECK ("archive"."manifests"."status" IN ('draft', 'billed', 'paid', 'certified', 'revoked', 'cancelled')) NOT VALID;--> statement-breakpoint
+ALTER TABLE "archive"."payments" ADD CONSTRAINT "payments_status_check" CHECK ("archive"."payments"."status" IN ('pending', 'paid', 'expired', 'failed', 'cancelled')) NOT VALID;--> statement-breakpoint
+ALTER TABLE "esali_sim_bills" ADD CONSTRAINT "esali_sim_bills_status_check" CHECK ("esali_sim_bills"."status" IN ('pending', 'paid', 'expired', 'failed', 'cancelled')) NOT VALID;--> statement-breakpoint
+ALTER TABLE "manifests" ADD CONSTRAINT "manifests_status_check" CHECK ("manifests"."status" IN ('draft', 'billed', 'paid', 'certified', 'revoked', 'cancelled')) NOT VALID;--> statement-breakpoint
+ALTER TABLE "payments" ADD CONSTRAINT "payments_status_check" CHECK ("payments"."status" IN ('pending', 'paid', 'expired', 'failed', 'cancelled')) NOT VALID;

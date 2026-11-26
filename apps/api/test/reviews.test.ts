@@ -446,6 +446,13 @@ describe('what the company sees', () => {
       decidedBy: null
     })
     expect(JSON.stringify(revoked)).not.toContain('review.supervisor')
+    // The receipt and manifest are withheld from the company by the API itself (no QR, no
+    // numbers to print), while the government still sees them
+    expect(open.certificate).not.toBeNull()
+    expect(revoked.certificate).toBeNull()
+    expect(revoked.payment).not.toBeNull()
+    const govtView = (await supervisor.call('GET', `/govt/trips/${id}`)).body.data
+    expect(govtView.certificate?.manifestNo).toBeTruthy()
     // The trips list shows the status and filters by it
     const list = (await owner.call('GET', `/trips?status=revoked`)).body.data
     expect(list.rows.map((r: { id: number }) => r.id)).toContain(id)

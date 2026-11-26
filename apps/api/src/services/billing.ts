@@ -146,8 +146,11 @@ export async function getTripDetails(
       }
     : null
 
+  // A revoked clearance's receipt and manifest are no longer valid: the company doesn't get them
+  // (the trip page shows the revocation instead); the government still sees them
+  const withheld = scope !== null && trip.status === 'revoked'
   const certificateRecord: CertificateRecord | null =
-    certificate && payment
+    certificate && payment && !withheld
       ? {
           certificateNo: certificate.certificateNo,
           manifestNo: certificate.manifestNo,

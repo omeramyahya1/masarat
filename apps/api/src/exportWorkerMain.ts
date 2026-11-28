@@ -29,26 +29,31 @@ if (role.problems.length) {
   log.warn(message)
 }
 
-// Half-built exports from before a restart (this machine's scratch space)
-clearStaleExports(0)
+// Half-built exports left by a stopped worker (this machine's scratch space), as old as any
+// export can still be running: another worker on the same machine may be building one now
+clearStaleExports()
 
 const inProgress = new Set<Promise<void>>()
 let stopping = false
-let polling = false
+// The poll taking exports now, if any: shutdown lets it end before it counts what's in progress
+let activePoll: Promise<void> | null = null
 
-async function poll(): Promise<void> {
-  if (stopping || polling) return
-  polling = true
-  try {
-    for (const run of await startQueuedExports()) {
+function poll(): Promise<void> {
+  if (stopping || activePoll) return activePoll ?? Promise.resolve()
+  activePoll = startQueuedExports({
+    // Each export counts as in progress the moment it starts
+    onStart: (run) => {
       inProgress.add(run)
       void run.finally(() => inProgress.delete(run))
-    }
-  } catch (err) {
-    log.error('Could not take exports from the queue', err)
-  } finally {
-    polling = false
-  }
+    },
+    stop: () => stopping
+  })
+    .then(() => undefined)
+    .catch((err) => log.error('Could not take exports from the queue', err))
+    .finally(() => {
+      activePoll = null
+    })
+  return activePoll
 }
 const timer = setInterval(() => void poll(), POLL_MS)
 void poll()
@@ -79,8 +84,12 @@ async function shutdown(signal: string): Promise<void> {
   const grace = new Promise<'timeout'>((resolve) =>
     setTimeout(() => resolve('timeout'), config.shutdownGraceMs).unref()
   )
+  // A claim under way first (it takes no more after this one), then the exports in progress,
+  // all within the one grace period
   const finished = await Promise.race([
-    Promise.allSettled([...inProgress]).then(() => 'done'),
+    (activePoll ?? Promise.resolve())
+      .then(() => Promise.allSettled([...inProgress]))
+      .then(() => 'done'),
     grace
   ])
   if (finished === 'timeout') {

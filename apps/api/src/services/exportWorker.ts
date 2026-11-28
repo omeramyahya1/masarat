@@ -51,7 +51,15 @@ export async function runExport(job: StoredExportJob): Promise<void> {
       }
       const key = exportObjectKey(job.id, download.name)
       await objectStore.putFile(key, download.path, exportContentType(download.name))
-      await finishExport(job, { file: { key, name: download.name }, rows })
+      if (!(await finishExport(job, { file: { key, name: download.name }, rows }))) {
+        // Cancelled (or given up) while its file was uploading: the file isn't offered; the
+        // hourly sweep deletes it
+        await dropCancelled(job)
+        log.info('Export ended otherwise while its file was uploading; discarded', {
+          exportId: job.id
+        })
+        return
+      }
       log.info('Export ready', {
         exportId: job.id,
         rows,
@@ -72,15 +80,25 @@ export async function runExport(job: StoredExportJob): Promise<void> {
 }
 
 // Takes queued exports while there's room (the limit is across every worker) and starts each.
-// Returns the exports it started, so a caller (the tests) can wait for them.
-export async function startQueuedExports(): Promise<Promise<void>[]> {
+// Returns the exports it started, so a caller (the tests) can wait for them. `onStart` hears of
+// each one as it starts, so a later claim that fails can't hide it from the caller (the worker's
+// shutdown waits for them); `stop` ends the claiming before the next one.
+export async function startQueuedExports({
+  onStart,
+  stop
+}: { onStart?: (run: Promise<void>) => void; stop?: () => boolean } = {}): Promise<
+  Promise<void>[]
+> {
   const limit = await exportConcurrency(config.exportConcurrency)
   const started: Promise<void>[] = []
   for (;;) {
+    if (stop?.()) return started
     const { job } = await claimExport(limit, EXPORT_LEASE_MS)
     if (!job) return started
     log.info('Export started', { exportId: job.id, limit })
-    started.push(runExport(job))
+    const run = runExport(job)
+    started.push(run)
+    onStart?.(run)
   }
 }
 

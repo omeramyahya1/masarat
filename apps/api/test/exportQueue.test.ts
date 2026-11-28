@@ -4,7 +4,13 @@
 // the expired files' sweep
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { config } from '../src/config'
-import { claimExport, exportConcurrency, exportKeys } from '../src/services/exportQueue'
+import {
+  claimExport,
+  exportConcurrency,
+  exportKeys,
+  finishExport,
+  queueExport
+} from '../src/services/exportQueue'
 import {
   drainExports,
   EXPORT_LEASE_MS,
@@ -59,6 +65,17 @@ describe('queueing and following an export', () => {
     expect(file.status).toBe(200)
     expect(file.headers.get('content-type')).toContain('text/csv')
     expect(JSON.parse(file.headers.get('x-export-rows') ?? '{}')).toEqual({ trips: 0 })
+  })
+
+  test('two exports started at once for one account: one is queued, the other refused', async () => {
+    const ownerId = (await signedIn('exp.race', 'govt_agent')).id
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => queueExport(ownerId, INPUT as never))
+    )
+    expect(results.filter((r) => r.ok)).toHaveLength(1)
+    expect(results.filter((r) => !r.ok && r.error === 'export_in_progress')).toHaveLength(4)
+    expect(await getRedis().send('LLEN', [exportKeys.queue])).toBe(1)
+    await drainExports()
   })
 
   test('one export at a time per account', async () => {
@@ -163,6 +180,23 @@ describe('cancelling and failures', () => {
       fileName: null
     })
     expect(await objectStore.list(`exports/${id}/`)).toEqual([])
+    expect(await getRedis().send('ZCARD', [exportKeys.running])).toBe(0)
+  })
+
+  test('an export cancelled while its file uploads stays cancelled', async () => {
+    const id = (await agent.call('POST', '/govt/exports', INPUT)).body.data.id
+    const { job } = await claimExport(2, EXPORT_LEASE_MS)
+    expect(job?.id).toBe(id)
+    // The worker built the file and is uploading it when the user cancels
+    await agent.call('DELETE', `/govt/exports/${id}`)
+    expect(await finishExport(job!, { file: { key: 'k', name: 'f.csv' }, rows: {} })).toBe(false)
+    expect((await agent.call('GET', `/govt/exports/${id}`)).body.data).toMatchObject({
+      status: 'cancelled',
+      fileName: null
+    })
+    expect((await agent.call('GET', `/govt/exports/${id}/file`)).body.error).toBe(
+      'export_not_ready'
+    )
     expect(await getRedis().send('ZCARD', [exportKeys.running])).toBe(0)
   })
 

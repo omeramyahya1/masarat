@@ -84,29 +84,33 @@ export type QueueResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: 'export_in_progress' | 'export_not_found' | 'export_not_ready' }
 
+// Admits an export in one step: takes the account's slot unless an export of its is still waiting
+// or being prepared, stores the job, makes it the account's latest and queues it. One script, so
+// two requests at once can't both take the slot, and a job is never stored without being queued.
+// KEYS: active, last, queue, the new job; ARGV: id, job JSON, the slot's and the job's TTL, and
+// the job key's prefix (to read the slot's current job, whose key is only known here).
+const ADMIT_SCRIPT = `
+local current = redis.call('GET', KEYS[1])
+if current then
+  local raw = redis.call('GET', ARGV[5] .. current)
+  if raw then
+    local status = cjson.decode(raw).status
+    if status ~= 'done' and status ~= 'failed' and status ~= 'cancelled' then return 0 end
+  end
+end
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3])
+redis.call('SET', KEYS[4], ARGV[2], 'EX', ARGV[4])
+redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[4])
+redis.call('RPUSH', KEYS[3], ARGV[1])
+return 1`
+
 // Queues an export for the account; one at a time per account
 export async function queueExport(
   ownerId: number,
   input: ExportInput,
   now = Date.now()
 ): Promise<QueueResult<ExportJob>> {
-  const redis = getRedis()
   const id = randomBytes(12).toString('hex')
-  const claimed = await redis.send('SET', [
-    exportKeys.active(ownerId),
-    id,
-    'NX',
-    'EX',
-    String(ACTIVE_TTL_S)
-  ])
-  if (claimed !== 'OK') {
-    // An earlier export of this account is still waiting or being prepared
-    const current = await redis.get(exportKeys.active(ownerId))
-    const job = current ? await readJob(current) : null
-    if (job && !TERMINAL.includes(job.status)) return { ok: false, error: 'export_in_progress' }
-    // Left over from a job that's gone: take the slot over
-    await redis.send('SET', [exportKeys.active(ownerId), id, 'EX', String(ACTIVE_TTL_S)])
-  }
   const job: StoredExportJob = {
     id,
     ownerId,
@@ -120,9 +124,21 @@ export async function queueExport(
     fileName: null,
     fileKey: null
   }
-  await writeJob(job, DAY_S)
-  await redis.send('SET', [exportKeys.last(ownerId), id, 'EX', String(DAY_S)])
-  await redis.send('RPUSH', [exportKeys.queue, id])
+  const admitted = await getRedis().send('EVAL', [
+    ADMIT_SCRIPT,
+    '4',
+    exportKeys.active(ownerId),
+    exportKeys.last(ownerId),
+    exportKeys.queue,
+    exportKeys.job(id),
+    id,
+    JSON.stringify(job),
+    String(ACTIVE_TTL_S),
+    String(DAY_S),
+    exportKeys.job('')
+  ])
+  // An earlier export of this account is still waiting or being prepared
+  if (admitted !== 1) return { ok: false, error: 'export_in_progress' }
   return { ok: true, data: await publicView(job) }
 }
 
@@ -256,13 +272,24 @@ export async function isCancelled(id: string): Promise<boolean> {
   return (await getRedis().exists(exportKeys.cancel(id))) === true
 }
 
-// Records how the export ended, frees its place among those being prepared and its account's slot
+// Writes a job's outcome only while it's still being prepared: an export cancelled meanwhile, or
+// given up as failed when its lease ran out, keeps that status (one script, so the check and the
+// write can't be split by a cancel). KEYS: the job; ARGV: its new JSON, its TTL.
+const FINISH_SCRIPT = `
+local raw = redis.call('GET', KEYS[1])
+if not raw or cjson.decode(raw).status ~= 'running' then return 0 end
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+return 1`
+
+// Records how the export ended, frees its place among those being prepared and its account's slot.
+// False when the job had already ended otherwise (cancelled, or failed by a lost lease): its
+// outcome stays as it was.
 export async function finishExport(
   job: StoredExportJob,
   outcome:
     | { file: { key: string; name: string }; rows: ExportRows }
     | { error: NonNullable<ExportJob['error']>; rows?: ExportRows }
-): Promise<void> {
+): Promise<boolean> {
   const ended: StoredExportJob =
     'file' in outcome
       ? {
@@ -280,9 +307,17 @@ export async function finishExport(
           error: outcome.error,
           rows: outcome.rows ?? null
         }
-  await writeJob(ended, FILE_TTL_S)
+  const written = await getRedis().send('EVAL', [
+    FINISH_SCRIPT,
+    '1',
+    exportKeys.job(job.id),
+    JSON.stringify(ended),
+    String(FILE_TTL_S)
+  ])
   await getRedis().send('ZREM', [exportKeys.running, job.id])
+  if (written !== 1) return false
   await releaseActive(ended)
+  return true
 }
 
 // Gives a cancelled export's place back once its worker has stopped on it

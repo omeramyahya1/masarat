@@ -5,6 +5,10 @@
 //   DATABASE_URL=postgres://…/masarat_load bun run --filter @masarat/api load:seed \
 //     --trips-per-day 20000 --days 30 --bus-share 0.1 --out ../../loadtest/data
 //
+// --append adds older history to a database already seeded: --days more days at --trips-per-day,
+// ending the day before its oldest trip, with the same companies, fleet and people (then run the
+// archiver, loadtest/stack.sh archive, to move them into the archive as production would).
+//
 // Only for a database whose name contains "load" (it is never the dev or production one). The
 // rows are generated in Postgres with set-based SQL, one day of trips per statement, several days
 // at a time. The data is plausible, not exact: costs follow the pricing rates and the bills the
@@ -35,6 +39,8 @@ const { values: args } = parseArgs({
     'govt-users': { type: 'string', default: '100' },
     // Only write the k6 data files, from data already seeded
     'data-only': { type: 'boolean', default: false },
+    // Add older days to data already seeded (see the top)
+    append: { type: 'boolean', default: false },
     workers: { type: 'string', default: '6' },
     out: { type: 'string', default: '../../loadtest/data' }
   }
@@ -45,6 +51,7 @@ const DAYS = Number(args.days)
 const CLERKS_PER_BRANCH = Number(args['clerks-per-branch'])
 const GOVT_USERS = Number(args['govt-users'])
 const DATA_ONLY = args['data-only'] === true
+const APPEND = args.append === true
 const WORKERS = Number(args.workers)
 const OUT_DIR = resolve(args.out!)
 // Everyone the load test signs in as has this password
@@ -53,18 +60,16 @@ export const LOAD_PASSWORD = 'load2026'
 // The shape of the fleet: about 65 trips a day per company, 3 branches each, a bus does one trip
 // a day and a truck one every day and a half; --bus-share of trips (10%) carry passengers
 const BUS_SHARE = Number(args['bus-share'])
-const COMPANIES = Math.max(4, Math.round(TRIPS_PER_DAY / 65))
+// (--append takes them from the companies already seeded)
+let COMPANIES = Math.max(4, Math.round(TRIPS_PER_DAY / 65))
 const BRANCHES_PER_COMPANY = 3
-const TRUCKS_PER_COMPANY = Math.max(
-  3,
-  Math.ceil((TRIPS_PER_DAY * (1 - BUS_SHARE) * 1.5) / COMPANIES)
-)
-const BUSES_PER_COMPANY = Math.max(1, Math.ceil((TRIPS_PER_DAY * BUS_SHARE) / COMPANIES))
-const DRIVERS_PER_COMPANY = TRUCKS_PER_COMPANY + BUSES_PER_COMPANY
+let TRUCKS_PER_COMPANY = Math.max(3, Math.ceil((TRIPS_PER_DAY * (1 - BUS_SHARE) * 1.5) / COMPANIES))
+let BUSES_PER_COMPANY = Math.max(1, Math.ceil((TRIPS_PER_DAY * BUS_SHARE) / COMPANIES))
+let DRIVERS_PER_COMPANY = TRUCKS_PER_COMPANY + BUSES_PER_COMPANY
 // Passengers travel again: each one is drawn from a pool of people, the frequent travellers more
 // often (random()² leans to the low numbers). By default the pool makes each person take about
 // 2.5 trips in a month (a bus carries ~43).
-const PEOPLE = Math.max(
+let PEOPLE = Math.max(
   1000,
   Math.round(Number(args.people ?? (TRIPS_PER_DAY * BUS_SHARE * 43 * 30) / 2.5))
 )
@@ -123,7 +128,8 @@ async function writeDataFiles(): Promise<void> {
   })
   const column = async (query: string): Promise<string[]> =>
     (await sql.unsafe<{ v: string }[]>(query)).map((r) => r.v)
-  // Spread over the whole history: every 37th row, shuffled (a full scan, but only once)
+  // Spread over the whole history, live and archived (the all_* views): every 37th row, shuffled
+  // (a full scan, but only once)
   const sample = (select: string, from: string, where = 'true', limit = 1000): Promise<string[]> =>
     column(
       `SELECT ${select} AS v FROM ${from} WHERE ${where} AND id % 37 = 0 ORDER BY random() LIMIT ${limit}`
@@ -132,29 +138,33 @@ async function writeDataFiles(): Promise<void> {
     valid: await column(
       `SELECT qr_token AS v FROM certificates WHERE valid_until > now() ORDER BY random() LIMIT 5000`
     ),
-    expired: await sample('qr_token', 'certificates', 'valid_until <= now()')
+    expired: await sample('qr_token', 'all_certificates', 'valid_until <= now()')
   })
-  // Lookups, from the whole history, and split by age: government agents mostly look up this
-  // week's trips (k6 govtReview)
-  const lookups = async (since: string, until: string): Promise<Record<string, string[]>> => ({
+  // Lookups split by age: government agents mostly look up this week's trips (k6 govtReview), from
+  // the live tables; older ones come from the whole history (`view` = 'all_')
+  const lookups = async (
+    since: string,
+    until: string,
+    view = ''
+  ): Promise<Record<string, string[]>> => ({
     billIds: await column(
-      `SELECT bill_id AS v FROM payments WHERE created_at >= ${since} AND created_at < ${until} ORDER BY random() LIMIT 1000`
+      `SELECT bill_id AS v FROM ${view}payments WHERE created_at >= ${since} AND created_at < ${until} ORDER BY random() LIMIT 1000`
     ),
     manifestNos: await column(
-      `SELECT manifest_no AS v FROM certificates WHERE issued_at >= ${since} AND issued_at < ${until} ORDER BY random() LIMIT 1000`
+      `SELECT manifest_no AS v FROM ${view}certificates WHERE issued_at >= ${since} AND issued_at < ${until} ORDER BY random() LIMIT 1000`
     ),
     tripIds: await column(
-      `SELECT id::text AS v FROM manifests WHERE departure_at >= ${since} AND departure_at < ${until} ORDER BY random() LIMIT 1000`
+      `SELECT id::text AS v FROM ${view}manifests WHERE departure_at >= ${since} AND departure_at < ${until} ORDER BY random() LIMIT 1000`
     )
   })
   write('search.json', {
-    billIds: await sample('bill_id', 'payments'),
-    manifestNos: await sample('manifest_no', 'certificates'),
+    billIds: await sample('bill_id', 'all_payments'),
+    manifestNos: await sample('manifest_no', 'all_certificates'),
     plates: await column(`SELECT plate_number AS v FROM vehicles ORDER BY random() LIMIT 1000`),
     idNumbers: await sample('id_number', 'people'),
-    tripIds: await sample('id::text', 'manifests'),
+    tripIds: await sample('id::text', 'all_manifests'),
     recent: await lookups(`now() - interval '7 days'`, `now()`),
-    older: await lookups(`'-infinity'`, `now() - interval '7 days'`)
+    older: await lookups(`'-infinity'`, `now() - interval '7 days'`, 'all_')
   })
 }
 
@@ -166,43 +176,46 @@ if (DATA_ONLY) {
   process.exit(0)
 }
 
-const [{ count: existing }] = await sql<{ count: number }[]>`
-  SELECT count(*)::int AS count FROM companies WHERE name LIKE 'LT %'`
-if (existing > 0) {
-  console.error('This database already has load-test data. Drop it and migrate again to reseed.')
-  process.exit(1)
-}
-
-// The demo companies first, as the API would seed them in demo mode (its plates and phones never
-// collide with the ones below)
 // The bulk inserts below skip the payment flow: the summary is stale until it's rebuilt at the end
 await markSummaryStale()
-step('Seeding the demo data')
-await ensureDemoData()
-await objectStore.put(
-  SAMPLE_DOCUMENT,
-  new TextEncoder().encode('%PDF-1.4\n% Masarat load-test sample attachment\n%%EOF\n'),
-  'application/pdf'
-)
 await closeDb()
 
-step(
-  `${COMPANIES} companies × (${BRANCHES_PER_COMPANY} branches, ${TRUCKS_PER_COMPANY} trucks, ` +
-    `${BUSES_PER_COMPANY} buses, ${DRIVERS_PER_COMPANY} drivers); ${TRIPS_PER_DAY} trips a day for ${DAYS} days, ` +
-    `${Math.round(BUS_SHARE * 100)}% by bus, passengers from ${PEOPLE} people`
-)
+if (!APPEND) {
+  const [{ count: existing }] = await sql<{ count: number }[]>`
+  SELECT count(*)::int AS count FROM companies WHERE name LIKE 'LT %'`
+  if (existing > 0) {
+    console.error('This database already has load-test data. Drop it and migrate again to reseed.')
+    process.exit(1)
+  }
 
-const passwordHash = await hashPassword(LOAD_PASSWORD)
-const permissionRows = (key: 'clerk' | 'accountant'): string =>
-  BUILTIN_ROLES[key].permissions.map((p) => `('${p}')`).join(', ')
+  // The demo companies first, as the API would seed them in demo mode (its plates and phones never
+  // collide with the ones below)
+  step('Seeding the demo data')
+  await ensureDemoData()
+  await objectStore.put(
+    SAMPLE_DOCUMENT,
+    new TextEncoder().encode('%PDF-1.4\n% Masarat load-test sample attachment\n%%EOF\n'),
+    'application/pdf'
+  )
+  await closeDb()
 
-// Companies, their roles and branches, members, vehicles and drivers
-await sql.begin(async (tx) => {
-  await tx`
+  step(
+    `${COMPANIES} companies × (${BRANCHES_PER_COMPANY} branches, ${TRUCKS_PER_COMPANY} trucks, ` +
+      `${BUSES_PER_COMPANY} buses, ${DRIVERS_PER_COMPANY} drivers); ${TRIPS_PER_DAY} trips a day for ${DAYS} days, ` +
+      `${Math.round(BUS_SHARE * 100)}% by bus, passengers from ${PEOPLE} people`
+  )
+
+  const passwordHash = await hashPassword(LOAD_PASSWORD)
+  const permissionRows = (key: 'clerk' | 'accountant'): string =>
+    BUILTIN_ROLES[key].permissions.map((p) => `('${p}')`).join(', ')
+
+  // Companies, their roles and branches, members, vehicles and drivers
+  await sql.begin(async (tx) => {
+    await tx`
     INSERT INTO companies (name, address, tin)
     SELECT 'LT ' || lpad(i::text, 4, '0') || ' للنقل', 'الخرطوم، شارع ' || i, 'TIN' || lpad(i::text, 9, '0')
     FROM generate_series(1, ${COMPANIES}) i`
-  await tx`
+    await tx`
     INSERT INTO roles (company_id, key, name, scope)
     SELECT c.id, r.key, r.name, r.scope
     FROM companies c
@@ -210,16 +223,16 @@ await sql.begin(async (tx) => {
                        ('clerk', 'Clerk', 'branch'),
                        ('accountant', 'Accountant', 'company')) r(key, name, scope)
     WHERE c.name LIKE 'LT %'`
-  for (const key of ['clerk', 'accountant'] as const) {
-    await tx.unsafe(`
+    for (const key of ['clerk', 'accountant'] as const) {
+      await tx.unsafe(`
       INSERT INTO role_permissions (role_id, permission)
       SELECT r.id, p.permission FROM roles r
       JOIN companies c ON c.id = r.company_id AND c.name LIKE 'LT %'
       CROSS JOIN (VALUES ${permissionRows(key)}) p(permission)
       WHERE r.key = '${key}'`)
-  }
-  // Branches in state capitals, a different set per company
-  await tx`
+    }
+    // Branches in state capitals, a different set per company
+    await tx`
     WITH caps AS (SELECT row_number() OVER (ORDER BY capital_city_id) - 1 AS i, capital_city_id AS city_id
                   FROM states WHERE capital_city_id IS NOT NULL),
          n AS (SELECT count(*) AS n FROM caps),
@@ -229,8 +242,8 @@ await sql.begin(async (tx) => {
     FROM lc CROSS JOIN generate_series(0, ${BRANCHES_PER_COMPANY - 1}) k CROSS JOIN n
     JOIN caps ON caps.i = (lc.cidx + k * 5) % n.n`
 
-  // Members: an admin and an accountant per company, clerks per branch, and the government's agents
-  await tx`
+    // Members: an admin and an accountant per company, clerks per branch, and the government's agents
+    await tx`
     WITH lc AS (SELECT row_number() OVER (ORDER BY id) AS ci, id FROM companies WHERE name LIKE 'LT %'),
          people AS (
            SELECT lc.id AS company_id, 'lt.c' || lc.ci || '.admin' AS username, 'company_admin' AS key, NULL::int AS branch_id
@@ -249,7 +262,7 @@ await sql.begin(async (tx) => {
            '+24911' || lpad((row_number() OVER (ORDER BY p.username))::text, 7, '0'),
            p.company_id, r.id, p.branch_id
     FROM people p JOIN roles r ON r.company_id = p.company_id AND r.key = p.key`
-  await tx`
+    await tx`
     INSERT INTO users (username, password_hash, kind, full_name, phone, role_id)
     SELECT 'lt.govt' || i, ${passwordHash}, 'govt', 'موظف حكومي ' || i,
            '+24912' || lpad(i::text, 7, '0'),
@@ -259,10 +272,10 @@ await sql.begin(async (tx) => {
               AND key = CASE WHEN i <= 5 THEN 'govt_supervisor' ELSE 'govt_agent' END)
     FROM generate_series(1, ${GOVT_USERS}) i`
 
-  // Vehicles: trucks (tankers count in liters) and buses, each with a unique plate
-  const codes = `ARRAY[${LOAD_PLATE_CODES.map((c) => `'${c}'`).join(',')}]`
-  const nCodes = LOAD_PLATE_CODES.length
-  await tx.unsafe(`
+    // Vehicles: trucks (tankers count in liters) and buses, each with a unique plate
+    const codes = `ARRAY[${LOAD_PLATE_CODES.map((c) => `'${c}'`).join(',')}]`
+    const nCodes = LOAD_PLATE_CODES.length
+    await tx.unsafe(`
     WITH lc AS (SELECT row_number() OVER (ORDER BY id) - 1 AS cidx, id FROM companies WHERE name LIKE 'LT %'),
          v AS (
            SELECT lc.id AS company_id, g, k,
@@ -280,15 +293,16 @@ await sql.begin(async (tx) => {
            CASE vehicle_type WHEN 'bus' THEN 45 + g % 6 WHEN 'tanker' THEN 36000 ELSE 40 END,
            CASE vehicle_type WHEN 'bus' THEN 'seat' WHEN 'tanker' THEN 'liter' ELSE 'ton' END
     FROM v`)
-  await tx`
+    await tx`
     WITH lc AS (SELECT row_number() OVER (ORDER BY id) - 1 AS cidx, id FROM companies WHERE name LIKE 'LT %')
     INSERT INTO drivers (company_id, name, phone)
     SELECT lc.id, (ARRAY['محمد','أحمد','عثمان','عبدالله','الطيب','حسن','إبراهيم','الصادق'])[1 + k % 8] || ' ' ||
                   (ARRAY['آدم','موسى','الأمين','عمر','بابكر','يوسف','علي'])[1 + (k / 8) % 7] || ' ' || k,
            '+24913' || lpad((lc.cidx * ${DRIVERS_PER_COMPANY} + k)::text, 7, '0')
     FROM lc CROSS JOIN generate_series(0, ${DRIVERS_PER_COMPANY - 1}) k`
-})
-step('Companies, members, vehicles and drivers done')
+  })
+  step('Companies, members, vehicles and drivers done')
+}
 
 // Lookup tables the trip generator joins on: each company's vehicles, drivers and branches by
 // position, and the routes between state capitals with their road distance
@@ -323,6 +337,44 @@ await sql.unsafe(`
   ANALYZE lt_company, lt_truck, lt_bus, lt_driver, lt_branch, lt_route;
 `)
 const [{ routes }] = await sql<{ routes: number }[]>`SELECT count(*)::int AS routes FROM lt_route`
+
+// Days to seed, as offsets from today: by default DAYS-1 ago to tomorrow; with --append, the DAYS
+// before the oldest trip already there
+let offsets = Array.from({ length: DAYS + 1 }, (_, i) => i - DAYS + 1)
+if (APPEND) {
+  // The fleet and the people as they were seeded (every company has the same shape), so the new
+  // trips use the same vehicles, drivers, branches and passengers
+  const [fleet] = await sql<
+    { companies: number; trucks: number; buses: number; drivers: number; branches: number }[]
+  >`SELECT (SELECT count(*)::int FROM lt_company) AS companies,
+           (SELECT min(n)::int FROM (SELECT count(*) n FROM lt_truck GROUP BY company_id) x) AS trucks,
+           (SELECT min(n)::int FROM (SELECT count(*) n FROM lt_bus GROUP BY company_id) x) AS buses,
+           (SELECT min(n)::int FROM (SELECT count(*) n FROM lt_driver GROUP BY company_id) x) AS drivers,
+           (SELECT min(n)::int FROM (SELECT count(*) n FROM lt_branch GROUP BY company_id) x) AS branches`
+  if (!fleet?.companies || fleet.branches !== BRANCHES_PER_COMPANY) {
+    console.error('--append needs a database already seeded by this script.')
+    process.exit(1)
+  }
+  COMPANIES = fleet.companies
+  TRUCKS_PER_COMPANY = fleet.trucks
+  BUSES_PER_COMPANY = fleet.buses
+  DRIVERS_PER_COMPANY = fleet.drivers
+  if (!args.people) {
+    const [pool] = await sql<{ n: number | null }[]>`
+      SELECT max(id_number::bigint - 10000000000)::int + 1 AS n FROM people
+      WHERE id_type = 'national_id' AND id_number ~ '^1[0-9]{10}$'`
+    if (pool?.n) PEOPLE = pool.n
+  }
+  const [{ oldest }] = await sql<{ oldest: number }[]>`
+    SELECT (min(departure_at)::date - current_date) AS oldest FROM all_manifests
+    WHERE company_id IN (SELECT id FROM lt_company)`
+  offsets = Array.from({ length: DAYS }, (_, i) => oldest - DAYS + i)
+  step(
+    `Appending ${DAYS} days (${offsets[0]} to ${offsets.at(-1)} from today) at ${TRIPS_PER_DAY} trips a day ` +
+      `to ${COMPANIES} companies × (${TRUCKS_PER_COMPANY} trucks, ${BUSES_PER_COMPANY} buses, ` +
+      `${DRIVERS_PER_COMPANY} drivers), passengers from ${PEOPLE} people`
+  )
+}
 
 // Pricing and the taxes and fees as they are now, built into the SQL
 const rates = await sql<{ code: string; rate_per_km: number; per_quantity: number }[]>`
@@ -540,8 +592,8 @@ SELECT id,
 FROM billed WHERE status = 'certified'
 `
 
-// Days from DAYS-1 ago to tomorrow, spread over the workers
-const offsets = Array.from({ length: DAYS + 1 }, (_, i) => i - DAYS + 1)
+// The days, spread over the workers
+const total = offsets.length
 let done = 0
 const worker = async (): Promise<void> => {
   for (;;) {
@@ -558,7 +610,7 @@ const worker = async (): Promise<void> => {
       }
     }
     done++
-    if (done % 10 === 0 || done === DAYS + 1) step(`${done} / ${DAYS + 1} days of trips`)
+    if (done % 10 === 0 || done === total) step(`${done} / ${total} days of trips`)
   }
 }
 await Promise.all(Array.from({ length: WORKERS }, worker))

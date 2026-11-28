@@ -127,6 +127,13 @@
       "when": 1795692276309,
       "tag": "0017_name_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795853975566,
+      "tag": "0018_dashboard_facts_month",
+      "breakpoints": true
     }
   ]
 }

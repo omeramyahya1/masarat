@@ -8,6 +8,10 @@
 // The portal adds the two together (mergeDashboard in @masarat/shared/dashboard), keeps the history
 // until the next night and asks only for today when refreshed. Exact to the minute isn't needed:
 // statuses and payments are as they were when their day was last aggregated.
+//
+// Each whole month's days are also added up into dashboard_facts_month, so a long range reads its
+// whole months there (a row per month) and only its first and last days from dashboard_facts:
+// a day holds about as many fact rows as trips, so twelve months of days were millions of rows.
 import { sql, type SQL } from 'drizzle-orm'
 import {
   formatDay,
@@ -53,6 +57,13 @@ const addDays = (day: string, days: number): string => {
   return formatDay(date)
 }
 const ts = (day: string): SQL => sql`${day}::date::timestamptz`
+// The first day of the day's month, and of the next month
+const monthOf = (day: string): string => `${day.slice(0, 7)}-01`
+const nextMonth = (day: string): string => {
+  const date = parseDay(monthOf(day))!
+  date.setMonth(date.getMonth() + 1)
+  return formatDay(date)
+}
 
 // Every figure of [from, to) (local midnights), as rows shaped like dashboard_facts. Reads live and
 // archived trips (the all_* views), or only the live tables for today: a trip paid, billed, booked
@@ -142,7 +153,8 @@ const FACT_COLUMNS = sql.raw(
     'key, name, name_ar, value, n'
 )
 
-// Recomputes the facts of the days [fromDay, toDay), a month per transaction
+// Recomputes the facts of the days [fromDay, toDay), a month per transaction, then the months
+// they fall in that are over by toDay (the days before toDay are all stored)
 export async function rebuildFacts(fromDay: string, toDay: string): Promise<void> {
   for (let start = fromDay; start < toDay;) {
     const end = addDays(start, 31) < toDay ? addDays(start, 31) : toDay
@@ -155,6 +167,48 @@ export async function rebuildFacts(fromDay: string, toDay: string): Promise<void
     })
     start = end
   }
+  for (let month = monthOf(fromDay); nextMonth(month) <= toDay; month = nextMonth(month)) {
+    await rebuildMonth(month)
+  }
+}
+
+// Adds up one month's stored days into dashboard_facts_month
+async function rebuildMonth(month: string): Promise<void> {
+  await getDb().transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL statement_timeout = 0`)
+    await tx.execute(sql`DELETE FROM dashboard_facts_month WHERE day = ${month}`)
+    // A charge's name is its latest one in the month
+    await tx.execute(sql`
+      INSERT INTO dashboard_facts_month (${FACT_COLUMNS})
+      SELECT ${month}::date, kind, origin_city_id, destination_city_id, category, trip_kind,
+             vehicle_type, cargo_type, key,
+             (array_agg(name ORDER BY day DESC))[1], (array_agg(name_ar ORDER BY day DESC))[1],
+             sum(value), sum(n)
+      FROM dashboard_facts WHERE day >= ${month} AND day < ${nextMonth(month)}
+      GROUP BY kind, origin_city_id, destination_city_id, category, trip_kind, vehicle_type,
+               cargo_type, key`)
+  })
+}
+
+// The months over by toDay, since the first trip, that have no monthly rows yet (the daily facts
+// stored before the monthly ones existed, or a month without a single fact)
+async function fillMissingMonths(toDay: string): Promise<number> {
+  const first = await firstDay()
+  if (!first) return 0
+  const stored = new Set(
+    (
+      await getDb().execute<{ day: string }>(
+        sql`SELECT DISTINCT day::text AS day FROM dashboard_facts_month`
+      )
+    ).map((r) => r.day)
+  )
+  let filled = 0
+  for (let month = monthOf(first); nextMonth(month) <= toDay; month = nextMonth(month)) {
+    if (stored.has(month)) continue
+    await rebuildMonth(month)
+    filled++
+  }
+  return filled
 }
 
 async function setMarker(db: Executor, key: string, value: number): Promise<void> {
@@ -195,6 +249,7 @@ export async function aggregateDashboard(now = new Date()): Promise<number> {
   if (recentFrom < from) from = recentFrom
   const started = performance.now()
   await rebuildFacts(from, today)
+  const months = await fillMissingMonths(today)
   await setMarker(getDb(), THROUGH_KEY, dayNumber(addDays(today, -1)))
   await setMarker(getDb(), ON_KEY, dayNumber(today))
   const days = Math.round((parseDay(today)!.getTime() - parseDay(from)!.getTime()) / 86_400_000)
@@ -202,6 +257,7 @@ export async function aggregateDashboard(now = new Date()): Promise<number> {
     from,
     to: today,
     days,
+    missingMonths: months,
     ms: Math.round(performance.now() - started)
   })
   return days
@@ -217,6 +273,7 @@ export async function nightlyDashboardAggregate(now = new Date()): Promise<numbe
 // After bulk changes (regenerating the demo data, seeding): everything is computed again
 export async function resetDashboardFacts(): Promise<void> {
   await getDb().execute(sql`DELETE FROM dashboard_facts`)
+  await getDb().execute(sql`DELETE FROM dashboard_facts_month`)
   await getDb().execute(sql`DELETE FROM system_settings WHERE key IN (${THROUGH_KEY}, ${ON_KEY})`)
 }
 
@@ -240,15 +297,35 @@ function factFilters(f: AnalyticsFilters): SQL {
 }
 
 // The fact rows of [fromDay, toDay): the days the aggregates cover from dashboard_facts, any later
-// ones computed live (normally none: the nightly job covers up to yesterday)
-function factSource(fromDay: string, toDay: string, through: string | null): SQL {
+// ones computed live (normally none: the nightly job covers up to yesterday). With `months`, the
+// whole months among the stored days come from dashboard_facts_month (a row per month, its day
+// the month's first): for every figure but the revenue by day.
+function factSource(
+  fromDay: string,
+  toDay: string,
+  through: string | null,
+  { months = false } = {}
+): SQL {
   const coveredTo = through ? addDays(through, 1) : fromDay
   const storedTo = coveredTo < toDay ? coveredTo : toDay
   const liveFrom = storedTo > fromDay ? storedTo : fromDay
   const parts: SQL[] = []
-  if (storedTo > fromDay) {
-    parts.push(sql`SELECT ${FACT_COLUMNS} FROM dashboard_facts
-      WHERE day >= ${fromDay} AND day < ${storedTo}`)
+  const days = (from: string, to: string): void => {
+    if (to > from) {
+      parts.push(sql`SELECT ${FACT_COLUMNS} FROM dashboard_facts
+        WHERE day >= ${from} AND day < ${to}`)
+    }
+  }
+  // The whole months inside [fromDay, storedTo)
+  const monthsFrom = fromDay === monthOf(fromDay) ? fromDay : nextMonth(fromDay)
+  const monthsTo = monthOf(storedTo)
+  if (months && monthsFrom < monthsTo) {
+    days(fromDay, monthsFrom)
+    parts.push(sql`SELECT ${FACT_COLUMNS} FROM dashboard_facts_month
+      WHERE day >= ${monthsFrom} AND day < ${monthsTo}`)
+    days(monthsTo, storedTo)
+  } else {
+    days(fromDay, storedTo)
   }
   if (liveFrom < toDay) {
     parts.push(sql`SELECT ${FACT_COLUMNS} FROM (${factsSelect(ts(liveFrom), ts(toDay))}) live`)
@@ -258,7 +335,8 @@ function factSource(fromDay: string, toDay: string, through: string | null): SQL
 }
 
 async function summarize(
-  source: SQL,
+  // The rows to add up, and the same by day (for the revenue by day; may be the same rows)
+  { source, daily }: { source: SQL; daily: SQL },
   filters: AnalyticsFilters,
   view: DashboardView,
   from: number,
@@ -322,15 +400,17 @@ async function summarize(
       GROUP BY f.kind`),
     rows<{ day: string; revenue: number; trips: number }>(sql`
       SELECT f.day::text AS day, sum(f.value)::float8 AS revenue, sum(f.n)::int AS trips
-      FROM ${source} WHERE f.kind = 'paid' AND ${where} GROUP BY 1 ORDER BY 1`),
+      FROM ${daily} WHERE f.kind = 'paid' AND ${where} GROUP BY 1 ORDER BY 1`),
     rows<{ key: string; revenue: number; trips: number }>(sql`
       SELECT f.key, sum(f.value)::float8 AS revenue, sum(f.n)::int AS trips FROM ${source}
       WHERE f.kind = 'cargo' AND ${where} GROUP BY f.key`),
-    rows<{ key: string; name: string; name_ar: string; revenue: number }>(sql`
-      SELECT f.key, (array_agg(f.name ORDER BY f.day DESC))[1] AS name,
-             (array_agg(f.name_ar ORDER BY f.day DESC))[1] AS name_ar,
-             sum(f.value)::float8 AS revenue
-      FROM ${source} WHERE f.kind = 'charge' AND ${where} GROUP BY f.key`),
+    // By code and name (a charge renamed has a row per name), with the latest day of each name:
+    // the latest one names the charge (latestNames). Hashed, not sorted: millions of rows.
+    rows<{ key: string; name: string; name_ar: string; revenue: number; last: string }>(sql`
+      SELECT f.key, f.name, f.name_ar, sum(f.value)::float8 AS revenue, max(f.day)::text AS last
+      FROM ${source} WHERE f.kind = 'charge' AND ${where} GROUP BY f.key, f.name, f.name_ar`).then(
+      latestNames
+    ),
     rows<{ key: string; n: number }>(sql`
       SELECT f.key, sum(f.n)::int AS n FROM ${source}
       WHERE f.kind = 'status' AND ${where} GROUP BY f.key`),
@@ -372,6 +452,18 @@ async function summarize(
   return part
 }
 
+// One row per charge: its revenue under every name, and the name of its latest day
+function latestNames<T extends { key: string; revenue: number; last: string }>(rows: T[]): T[] {
+  const byKey = new Map<string, T>()
+  for (const row of rows) {
+    const seen = byKey.get(row.key)
+    const revenue = Number(row.revenue) + Number(seen?.revenue ?? 0)
+    const latest = !seen || row.last > seen.last ? row : seen
+    byKey.set(row.key, { ...latest, revenue })
+  }
+  return [...byKey.values()]
+}
+
 // Whole days of the range before today, and the period of the same length before it
 export async function dashboardHistory(
   filters: AnalyticsFilters,
@@ -384,7 +476,16 @@ export async function dashboardHistory(
   const toDay = formatDay(historyTo)
   const part =
     fromDay < toDay
-      ? await summarize(factSource(fromDay, toDay, through), filters, view, +from, +historyTo)
+      ? await summarize(
+          {
+            source: factSource(fromDay, toDay, through, { months: true }),
+            daily: factSource(fromDay, toDay, through)
+          },
+          filters,
+          view,
+          +from,
+          +historyTo
+        )
       : emptyPart(+from, +historyTo)
 
   // The previous period: as long as the range, ending where it starts, if the records reach back
@@ -394,7 +495,8 @@ export async function dashboardHistory(
   let previousRevenue: number | null = null
   if (first && first <= previousFrom) {
     const [row] = await getDb().execute<{ value: number | null }>(sql`
-      SELECT sum(f.value)::float8 AS value FROM ${factSource(previousFrom, fromDay, through)}
+      SELECT sum(f.value)::float8 AS value
+      FROM ${factSource(previousFrom, fromDay, through, { months: true })}
       WHERE f.kind = 'paid' AND ${factFilters(filters)}`)
     previousRevenue = Number(row?.value ?? 0)
   }
@@ -410,15 +512,10 @@ export async function dashboardToday(
   const { from, to, today, hasToday } = splitRange(filters, now)
   const start = today > from ? today : from
   const todayDay = formatDay(start)
+  // Nothing stored for today: all of it live, up to now
+  const live = sql`(SELECT ${FACT_COLUMNS} FROM (${factsSelect(ts(todayDay), sql`${to.toISOString()}::timestamptz`, 'live')}) live) f`
   const part = hasToday
-    ? await summarize(
-        // Nothing stored for today: all of it live, up to now
-        sql`(SELECT ${FACT_COLUMNS} FROM (${factsSelect(ts(todayDay), sql`${to.toISOString()}::timestamptz`, 'live')}) live) f`,
-        filters,
-        view,
-        +start,
-        +to
-      )
+    ? await summarize({ source: live, daily: live }, filters, view, +start, +to)
     : emptyPart(+start, +to)
   return { part, now: await currentFigures(filters, from, to, now) }
 }

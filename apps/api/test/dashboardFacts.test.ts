@@ -126,6 +126,68 @@ describe('dashboard aggregates', () => {
     await aggregateDashboard()
   })
 
+  test('each whole month is its days added up, in the monthly facts', async () => {
+    const totals = async (
+      table: 'dashboard_facts' | 'dashboard_facts_month'
+    ): Promise<{ kind: string; value: number; n: number }[]> =>
+      getDb().execute<{ kind: string; value: number; n: number }>(
+        sql`SELECT kind, round(sum(value)::numeric, 2)::float8 AS value, sum(n)::int AS n
+            FROM ${sql.raw(table)}
+            WHERE day >= date_trunc('month', now() - interval '2 months')
+              AND day < date_trunc('month', now())
+            GROUP BY kind ORDER BY kind`
+      )
+    const daily = await totals('dashboard_facts')
+    expect(daily.length).toBeGreaterThan(0)
+    expect(await totals('dashboard_facts_month')).toEqual(daily)
+  })
+
+  test('months without their monthly facts get them on the next aggregation', async () => {
+    const count = async (): Promise<number> =>
+      Number(
+        (
+          await getDb().execute<{ n: number }>(
+            sql`SELECT count(*)::int AS n FROM dashboard_facts_month`
+          )
+        )[0]!.n
+      )
+    const before = await count()
+    expect(before).toBeGreaterThan(0)
+    // As on a database aggregated before the monthly facts existed
+    await getDb().execute(sql`DELETE FROM dashboard_facts_month`)
+    await aggregateDashboard()
+    expect(await count()).toBe(before)
+  })
+
+  test('a renamed charge keeps all its revenue, under its latest name', async () => {
+    const view: DashboardView = { bucket: null, breakdown: 'route', sort: 'revenue' }
+    const filters: AnalyticsFilters = { range: { preset: '12m' } }
+    const before = await dashboardHistory(filters, view)
+    const vat = before.part.byTax.find((t) => t.code === 'vat')!
+    expect(vat).toBeDefined()
+    // VAT was called something else until two months ago
+    const rename = (name: string): Promise<unknown> =>
+      Promise.all(
+        ['dashboard_facts', 'dashboard_facts_month'].map((table) =>
+          getDb().execute(
+            sql`UPDATE ${sql.raw(table)} SET name = ${name}
+                WHERE kind = 'charge' AND key = 'vat' AND day < date_trunc('month', now() - interval '2 months')`
+          )
+        )
+      )
+    await rename('Old VAT')
+    try {
+      const after = (await dashboardHistory(filters, view)).part.byTax.filter(
+        (t) => t.code === 'vat'
+      )
+      expect(after).toHaveLength(1)
+      expect(after[0]!.name).toBe(vat.name)
+      close(after[0]!.revenue, vat.revenue)
+    } finally {
+      await rename(vat.name)
+    }
+  })
+
   test('the routes answer both parts', async () => {
     const body = {
       filters: { range: { preset: '30d' } },

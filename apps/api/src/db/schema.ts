@@ -868,28 +868,37 @@ export const DASHBOARD_FACT_KINDS = [
   'certificates'
 ] as const
 
-export const dashboardFacts = pgTable(
-  'dashboard_facts',
-  {
-    day: date('day', { mode: 'string' }).notNull(),
-    kind: text('kind', { enum: DASHBOARD_FACT_KINDS }).notNull(),
-    originCityId: integer('origin_city_id'),
-    destinationCityId: integer('destination_city_id'),
-    category: text('category'),
-    tripKind: text('trip_kind'),
-    vehicleType: text('vehicle_type'),
-    cargoType: text('cargo_type'),
-    key: text('key').notNull().default(''),
-    name: text('name'),
-    nameAr: text('name_ar'),
-    value: doublePrecision('value').notNull().default(0),
-    n: integer('n').notNull().default(0)
-  },
-  (t) => [
-    index('dashboard_facts_kind_day_idx').on(t.kind, t.day),
-    check('dashboard_facts_kind_check', sql`${t.kind} IN (${inList(DASHBOARD_FACT_KINDS)})`)
-  ]
-)
+// The same columns for the daily facts and the monthly ones (a builder per table: Drizzle names
+// its columns in place). Its type is Drizzle's column builders, inferred.
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+const factColumns = () => ({
+  day: date('day', { mode: 'string' }).notNull(),
+  kind: text('kind', { enum: DASHBOARD_FACT_KINDS }).notNull(),
+  originCityId: integer('origin_city_id'),
+  destinationCityId: integer('destination_city_id'),
+  category: text('category'),
+  tripKind: text('trip_kind'),
+  vehicleType: text('vehicle_type'),
+  cargoType: text('cargo_type'),
+  key: text('key').notNull().default(''),
+  name: text('name'),
+  nameAr: text('name_ar'),
+  value: doublePrecision('value').notNull().default(0),
+  n: integer('n').notNull().default(0)
+})
+
+export const dashboardFacts = pgTable('dashboard_facts', factColumns(), (t) => [
+  index('dashboard_facts_kind_day_idx').on(t.kind, t.day),
+  check('dashboard_facts_kind_check', sql`${t.kind} IN (${inList(DASHBOARD_FACT_KINDS)})`)
+])
+
+// The daily facts of each whole month added up (day: the month's first day), so a long range reads
+// a row per month instead of one per day: the grain is fine enough that a day holds about as many
+// rows as it has trips. Rebuilt with its days (rebuildFacts); a month is stored once it's over.
+export const dashboardFactsMonth = pgTable('dashboard_facts_month', factColumns(), (t) => [
+  index('dashboard_facts_month_kind_day_idx').on(t.kind, t.day),
+  check('dashboard_facts_month_kind_check', sql`${t.kind} IN (${inList(DASHBOARD_FACT_KINDS)})`)
+])
 
 // The government's review of issued clearances (packages/shared/src/reviews.ts). Both tables point
 // to a trip by its id without a foreign key: the trip may move to the archive (services/archive.ts

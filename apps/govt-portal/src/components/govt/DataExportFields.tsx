@@ -70,9 +70,11 @@ function DataExportFields({
   const [error, setError] = useState<FleetErrorCode | null>(null)
   // Rows per dataset of the last file downloaded
   const [result, setResult] = useState<ExportRows | null>(null)
-  // The export queued from this dialog: its file is saved as soon as it's ready
+  // The export queued from this dialog: its file is saved as soon as it's ready, once
   const [startedHere, setStartedHere] = useState<string | null>(null)
-  const saved = useRef<string | null>(null)
+  const autoSaved = useRef<string | null>(null)
+  // That automatic save failed: Download offers it again
+  const [autoSaveFailed, setAutoSaveFailed] = useState<string | null>(null)
 
   const job = useQuery({
     queryKey: queryKeys.exportJob,
@@ -85,26 +87,40 @@ function DataExportFields({
   const current = job.data ?? null
   const inProgress = current !== null && IN_PROGRESS.includes(current.status)
 
-  const saveExport = async (id: string): Promise<void> => {
-    saved.current = id
+  // Downloads and saves the file; false when that failed (the error is shown)
+  const saveExport = async (id: string): Promise<boolean> => {
     try {
       const response = await api.govt.exports.file(id)
       if (!response.ok) {
         if (mounted.current) setError(response.error)
-        return
+        return false
       }
       // Saved even if the dialog was closed meanwhile
       saveFile(response.data)
-      if (mounted.current) setResult(response.data.rows)
+      if (mounted.current) {
+        setError(null)
+        setResult(response.data.rows)
+      }
+      return true
     } catch {
       if (mounted.current) setError('unknown')
+      return false
     }
   }
 
-  // The export queued here is saved once it's ready; an earlier one waits for Download
+  // The export queued here is saved once it's ready (one try; if it fails, Download is offered);
+  // an earlier one waits for Download
   useEffect(() => {
-    if (current?.status === 'done' && current.id === startedHere && saved.current !== current.id) {
-      void saveExport(current.id)
+    if (
+      current?.status === 'done' &&
+      current.id === startedHere &&
+      autoSaved.current !== current.id
+    ) {
+      const id = current.id
+      autoSaved.current = id
+      void saveExport(id).then((ok) => {
+        if (!ok && mounted.current) setAutoSaveFailed(id)
+      })
     }
   })
 
@@ -166,6 +182,8 @@ function DataExportFields({
         return
       }
       setStartedHere(response.data.id)
+      // A fetch of the job started before this one could land after it and replace it
+      await queryClient.cancelQueries({ queryKey: queryKeys.exportJob })
       queryClient.setQueryData(queryKeys.exportJob, response.data)
     } catch {
       if (mounted.current) setError('unknown')
@@ -177,8 +195,10 @@ function DataExportFields({
   const cancelExport = async (): Promise<void> => {
     if (!current) return
     const response = await api.govt.exports.cancel(current.id)
-    if (response.ok) queryClient.setQueryData(queryKeys.exportJob, response.data)
-    else if (mounted.current) setError(response.error)
+    if (response.ok) {
+      await queryClient.cancelQueries({ queryKey: queryKeys.exportJob })
+      queryClient.setQueryData(queryKeys.exportJob, response.data)
+    } else if (mounted.current) setError(response.error)
   }
 
   // A failed export's reason, with the counts when a dataset is over Excel's limit
@@ -346,7 +366,7 @@ function DataExportFields({
         />
       ) : (
         current?.status === 'done' &&
-        current.id !== startedHere && (
+        (current.id !== startedHere || current.id === autoSaveFailed) && (
           <div className="flex items-center gap-3 rounded-lg border border-stone-200 p-3 text-sm">
             <span className="flex-1">
               {t('govt.export.ready', { rows: rowsText(current.rows ?? {}) })}

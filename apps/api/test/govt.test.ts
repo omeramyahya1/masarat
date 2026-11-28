@@ -209,6 +209,25 @@ describe('search', () => {
     expect(dates).toEqual([...dates].sort((a, b) => b - a))
   })
 
+  test('every match is listed once, however many of the conditions find it', async () => {
+    // Each condition (plate, company, cities, names, …) is searched on its own and the results
+    // merged: across all the pages, every trip appears exactly once
+    const ids: number[] = []
+    const { total } = (await govt.call('GET', '/govt/search?query=nile&pageSize=100')).body.data
+    for (let page = 1; page <= Math.ceil(total / 100); page++) {
+      const { rows } = (await govt.call('GET', `/govt/search?query=nile&pageSize=100&page=${page}`))
+        .body.data
+      ids.push(...rows.map((r: { manifestId: number }) => r.manifestId))
+    }
+    expect(ids).toHaveLength(total)
+    expect(new Set(ids).size).toBe(total)
+    // A city's name: its trips match as their origin and as their destination
+    const page = (
+      await govt.call('GET', `/govt/search?query=${encodeURIComponent('الخرطوم')}&pageSize=100`)
+    ).body.data.rows.map((r: { manifestId: number }) => r.manifestId)
+    expect(new Set(page).size).toBe(page.length)
+  })
+
   test('an empty search is refused', async () => {
     expect((await govt.call('GET', '/govt/search')).body.error).toBe('missing_fields')
   })

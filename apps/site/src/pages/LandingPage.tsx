@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { CheckCircle2, FileCheck2, QrCode } from 'lucide-react'
+import { BrandLockup } from '@masarat/ui/components/BrandMark'
 import { PANEL_ICONS } from '@masarat/ui/panels'
 import type { UserKind } from '@masarat/shared/permissions'
 import type { Page } from '../router'
@@ -49,6 +50,7 @@ function LandingPage({ navigate }: { navigate: (page: Page) => void }): React.JS
       <section className="bg-white">
         <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-14 sm:px-6 md:grid-cols-[3fr_2fr] md:py-20">
           <div>
+            <BrandLockup className="mb-8 h-14 w-auto sm:h-16" />
             <p className="mb-3 inline-flex rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-800">
               {t('site.hero.eyebrow')}
             </p>

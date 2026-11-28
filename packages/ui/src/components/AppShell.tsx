@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { LoaderCircle, LogOut, Route, UserRound, WifiOff } from 'lucide-react'
+import { LoaderCircle, LogOut, UserRound, WifiOff } from 'lucide-react'
 import type { AuthUser } from '@masarat/shared/auth'
 import type { UserKind } from '@masarat/shared/permissions'
 import { api, SIGNED_OUT_EVENT } from '@masarat/api-client'
 import { PORTAL_URLS, SITE_URL, changePasswordUrl, loginUrl } from '../lib/urls'
 import { AccountContext, useRoleName } from '../lib/account'
 import { queryClient } from '../lib/query'
+import { BrandMark } from './BrandMark'
 import ErrorBoundary from './ErrorBoundary'
 import LanguageToggle from './LanguageToggle'
 
@@ -73,9 +74,7 @@ function AppShell({ kind, version, children }: AppShellProps): React.JSX.Element
     <>
       <header className="z-10 flex h-16 shrink-0 items-center justify-between border-b border-stone-200 bg-white px-6">
         <div className="flex items-center gap-3">
-          <div className="flex size-9 items-center justify-center rounded-lg bg-brand-700 text-white">
-            <Route size={20} strokeWidth={2} />
-          </div>
+          <BrandMark />
           <div className="leading-tight">
             <div className="flex items-center gap-2 text-base font-semibold text-stone-900">
               {t('app.name')}

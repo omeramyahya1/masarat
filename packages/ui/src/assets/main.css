@@ -10,18 +10,21 @@
 /* The portal importing this file is scanned for classes by default; add the shared components */
 @source '..';
 
-/* Masarat palette: a muted, official green on a warm light canvas */
+/*
+ * Masarat palette: the logo's greens (brand/README.md). brand-600 is the logo's light green and
+ * brand-900 its dark green; brand-700 (buttons, links) keeps white text above 4.5:1.
+ */
 @theme {
-  --color-brand-50: #eef6f0;
-  --color-brand-100: #d6ebdc;
-  --color-brand-200: #acd5b8;
-  --color-brand-300: #78b98c;
-  --color-brand-400: #4c9b66;
-  --color-brand-500: #2f8550;
-  --color-brand-600: #1f7041;
-  --color-brand-700: #185b36;
-  --color-brand-800: #13492c;
-  --color-brand-900: #0e3821;
+  --color-brand-50: #ebf7f1;
+  --color-brand-100: #d2eee0;
+  --color-brand-200: #a6dcc2;
+  --color-brand-300: #6fc39c;
+  --color-brand-400: #36a575;
+  --color-brand-500: #0f925d;
+  --color-brand-600: #03814c;
+  --color-brand-700: #036a40;
+  --color-brand-800: #025236;
+  --color-brand-900: #01392e;
   --color-canvas: #f5f6f2;
 }
 

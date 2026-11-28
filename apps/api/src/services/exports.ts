@@ -484,7 +484,7 @@ function addSheet(
   }))
   const header = sheet.getRow(1)
   header.font = { bold: true }
-  header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE7F0EA' } }
+  header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEBF7F1' } } // brand-50
   return sheet
 }
 

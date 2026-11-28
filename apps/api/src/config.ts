@@ -61,6 +61,9 @@ export function buildConfig(env: Env) {
     appEnv,
     production,
     port: Number(env.PORT ?? 3000),
+    // Several API processes on one server share the port (Linux spreads the connections between
+    // them): one process per CPU, since a Bun process runs its JavaScript on one core
+    reusePort: env.REUSE_PORT === 'true',
     // The API connects as the least-privileged role (masarat_app: reads and writes rows, never
     // changes the schema); migrations, seeding and the tests' setup as the owner
     databaseUrl: required('DATABASE_URL', DEV.databaseUrl),

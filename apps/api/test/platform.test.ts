@@ -60,6 +60,12 @@ describe('production configuration', () => {
     const config = buildConfig({})
     expect(config.production).toBe(false)
     expect(config.databaseUrl).toContain('masarat_app')
+    expect(config.reusePort).toBe(false)
+  })
+
+  test('REUSE_PORT lets several processes share the port', () => {
+    expect(buildConfig({ REUSE_PORT: 'true' }).reusePort).toBe(true)
+    expect(buildConfig({ REUSE_PORT: 'yes' }).reusePort).toBe(false)
   })
 })
 

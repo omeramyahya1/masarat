@@ -75,6 +75,7 @@ scheduleJob({
 
 const server = Bun.serve({
   port: config.port,
+  reusePort: config.reusePort,
   // A request that sends nothing for this long is closed; Postgres's own limit (shorter) has
   // stopped its query by then. Demo regeneration lifts it for itself (routes/govt.ts).
   idleTimeout: config.requestTimeoutS,

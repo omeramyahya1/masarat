@@ -56,8 +56,8 @@ let form = null
 // A clerk books a trip at their branch and takes it through to the authorized manifest: open the
 // form, maybe attach the invoice and packing list, save, generate the bill, pay it (simulated),
 // refresh the status, and open the documents
-export function booking() {
-  if (!signIn(clerks)) return
+export function booking(data) {
+  if (!signIn(clerks, data)) return
   if (!form) {
     const reference = mustHave(api('GET', '/trips/reference', { kind: 'read' }), 'reference')
     const vehicles = mustHave(api('GET', '/vehicles', { kind: 'read' }), 'vehicles')
@@ -150,9 +150,9 @@ const LIST_VIEWS = [
   'pageSize=25&page=3'
 ]
 let myTrips = []
-export function browse() {
+export function browse(data) {
   // One in five is an accountant (company-wide), the rest clerks (their branch)
-  if (!signIn(__VU % 5 === 0 ? accountants : clerks)) return
+  if (!signIn(__VU % 5 === 0 ? accountants : clerks, data)) return
   const roll = Math.random()
   if (roll < 0.15) {
     api('GET', '/auth/me', { kind: 'read' })
@@ -192,8 +192,8 @@ const RANGES = [
 ]
 const BREAKDOWNS = ['route', 'originState', 'destinationState', 'cargoType', 'company', 'tripKind']
 let dashboardView = null
-export function govtDashboard() {
-  if (!signIn(govtSeniors)) return
+export function govtDashboard(data) {
+  if (!signIn(govtSeniors, data)) return
   // A new view 3 times in 10 (and the first time); otherwise a refresh of today
   if (!dashboardView || Math.random() < 0.3) {
     const filters = { range: pick(RANGES) }
@@ -209,8 +209,8 @@ export function govtDashboard() {
 
 // The other 95 government agents review: they search (this week's trips 9 times in 10), open a
 // trip, and look at one of its documents about a third of the time
-export function govtReview() {
-  if (!signIn(govtAgents)) return
+export function govtReview(data) {
+  if (!signIn(govtAgents, data)) return
   const term = Math.random() < 0.9 ? pick(recentTerms) : pick(olderTerms)
   const results = api('GET', `/govt/search?query=${encodeURIComponent(term)}&page=1&pageSize=25`, {
     kind: 'read',
@@ -234,8 +234,8 @@ export function govtReview() {
 // An occasional export: a month of trips and bills as Excel. The API queues it; the export worker
 // prepares it; the portal asks how it's going every 2 seconds, then downloads the file. The whole
 // wait is export_job_ms (thresholds in lib.js).
-export function exportData() {
-  if (!signIn(govtUsers)) return
+export function exportData(data) {
+  if (!signIn(govtUsers, data)) return
   const started = Date.now()
   const job = api('POST', '/govt/exports', {
     kind: 'export',

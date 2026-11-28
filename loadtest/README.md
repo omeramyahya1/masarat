@@ -106,6 +106,8 @@ Arguments of `run.sh`: label, API CPUs, Postgres CPUs, Postgres memory, the API'
 - `WORKER_CPUS`, `K6_CPUS`: where the export worker and k6 run (2-3 and 12-19 by default)
 - `TRIPS_PER_DAY`: the booking rate (20,000 by default); only bookings change
 
+Every account a virtual user signs in as is signed in by k6's `setup()`, 16 at a time, before the measured run starts (`signInAll` in `k6/lib.js`; tagged `session`, reported, no target). Signing in on their first iteration, all of them in the run's first seconds, was a sign-in storm no real shift has: it slowed every other request and dropped iterations. The login flow is the shift-start rush at its agreed rate. `setup:` in `k6.txt` gives how fast the API signed them in (the storm figure).
+
 A run's `result` is PASS, FAIL, or EXPORT-ONLY when only the exports' SLOs failed (the export worker fell behind its queue). A knee series goes on past EXPORT-ONLY, so the API's and Postgres's limit is still found; `failed` lists the thresholds that failed.
 
 The seeder (`apps/api/src/scripts/loadSeed.ts`) refuses any database whose name doesn't contain "load". It also seeds the demo companies, and writes the users and the lookup values the k6 scripts read into `loadtest/data/`. Everyone the test signs in as has the password `load2026`. Trips booked during the tests stay in the database; reseed (`wipe`, then step 1) to start clean.

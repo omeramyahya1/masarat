@@ -97,14 +97,64 @@ export function upload(docType, file) {
   return json && json.ok ? json.data : null
 }
 
-// Signs this virtual user in once (each VU has its own cookie jar); later iterations reuse it.
-// Tagged `session`, not `login`: every VU signs in within the run's first seconds, a burst no real
-// shift has (the login flow is the sign-in rush, at its agreed rate). Its p95 is reported, as what
-// a sign-in storm costs, with no target.
+// The accounts the run's virtual users sign in as (signIn picks list[(__VU - 1) % length]), signed
+// in by setup() before the measured run starts, 16 at a time: had every VU signed in on its first
+// iteration, the run's first seconds would be a sign-in storm no real shift has (all of them at
+// once), which both slowed everything else and dropped iterations. Tagged `session` (reported,
+// no target); the login flow is the sign-in rush, at its agreed rate. Returns username → session.
+export function signInAll(vus) {
+  const names = new Set()
+  for (const list of [clerks, accountants, govtSeniors, govtAgents, govtUsers]) {
+    for (let i = 0; i < Math.min(vus, list.length); i++) names.add(list[i])
+  }
+  const all = [...names]
+  const sessions = {}
+  const started = Date.now()
+  for (let i = 0; i < all.length; i += 16) {
+    const batch = all.slice(i, i + 16)
+    const replies = http.batch(
+      batch.map((username, j) => ({
+        method: 'POST',
+        url: `${BASE}/auth/login`,
+        body: JSON.stringify({ username, password: PASSWORD }),
+        params: {
+          headers: {
+            'Content-Type': 'application/json',
+            Origin: ORIGIN,
+            'X-Forwarded-For': `10.250.${(i + j) >> 8}.${(i + j) & 255}`
+          },
+          tags: { kind: 'session', name: 'POST /auth/login (session start)' }
+        }
+      }))
+    )
+    replies.forEach((res, j) => {
+      const cookie = res.cookies[SESSION_COOKIE]
+      if (res.status === 200 && cookie && cookie.length) sessions[batch[j]] = cookie[0].value
+    })
+  }
+  const seconds = (Date.now() - started) / 1000
+  console.log(
+    `setup: ${Object.keys(sessions).length} / ${all.length} sessions in ${seconds.toFixed(1)} s ` +
+      `(${(all.length / seconds).toFixed(1)} sign-ins a second, 16 at a time)`
+  )
+  return sessions
+}
+
+const SESSION_COOKIE = 'masarat_session'
+
+// This virtual user's session (each VU has its own cookie jar): the one setup() made for its
+// account, or a sign-in of its own on its first iteration (a run without setup's sessions); later
+// iterations reuse it
 let signedInAs = null
-export function signIn(list) {
+export function signIn(list, data) {
   const username = list[(__VU - 1) % list.length]
   if (signedInAs === username) return true
+  const session = data && data.sessions && data.sessions[username]
+  if (session) {
+    http.cookieJar().set(BASE, SESSION_COOKIE, session, { path: '/' })
+    signedInAs = username
+    return true
+  }
   const res = http.post(`${BASE}/auth/login`, JSON.stringify({ username, password: PASSWORD }), {
     headers: headers({ 'Content-Type': 'application/json' }),
     tags: { kind: 'session', name: 'POST /auth/login (session start)' }
@@ -154,8 +204,10 @@ export const thresholds = {
   'http_req_duration{kind:read}': ['p(95)<500'],
   'http_req_duration{kind:write}': ['p(95)<1000'],
   'http_req_duration{kind:login}': ['p(95)<1000'],
-  // Reported, no target (signIn)
+  // Reported, no target (signInAll), and counted, so the measured rate can leave setup's
+  // sign-ins out (http_reqs' rate covers setup too)
   'http_req_duration{kind:session}': ['p(95)<600000'],
+  'http_reqs{kind:session}': ['count>=0'],
   'http_req_duration{kind:verify}': ['p(95)<300'],
   'http_req_duration{kind:dashboard}': ['p(95)<3000'],
   // Queuing an export and downloading its file; the wait in between is export_job_ms

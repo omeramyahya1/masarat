@@ -123,7 +123,10 @@ export function signInAll(vus) {
             Origin: ORIGIN,
             'X-Forwarded-For': `10.250.${(i + j) >> 8}.${(i + j) & 255}`
           },
-          tags: { kind: 'session', name: 'POST /auth/login (session start)' }
+          tags: { kind: 'session', name: 'POST /auth/login (session start)' },
+          // Each its own jar: a sign-in that sent the previous one's cookie would end that
+          // session (the API replaces a session the browser already had)
+          jar: new http.CookieJar()
         }
       }))
     )

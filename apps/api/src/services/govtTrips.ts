@@ -21,11 +21,23 @@ export const SEARCH_CAP = 1_000
 const anyOf = (column: SQLWrapper, subquery: SQLWrapper): SQL =>
   sql`${column} = ANY(ARRAY(${subquery}))`
 
+// "This column is one of these ids", found beforehand in a small table (vehicles, companies,
+// cities), or no condition at all when there are none. Given as values, Postgres knows how many
+// trips they can match: none costs nothing, where a subquery that finds nothing still had every
+// trip walked newest first (a third of a second per condition).
+async function inIds(
+  column: SQLWrapper,
+  query: Promise<{ id: number }[]>
+): Promise<SQL | undefined> {
+  const ids = (await query).map((r) => r.id)
+  return ids.length ? sql`${column} = ANY(${`{${ids.join(',')}}`}::int[])` : undefined
+}
+
 // What the text can mean, most specific first, as conditions on manifests alone: a trip matches
 // when it meets any of them. Each is searched on its own (searchTrips): together in one OR,
 // Postgres can't tell how many trips each finds, and walked every trip newest first (2-3 s for a
 // plate with a few trips).
-function textConditions(raw: string): SQL[] | undefined {
+async function textConditions(raw: string): Promise<SQL[] | undefined> {
   const text = raw.trim()
   if (!text) return undefined
   const western = text.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
@@ -36,7 +48,7 @@ function textConditions(raw: string): SQL[] | undefined {
   const plateKey = plateSearchKey(text)
   const plate =
     plateKey.length >= 2
-      ? anyOf(
+      ? await inIds(
           manifests.vehicleId,
           db
             .select({ id: vehicles.id })
@@ -106,23 +118,29 @@ function textConditions(raw: string): SQL[] | undefined {
 
   // Names: the vehicle's registration, the company, the cities (small tables, matched first), and
   // the sender, receiver and driver on the trip (trigram indexes)
-  const matchingCities = db
-    .select({ id: cities.id })
-    .from(cities)
-    .where(or(contains(cities.name, text), contains(cities.nameAr, text)))
-  return present(
-    plate,
-    passenger,
-    anyOf(
+  const [registration, company, cityIds] = await Promise.all([
+    inIds(
       manifests.vehicleId,
       db.select({ id: vehicles.id }).from(vehicles).where(contains(vehicles.registrationNo, text))
     ),
-    anyOf(
+    inIds(
       manifests.companyId,
       db.select({ id: companies.id }).from(companies).where(contains(companies.name, text))
     ),
-    anyOf(manifests.originCityId, matchingCities),
-    anyOf(manifests.destinationCityId, matchingCities),
+    db
+      .select({ id: cities.id })
+      .from(cities)
+      .where(or(contains(cities.name, text), contains(cities.nameAr, text)))
+  ])
+  const ofCities = (column: SQLWrapper): Promise<SQL | undefined> =>
+    inIds(column, Promise.resolve(cityIds))
+  return present(
+    plate,
+    passenger,
+    registration,
+    company,
+    await ofCities(manifests.originCityId),
+    await ofCities(manifests.destinationCityId),
     contains(manifests.shipperName, text),
     contains(manifests.receiverName, text),
     contains(manifests.driverName, text)
@@ -141,7 +159,7 @@ export async function searchTrips(
   const originCityId = typeof input?.originCityId === 'number' ? input.originCityId : null
   const destinationCityId =
     typeof input?.destinationCityId === 'number' ? input.destinationCityId : null
-  const text = textConditions(query)
+  const text = await textConditions(query)
   if (!text && originCityId === null && destinationCityId === null) {
     return { ok: false, error: 'missing_fields' }
   }
@@ -160,7 +178,9 @@ export async function searchTrips(
   // from them, from the trips alone; their bills and documents follow. Joined through the live +
   // archive views before the page is cut, Postgres misjudges the joins (it has no statistics for
   // the views) and may read every payment and certificate.
-  const branches = (text ?? [undefined]).map(
+  // No text: the route alone; text that can mean nothing here: no trip
+  const conditions = text === undefined ? [undefined] : text.length ? text : [sql`false`]
+  const branches = conditions.map(
     (condition) => sql`(SELECT ${manifests.id} AS id, ${manifests.departureAt} AS departure_at
       FROM ${manifests} WHERE ${and(condition, route) ?? sql`true`}
       ORDER BY ${manifests.departureAt} DESC, ${manifests.id} DESC LIMIT ${SEARCH_CAP + 1})`

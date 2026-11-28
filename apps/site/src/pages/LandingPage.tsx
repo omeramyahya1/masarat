@@ -13,12 +13,28 @@ const AUDIENCES: { kind: UserKind; key: 'owners' | 'govt' }[] = [
 const POINTS = ['p1', 'p2', 'p3', 'p4'] as const
 const STEPS = ['s1', 's2', 's3'] as const
 
-// A small stand-in for the authorized manifest, next to the hero text
+// Bar widths (%) for the preview's skeleton: the trip lines, the parties' label / value pairs and
+// the cargo rows
+const TRIP_LINES = [80, 64, 72]
+const PARTIES = [
+  [40, 70],
+  [32, 60],
+  [44, 76],
+  [36, 52]
+]
+const CARGO_ROWS = [
+  [70, 30, 20],
+  [56, 36, 24],
+  [64, 28, 18]
+]
+
+// A small stand-in for the authorized manifest, next to the hero text. It fills the hero's
+// height: the header at the top, the QR footer at the bottom, the body spread between them.
 function ManifestPreview(): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <div aria-hidden className="card mx-auto w-full max-w-sm p-5 shadow-lg">
-      <div className="mb-4 flex items-center justify-between border-b border-stone-200 pb-3">
+    <div aria-hidden className="card mx-auto flex h-full w-full max-w-sm flex-col p-5 shadow-lg">
+      <div className="flex items-center justify-between border-b border-stone-200 pb-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-brand-800">
           <FileCheck2 size={18} />
           {t('statuses.certified')}
@@ -27,12 +43,42 @@ function ManifestPreview(): React.JSX.Element {
           MNF-2026-000128
         </span>
       </div>
-      <div className="space-y-2">
-        {[80, 64, 72, 48].map((width) => (
-          <div key={width} className="h-2 rounded bg-stone-100" style={{ width: `${width}%` }} />
-        ))}
+
+      <div className="flex flex-1 flex-col justify-around gap-5 py-5">
+        <div className="space-y-2">
+          {TRIP_LINES.map((width, i) => (
+            <div key={i} className="h-2 rounded bg-stone-100" style={{ width: `${width}%` }} />
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-stone-200 bg-stone-200">
+          {PARTIES.map(([label, value], i) => (
+            <div key={i} className="space-y-1.5 bg-white p-2.5">
+              <div className="h-1.5 rounded bg-stone-200" style={{ width: `${label}%` }} />
+              <div className="h-2 rounded bg-stone-100" style={{ width: `${value}%` }} />
+            </div>
+          ))}
+        </div>
+
+        <div className="overflow-hidden rounded-md border border-stone-200">
+          <div className="flex gap-3 bg-stone-50 px-2.5 py-2">
+            <div className="h-1.5 flex-[3] rounded bg-stone-200" />
+            <div className="h-1.5 flex-[2] rounded bg-stone-200" />
+            <div className="h-1.5 flex-1 rounded bg-stone-200" />
+          </div>
+          {CARGO_ROWS.map((row, i) => (
+            <div key={i} className="flex gap-3 border-t border-stone-100 px-2.5 py-2">
+              {row.map((width, j) => (
+                <div key={j} className={j === 0 ? 'flex-[3]' : j === 1 ? 'flex-[2]' : 'flex-1'}>
+                  <div className="h-2 rounded bg-stone-100" style={{ width: `${width + 30}%` }} />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="mt-5 flex items-end justify-between">
+
+      <div className="flex items-end justify-between border-t border-stone-200 pt-4">
         <div className="space-y-2">
           <div className="h-2 w-24 rounded bg-brand-100" />
           <div className="h-2 w-16 rounded bg-brand-100" />

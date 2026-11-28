@@ -54,11 +54,13 @@ const SCENARIOS = Object.fromEntries(
         timeUnit: '1h',
         duration: DURATION,
         // How long iterations still running at the end may finish (GRACEFUL_STOP). An export
-        // gets its whole allowance: its wait (EXPORT_WAIT_MS, 15 min) and the download (5 min),
-        // so none is cut short and left out of export_ok and export_job_ms
+        // gets the longest it can take, so none is cut short and left out of export_ok and
+        // export_job_ms: a sign-in without setup's session (60 s), queuing it (60 s), the wait
+        // (EXPORT_WAIT_MS, 15 min), a last poll that starts at the deadline (2 s sleep + 60 s),
+        // and the download (5 min): 22 min 2 s, rounded up
         gracefulStop:
           flow === 'exportData'
-            ? __ENV.EXPORT_GRACEFUL_STOP || '21m'
+            ? __ENV.EXPORT_GRACEFUL_STOP || '23m'
             : __ENV.GRACEFUL_STOP || '30s',
         preAllocatedVUs: Math.max(2, Math.ceil(perMinuteNow * vusPerUnit)),
         // Room for responses up to ~4× slower than expected, and no more: past that the server is

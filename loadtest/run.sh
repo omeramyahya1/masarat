@@ -95,9 +95,18 @@ run_one() {
   local flows=${8:-booking,browse,govtDashboard,govtReview,exportData,verify,login}
   local dir=loadtest/results/$label/scale-$scale
   mkdir -p "$dir"
+  # An earlier run of this label and scale must not speak for this one, even if this one stops
+  # before k6 runs
+  rm -f "$dir/summary.json" "$dir/failed" "$dir/result"
+  startup_failed() {
+    echo FAIL >"$dir/result"
+    echo "$1" >"$dir/failed"
+    echo "   FAIL ($1)"
+    return 1
+  }
   echo "== $label: API on CPUs $api_cpus (pool $pool), Postgres on $db_cpus with $db_mem; scale $scale for $duration"
   # The export worker, on its own CPUs (it would be its own server)
-  loadtest/stack.sh worker-up "${WORKER_CPUS:-2-3}" >/dev/null || { echo "   FAIL (export worker didn't start)"; return 1; }
+  loadtest/stack.sh worker-up "${WORKER_CPUS:-2-3}" >/dev/null || { startup_failed "the export worker didn't start"; return 1; }
   # Same size as last time: keep Postgres running, so its cache stays warm
   if [[ $(cat "$STATE/db-size" 2>/dev/null) != "$db_cpus $db_mem" ]]; then
     loadtest/stack.sh db-up "$db_cpus" "$db_mem" >/dev/null
@@ -107,7 +116,7 @@ run_one() {
     (cd loadtest/k6 && taskset -c "$K6_CPUS" "$K6" run --quiet --summary-mode disabled -e SCALE=0.3 -e DURATION=90s \
       -e TRIPS_PER_DAY="$TRIPS_PER_DAY" mixed.js >/dev/null 2>&1)
   fi
-  loadtest/stack.sh api-up "$api_cpus" "$pool" >/dev/null || { echo "   FAIL (the API didn't start)"; return 1; }
+  loadtest/stack.sh api-up "$api_cpus" "$pool" >/dev/null || { startup_failed "the API didn't start"; return 1; }
   # Exports queued by an earlier run (or the warm-up)
   podman exec masarat_redis_1 redis-cli -n 1 --scan --pattern 'exports:*' 2>/dev/null |
     xargs -r podman exec masarat_redis_1 redis-cli -n 1 del >/dev/null 2>&1 || true
@@ -115,8 +124,6 @@ run_one() {
   psql_load "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'masarat_load'
              AND pid <> pg_backend_pid() AND state <> 'idle'" >/dev/null
   psql_load 'SELECT pg_stat_statements_reset()' >/dev/null
-  # A summary left by an earlier run of this label and scale must not decide this one
-  rm -f "$dir/summary.json" "$dir/failed"
   sample "$dir/stats.csv" &
   local sampler=$!
   (cd loadtest/k6 && taskset -c "$K6_CPUS" "$K6" run -e SCALE="$scale" -e DURATION="$duration" -e FLOWS="$flows" \

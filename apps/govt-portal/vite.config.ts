@@ -12,6 +12,8 @@ export default defineConfig({
       '@masarat/ui': resolve(import.meta.dirname, '../../packages/ui/src')
     }
   },
+  // The favicons are shared by the three web apps
+  publicDir: resolve(import.meta.dirname, '../../packages/ui/public'),
   define: {
     __APP_VERSION__: JSON.stringify(version)
   },

@@ -272,12 +272,15 @@ export async function isCancelled(id: string): Promise<boolean> {
   return (await getRedis().exists(exportKeys.cancel(id))) === true
 }
 
-// Writes a job's outcome only while it's still being prepared: an export cancelled meanwhile, or
-// given up as failed when its lease ran out, keeps that status (one script, so the check and the
-// write can't be split by a cancel). KEYS: the job; ARGV: its new JSON, its TTL.
+// Writes a job's outcome only while it hasn't ended: an export cancelled meanwhile, or given up as
+// failed when its lease ran out, keeps that status (one script, so the check and the write can't
+// be split by a cancel). Still 'queued' is a job whose worker died between claiming it and
+// marking it running: its lease's expiry fails it. KEYS: the job; ARGV: its new JSON, its TTL.
 const FINISH_SCRIPT = `
 local raw = redis.call('GET', KEYS[1])
-if not raw or cjson.decode(raw).status ~= 'running' then return 0 end
+if not raw then return 0 end
+local status = cjson.decode(raw).status
+if status ~= 'running' and status ~= 'queued' then return 0 end
 redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
 return 1`
 

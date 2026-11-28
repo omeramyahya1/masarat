@@ -216,6 +216,19 @@ describe('cancelling and failures', () => {
     await drainExports()
   })
 
+  test('a worker that dies between claiming an export and starting it: the export fails', async () => {
+    const id = (await agent.call('POST', '/govt/exports', INPUT)).body.data.id
+    // As the claim script leaves it: out of the line, among those being prepared, still "queued"
+    await getRedis().send('LREM', [exportKeys.queue, '1', id])
+    await getRedis().send('ZADD', [exportKeys.running, String(Date.now() - 1), id])
+    const later = await claimExport(2, EXPORT_LEASE_MS)
+    expect(later.expired).toEqual([id])
+    expect((await agent.call('GET', `/govt/exports/${id}`)).body.data.status).toBe('failed')
+    // Its account isn't stuck with it
+    expect((await agent.call('POST', '/govt/exports', INPUT)).status).toBe(202)
+    await drainExports()
+  })
+
   test('the size limits fail the export with the counts', async () => {
     const { exportLimits } = await import('../src/services/exports')
     const before = exportLimits.zipBytes

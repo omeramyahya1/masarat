@@ -28,6 +28,11 @@ export const objectStore = {
     await s3().write(key, bytes, { type })
   },
 
+  // A file on disk, streamed up (a finished export can be gigabytes)
+  async putFile(key: string, path: string, type: string): Promise<void> {
+    await s3().write(key, Bun.file(path), { type })
+  },
+
   // The object's content as a stream, or null when there is no such object
   async stream(key: string): Promise<ReadableStream<Uint8Array> | null> {
     const file = s3().file(key)

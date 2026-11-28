@@ -5,6 +5,7 @@
 // lists update straight away. The cache lives in memory, so it's gone with the page; it's also
 // cleared when the session ends.
 import { QueryClient } from '@tanstack/react-query'
+import type { TripDetails } from '@masarat/shared/billing'
 
 // The API answered { ok: false, error }: a result to show, not a reason to retry
 export class ApiError extends Error {
@@ -59,7 +60,10 @@ export const queryKeys = {
   dashboard: (filters: unknown, view: unknown) => ['govt', 'dashboard', filters, view] as const,
   search: (params: unknown) => ['govt', 'search', params] as const,
   charges: ['govt', 'charges'] as const,
-  settings: ['govt', 'settings'] as const
+  reports: (params: unknown) => ['govt', 'reports', params] as const,
+  settings: ['govt', 'settings'] as const,
+  // The account's latest data export (queued, being prepared, or done)
+  exportJob: ['govt', 'exportJob'] as const
 }
 
 // After a trip changed (saved, billed, paid, deleted): its lists, its page, and the vehicles' and
@@ -72,5 +76,17 @@ export async function tripChanged(id?: number): Promise<void> {
       : queryClient.invalidateQueries({ queryKey: queryKeys.trip('company', id) }),
     queryClient.invalidateQueries({ queryKey: queryKeys.vehicles }),
     queryClient.invalidateQueries({ queryKey: queryKeys.drivers })
+  ])
+}
+
+// After a report, a dismissal, a revocation or a cancellation (the government's side): the trip's
+// page takes the answer, and the reports, the search results and the dashboard (pending bills,
+// trip counts) refresh. The company's own cache sees the change on its next refresh.
+export async function reviewChanged(details: TripDetails): Promise<void> {
+  queryClient.setQueryData(queryKeys.trip('govt', details.trip.id), details)
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['govt', 'reports'] }),
+    queryClient.invalidateQueries({ queryKey: ['govt', 'search'] }),
+    queryClient.invalidateQueries({ queryKey: ['govt', 'dashboard'] })
   ])
 }

@@ -37,6 +37,7 @@ import {
   TRIP_CATEGORIES
 } from '@masarat/shared/tax'
 import { ID_TYPES } from '@masarat/shared/passengers'
+import { DECISION_ACTIONS, REPORT_REASONS, REPORT_STATUSES } from '@masarat/shared/reviews'
 import {
   BUILTIN_ROLE_KEYS,
   PERMISSIONS,
@@ -444,7 +445,16 @@ function defineTripTables(table: PgTableFn, id: typeof liveId) {
       carrierName: text('carrier_name'),
       carrierAddress: text('carrier_address'),
       carrierTin: text('carrier_tin'),
-      ...timestamps
+      ...timestamps,
+      // The names' search keys (masarat_name_key, migration 0008), kept by Postgres: the trips
+      // search compares whole names by them without computing the key for every trip
+      driverNameKey: text('driver_name_key').generatedAlwaysAs(sql`masarat_name_key(driver_name)`),
+      shipperNameKey: text('shipper_name_key').generatedAlwaysAs(
+        sql`masarat_name_key(shipper_name)`
+      ),
+      receiverNameKey: text('receiver_name_key').generatedAlwaysAs(
+        sql`masarat_name_key(receiver_name)`
+      )
     },
     (t) => [
       index('manifests_vehicle_id_idx').on(t.vehicleId),
@@ -506,7 +516,9 @@ function defineTripTables(table: PgTableFn, id: typeof liveId) {
       packingType: text('packing_type'),
       packageCount: integer('package_count'),
       notes: text('notes'),
-      ...timestamps
+      ...timestamps,
+      // The name's search key, kept by Postgres (as the trip's names')
+      nameKey: text('name_key').generatedAlwaysAs(sql`masarat_name_key(name)`)
     },
     (t) => [
       index('manifest_cargo_items_manifest_id_idx').on(t.manifestId),
@@ -556,7 +568,9 @@ function defineTripTables(table: PgTableFn, id: typeof liveId) {
       seatNo: integer('seat_no').notNull(),
       isInfant: boolean('is_infant').notNull().default(false),
       notes: text('notes'),
-      ...timestamps
+      ...timestamps,
+      // The booked name's search key, kept by Postgres (as the trip's names')
+      fullNameKey: text('full_name_key').generatedAlwaysAs(sql`masarat_name_key(full_name)`)
     },
     (t) => [
       index('trip_passengers_manifest_id_idx').on(t.manifestId),
@@ -854,26 +868,98 @@ export const DASHBOARD_FACT_KINDS = [
   'certificates'
 ] as const
 
-export const dashboardFacts = pgTable(
-  'dashboard_facts',
+// The same columns for the daily facts and the monthly ones (a builder per table: Drizzle names
+// its columns in place). Its type is Drizzle's column builders, inferred.
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+const factColumns = () => ({
+  day: date('day', { mode: 'string' }).notNull(),
+  kind: text('kind', { enum: DASHBOARD_FACT_KINDS }).notNull(),
+  originCityId: integer('origin_city_id'),
+  destinationCityId: integer('destination_city_id'),
+  category: text('category'),
+  tripKind: text('trip_kind'),
+  vehicleType: text('vehicle_type'),
+  cargoType: text('cargo_type'),
+  key: text('key').notNull().default(''),
+  name: text('name'),
+  nameAr: text('name_ar'),
+  value: doublePrecision('value').notNull().default(0),
+  n: integer('n').notNull().default(0)
+})
+
+export const dashboardFacts = pgTable('dashboard_facts', factColumns(), (t) => [
+  index('dashboard_facts_kind_day_idx').on(t.kind, t.day),
+  check('dashboard_facts_kind_check', sql`${t.kind} IN (${inList(DASHBOARD_FACT_KINDS)})`)
+])
+
+// The daily facts of each whole month added up (day: the month's first day), so a long range reads
+// a row per month instead of one per day: the grain is fine enough that a day holds about as many
+// rows as it has trips. Rebuilt with its days (rebuildFacts); a month is stored once it's over.
+export const dashboardFactsMonth = pgTable('dashboard_facts_month', factColumns(), (t) => [
+  index('dashboard_facts_month_kind_day_idx').on(t.kind, t.day),
+  check('dashboard_facts_month_kind_check', sql`${t.kind} IN (${inList(DASHBOARD_FACT_KINDS)})`)
+])
+
+// The government's review of issued clearances (packages/shared/src/reviews.ts). Both tables point
+// to a trip by its id without a foreign key: the trip may move to the archive (services/archive.ts
+// keeps a trip live while it has an open report), and its id stays the same there. Rows are never
+// deleted, except with the demo companies' trips.
+//
+// A report filed on a certified trip by a government user, and what a supervisor did with it.
+// One open report per trip (trip_reports_one_open_idx).
+export const tripReports = pgTable(
+  'trip_reports',
   {
-    day: date('day', { mode: 'string' }).notNull(),
-    kind: text('kind', { enum: DASHBOARD_FACT_KINDS }).notNull(),
-    originCityId: integer('origin_city_id'),
-    destinationCityId: integer('destination_city_id'),
-    category: text('category'),
-    tripKind: text('trip_kind'),
-    vehicleType: text('vehicle_type'),
-    cargoType: text('cargo_type'),
-    key: text('key').notNull().default(''),
-    name: text('name'),
-    nameAr: text('name_ar'),
-    value: doublePrecision('value').notNull().default(0),
-    n: integer('n').notNull().default(0)
+    id,
+    manifestId: integer('manifest_id').notNull(),
+    reason: text('reason', { enum: REPORT_REASONS }).notNull(),
+    note: text('note').notNull(),
+    status: text('status', { enum: REPORT_STATUSES }).notNull().default('open'),
+    reportedBy: integer('reported_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    // The supervisor who dismissed it or revoked the clearance, when, and their note
+    resolvedBy: integer('resolved_by').references(() => users.id, { onDelete: 'restrict' }),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolutionNote: text('resolution_note'),
+    ...timestamps
   },
   (t) => [
-    index('dashboard_facts_kind_day_idx').on(t.kind, t.day),
-    check('dashboard_facts_kind_check', sql`${t.kind} IN (${inList(DASHBOARD_FACT_KINDS)})`)
+    index('trip_reports_manifest_id_idx').on(t.manifestId),
+    uniqueIndex('trip_reports_one_open_idx')
+      .on(t.manifestId)
+      .where(sql`${t.status} = 'open'`),
+    // The Reports section: newest first, by status or all of them
+    index('trip_reports_status_created_idx').on(t.status, t.createdAt),
+    index('trip_reports_created_idx').on(t.createdAt),
+    check('trip_reports_reason_check', sql`${t.reason} IN (${inList(REPORT_REASONS)})`),
+    check('trip_reports_status_check', sql`${t.status} IN (${inList(REPORT_STATUSES)})`),
+    check('trip_reports_resolved_check', sql`(${t.status} = 'open') = (${t.resolvedAt} IS NULL)`)
+  ]
+)
+
+// What a supervisor decided about a trip, kept for good: its clearance revoked (from a report) or
+// the trip cancelled before its bill was paid. The trip's status says so too (revoked /
+// cancelled); this is who, when and why. One per trip: both are final.
+export const tripDecisions = pgTable(
+  'trip_decisions',
+  {
+    id,
+    manifestId: integer('manifest_id').notNull().unique(),
+    action: text('action', { enum: DECISION_ACTIONS }).notNull(),
+    reason: text('reason', { enum: REPORT_REASONS }).notNull(),
+    // Shown to the company
+    note: text('note').notNull(),
+    // The report it came from (a revoke), or null (a cancel)
+    reportId: integer('report_id').references(() => tripReports.id, { onDelete: 'restrict' }),
+    decidedBy: integer('decided_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [
+    check('trip_decisions_action_check', sql`${t.action} IN (${inList(DECISION_ACTIONS)})`),
+    check('trip_decisions_reason_check', sql`${t.reason} IN (${inList(REPORT_REASONS)})`)
   ]
 )
 
@@ -898,4 +984,6 @@ export type NewManifest = typeof manifests.$inferInsert
 export type Payment = typeof payments.$inferSelect
 export type NewPayment = typeof payments.$inferInsert
 export type Certificate = typeof certificates.$inferSelect
+export type TripReport = typeof tripReports.$inferSelect
+export type TripDecisionRow = typeof tripDecisions.$inferSelect
 export type NewCertificate = typeof certificates.$inferInsert

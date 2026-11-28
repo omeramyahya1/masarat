@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import postgres from 'postgres'
 import { E2E } from '../env'
-import { ACCOUNTS, URLS, apiAs, authorizedTrip, logIn, openSection } from './support'
+import { ACCOUNTS, URLS, apiAs, authorizedTrip, exportText, logIn, openSection } from './support'
 
 test.describe('Government', () => {
   test('GOV-01 the dashboard opens on the last 30 days', async ({ page }) => {
@@ -53,11 +53,19 @@ test.describe('Government', () => {
       formats: ['csv'],
       labels: { columns: { passengers: { idNumber: 'ID number' } }, sheets: {}, values: {} }
     }
-    const without = await govt.post('/govt/exports', { data: input })
-    expect(without.ok()).toBeTruthy()
-    expect(await without.text()).not.toContain('ID number')
-    const withIds = await govt.post('/govt/exports', { data: { ...input, includeIdNumbers: true } })
-    expect(await withIds.text()).toContain('ID number')
+    // One export at a time per account: the second is queued once the first is done
+    expect(await exportText(govt, input)).not.toContain('ID number')
+    expect(await exportText(govt, { ...input, includeIdNumbers: true })).toContain('ID number')
+  })
+
+  test('GOV-11 the data export is prepared in the background, then downloads', async ({ page }) => {
+    await logIn(page, ACCOUNTS.govtAdmin, URLS.govt)
+    await page.getByRole('button', { name: 'Export', exact: true }).click()
+    await page.getByRole('radio', { name: 'Data (Excel / CSV)' }).click()
+    const download = page.waitForEvent('download', { timeout: 60_000 })
+    await page.getByRole('button', { name: 'Export data' }).click()
+    expect((await download).suggestedFilename()).toMatch(/^masarat-data-.*\.xlsx$/)
+    await expect(page.getByText(/^Downloaded:/)).toBeVisible()
   })
 
   test('GOV-07 a fee change is saved and listed', async ({ page }) => {

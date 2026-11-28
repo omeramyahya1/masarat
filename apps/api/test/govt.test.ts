@@ -15,7 +15,7 @@ import { SEARCH_CAP } from '../src/services/govtTrips'
 import { BREAKDOWNS } from '@masarat/shared/analytics'
 import { certificates, getDb, manifests, payments, tripDocuments, vehicles } from '../src/db'
 import { eq, sql } from 'drizzle-orm'
-import { resetData, signedIn, type Browser } from './helpers'
+import { resetData, signedIn, type Browser, exportThrough } from './helpers'
 
 const LABELS = { columns: {}, sheets: {}, values: {} }
 let govt: Browser
@@ -55,7 +55,12 @@ describe('access', () => {
     expect((await agent.call('GET', '/govt/users')).status).toBe(403)
     const me = (await agent.call('GET', '/auth/me')).body.user
     expect(me).toMatchObject({ kind: 'govt', company: null, role: { key: 'govt_agent' } })
-    expect(me.permissions).toEqual(['govt.dashboard', 'govt.search', 'govt.exports'])
+    expect(me.permissions).toEqual([
+      'govt.dashboard',
+      'govt.search',
+      'govt.exports',
+      'govt.reports.create'
+    ])
   })
 })
 
@@ -204,6 +209,25 @@ describe('search', () => {
     expect(dates).toEqual([...dates].sort((a, b) => b - a))
   })
 
+  test('every match is listed once, however many of the conditions find it', async () => {
+    // Each condition (plate, company, cities, names, …) is searched on its own and the results
+    // merged: across all the pages, every trip appears exactly once
+    const ids: number[] = []
+    const { total } = (await govt.call('GET', '/govt/search?query=nile&pageSize=100')).body.data
+    for (let page = 1; page <= Math.ceil(total / 100); page++) {
+      const { rows } = (await govt.call('GET', `/govt/search?query=nile&pageSize=100&page=${page}`))
+        .body.data
+      ids.push(...rows.map((r: { manifestId: number }) => r.manifestId))
+    }
+    expect(ids).toHaveLength(total)
+    expect(new Set(ids).size).toBe(total)
+    // A city's name: its trips match as their origin and as their destination
+    const page = (
+      await govt.call('GET', `/govt/search?query=${encodeURIComponent('الخرطوم')}&pageSize=100`)
+    ).body.data.rows.map((r: { manifestId: number }) => r.manifestId)
+    expect(new Set(page).size).toBe(page.length)
+  })
+
   test('an empty search is refused', async () => {
     expect((await govt.call('GET', '/govt/search')).body.error).toBe('missing_fields')
   })
@@ -326,7 +350,7 @@ describe('export', () => {
   }
 
   test('one Excel workbook downloads as is', async () => {
-    const result = await govt.call('POST', '/govt/exports', { ...input, formats: ['xlsx'] })
+    const result = await exportThrough(govt, { ...input, formats: ['xlsx'] })
     expect(result.status).toBe(200)
     expect(result.headers.get('content-type')).toContain('spreadsheetml')
     expect(result.headers.get('content-disposition')).toMatch(
@@ -338,7 +362,7 @@ describe('export', () => {
   })
 
   test('Excel and CSV together come as one ZIP', async () => {
-    const result = await govt.call('POST', '/govt/exports', { ...input, formats: ['xlsx', 'csv'] })
+    const result = await exportThrough(govt, { ...input, formats: ['xlsx', 'csv'] })
     expect(result.headers.get('content-type')).toBe('application/zip')
     const names = Object.keys(unzipSync(new Uint8Array(result.body))).sort()
     expect(names).toHaveLength(3)
@@ -347,7 +371,7 @@ describe('export', () => {
   })
 
   test('a long export is read in batches, every trip once, in departure order', async () => {
-    const all = await govt.call('POST', '/govt/exports', {
+    const all = await exportThrough(govt, {
       ...input,
       datasets: ['trips', 'taxLines'],
       formats: ['csv']
@@ -355,7 +379,7 @@ describe('export', () => {
     const before = exportLimits.batch
     exportLimits.batch = 7
     try {
-      const batched = await govt.call('POST', '/govt/exports', {
+      const batched = await exportThrough(govt, {
         ...input,
         datasets: ['trips', 'taxLines'],
         formats: ['csv']
@@ -387,11 +411,11 @@ describe('export', () => {
     const before = exportLimits.excelRows
     exportLimits.excelRows = 5
     try {
-      const excel = await govt.call('POST', '/govt/exports', { ...input, formats: ['xlsx'] })
-      expect(excel.status).toBe(413)
+      const excel = await exportThrough(govt, { ...input, formats: ['xlsx'] })
+      expect(excel.status).toBe('failed')
       expect(excel.body.error).toBe('export_too_large_for_excel')
       expect(excel.body.rows.trips).toBeGreaterThan(5)
-      const csv = await govt.call('POST', '/govt/exports', { ...input, formats: ['csv'] })
+      const csv = await exportThrough(govt, { ...input, formats: ['csv'] })
       expect(csv.status).toBe(200)
     } finally {
       exportLimits.excelRows = before
@@ -402,10 +426,10 @@ describe('export', () => {
     const before = exportLimits.zipBytes
     exportLimits.zipBytes = 10
     try {
-      const both = await govt.call('POST', '/govt/exports', { ...input, formats: ['xlsx', 'csv'] })
-      expect(both.status).toBe(413)
+      const both = await exportThrough(govt, { ...input, formats: ['xlsx', 'csv'] })
+      expect(both.status).toBe('failed')
       expect(both.body.error).toBe('export_too_large')
-      const one = await govt.call('POST', '/govt/exports', {
+      const one = await exportThrough(govt, {
         ...input,
         datasets: ['trips'],
         formats: ['csv']
@@ -418,7 +442,7 @@ describe('export', () => {
   })
 
   test('malformed options are refused', async () => {
-    const result = await govt.call('POST', '/govt/exports', {
+    const result = await exportThrough(govt, {
       ...input,
       formats: ['xlsx'],
       labels: {}

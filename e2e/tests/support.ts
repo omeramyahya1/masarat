@@ -10,6 +10,7 @@ export const ACCOUNTS = {
   clerk: { username: 'nile.clerk1', password: 'nile2026' },
   accountant: { username: 'nile.accountant', password: 'nile2026' },
   govtAdmin: { username: 'ministry.demo', password: 'govt2026' },
+  supervisor: { username: 'ministry.supervisor', password: 'govt2026' },
   agent: { username: 'ministry.agent', password: 'govt2026' }
 } as const
 type Account = { username: string; password: string }
@@ -110,4 +111,19 @@ export async function authorizedTrip(api: APIRequestContext): Promise<number> {
   const refreshed = await (await api.post(`/trips/${id}/refresh`)).json()
   expect(refreshed.data.trip.status).toBe('certified')
   return id
+}
+
+// A data export through the API: queued, prepared by the export worker, then its file (the text)
+export async function exportText(api: APIRequestContext, input: unknown): Promise<string> {
+  const queued = await api.post('/govt/exports', { data: input })
+  expect(queued.status(), 'export queued').toBe(202)
+  const id = (await queued.json()).data.id
+  await expect
+    .poll(async () => (await (await api.get(`/govt/exports/${id}`)).json()).data.status, {
+      timeout: 60_000
+    })
+    .toBe('done')
+  const file = await api.get(`/govt/exports/${id}/file`)
+  expect(file.ok()).toBeTruthy()
+  return file.text()
 }

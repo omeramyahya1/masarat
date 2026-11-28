@@ -134,8 +134,10 @@ const SORT_COLUMNS: Record<TripListQuery['sort'], SQLWrapper> = {
 // What the search box matches, within the period: the trip number ("#12" or "12"), the plate
 // (either script and digits, as part of it), or a whole name: a city, the driver, sender or
 // receiver, a passenger, or a cargo item. Names are compared whole, by masarat_name_key (migration
-// 0008: case, spaces and Arabic spelling variants don't matter), never as part of a name. A
-// passenger is also found by their exact ID number.
+// 0008: case, spaces and Arabic spelling variants don't matter), never as part of a name. The
+// trips' names have their key stored (migration 0017), so the key is computed once, for the text;
+// the cities that match are found first (65 rows). A passenger is also found by their exact ID
+// number.
 function searchCondition(text: string): SQL | undefined {
   const plate = plateSearchKey(text)
   const idKey = idSearchKey(text)
@@ -143,19 +145,25 @@ function searchCondition(text: string): SQL | undefined {
     text.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
   )
   const key = sql`masarat_name_key(${text})`
-  const sameName = (column: SQLWrapper): SQL => sql`masarat_name_key(${column}) = ${key}`
+  const matchingCities = getDb()
+    .select({ id: cities.id })
+    .from(cities)
+    .where(
+      or(
+        sql`masarat_name_key(${cities.name}) = ${key}`,
+        sql`masarat_name_key(${cities.nameAr}) = ${key}`
+      )
+    )
   return or(
     tripNo ? eq(manifests.id, Number(tripNo[1])) : undefined,
     plate.length >= 2
       ? sql`${plateKeyOf(vehicles.plateNumber)} LIKE ${`%${escapeLike(plate)}%`} ESCAPE '\\'`
       : undefined,
-    sameName(origin.name),
-    sameName(origin.nameAr),
-    sameName(destination.name),
-    sameName(destination.nameAr),
-    sameName(manifests.driverName),
-    sameName(manifests.shipperName),
-    sameName(manifests.receiverName),
+    sql`${manifests.originCityId} = ANY(ARRAY(${matchingCities}))`,
+    sql`${manifests.destinationCityId} = ANY(ARRAY(${matchingCities}))`,
+    sql`${manifests.driverNameKey} = ${key}`,
+    sql`${manifests.shipperNameKey} = ${key}`,
+    sql`${manifests.receiverNameKey} = ${key}`,
     // A passenger by their name as booked, or by their exact ID number (through the registry)
     exists(
       getDb()
@@ -165,7 +173,7 @@ function searchCondition(text: string): SQL | undefined {
           and(
             eq(tripPassengers.manifestId, manifests.id),
             or(
-              sameName(tripPassengers.fullName),
+              sql`${tripPassengers.fullNameKey} = ${key}`,
               idKey
                 ? inArray(
                     tripPassengers.personId,
@@ -181,7 +189,10 @@ function searchCondition(text: string): SQL | undefined {
         .select({ id: manifestCargoItems.id })
         .from(manifestCargoItems)
         .where(
-          and(eq(manifestCargoItems.manifestId, manifests.id), sameName(manifestCargoItems.name))
+          and(
+            eq(manifestCargoItems.manifestId, manifests.id),
+            sql`${manifestCargoItems.nameKey} = ${key}`
+          )
         )
     )
   )
@@ -319,7 +330,10 @@ export async function listTripsPage(
     }))
   }
 
-  const records = await toTripRecords(rows.map((row) => row.trip))
+  const records = await toTripRecords(
+    rows.map((row) => row.trip),
+    'list'
+  )
   return {
     ok: true,
     data: {

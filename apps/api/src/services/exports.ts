@@ -517,6 +517,15 @@ export function clearStaleExports(maxAgeMs = STALE_MS): void {
   }
 }
 
+// The file's media type, from its extension
+const EXPORT_TYPES: Record<string, string> = {
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  csv: 'text/csv; charset=utf-8',
+  zip: 'application/zip'
+}
+export const exportContentType = (name: string): string =>
+  EXPORT_TYPES[name.split('.').pop() ?? ''] ?? 'application/octet-stream'
+
 // One file of an export
 export interface ExportFile {
   name: string

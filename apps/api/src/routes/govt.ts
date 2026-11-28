@@ -2,6 +2,7 @@
 // read-only with its attachments, the tax settings, the data export, and the demo regenerate
 import { Hono } from 'hono'
 import {
+  cancelTripSchema,
   chargeSchema,
   dashboardRequestSchema,
   exportSchema,
@@ -21,26 +22,33 @@ import { aggregateDashboard, resetDashboardFacts } from '../services/dashboardFa
 import { regenerateDemoData } from '../services/demoData'
 import { liftRequestTimeout } from '../http/timeout'
 import { findOwnedDocumentFile } from '../services/documents'
-import { exportData } from '../services/exports'
+import { exportContentType } from '../services/exports'
+import {
+  cancelExport,
+  exportFile,
+  exportStatus,
+  latestExport,
+  queueExport
+} from '../services/exportQueue'
+import { objectStore } from '../services/storage'
 import { searchTrips } from '../services/govtTrips'
 import { createCharge, getChargesView, updateCharge } from '../services/charges'
+import { cancelTrip } from '../services/reviews'
 import { getSettings, updateSettings } from '../services/settings'
 import { getReferenceData } from '../services/trips'
 import { fail, idParam, send, type AppEnv } from '../http/context'
 import { contentDisposition, sendFile } from '../http/files'
 import { requireKind, requirePermission, requireUser } from '../http/middleware'
 import { body, doc, query } from '../http/validate'
+import { sendTrip } from './reports'
 
-const EXPORT_TYPES: Record<string, string> = {
-  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  csv: 'text/csv; charset=utf-8',
-  zip: 'application/zip'
-}
+// An export id as the queue makes them (24 hex characters), or null
+const exportId = (raw: string): string | null => (/^[0-9a-f]{24}$/.test(raw) ? raw : null)
 
 const download = (name: string, body: ReadableStream<Uint8Array>, rows: object): Response =>
   new Response(body, {
     headers: {
-      'Content-Type': EXPORT_TYPES[name.split('.').pop() ?? ''] ?? 'application/octet-stream',
+      'Content-Type': exportContentType(name),
       'Content-Disposition': contentDisposition('attachment', name),
       // Rows written per dataset, for the dialog's summary
       'X-Export-Rows': JSON.stringify(rows),
@@ -101,11 +109,11 @@ export const govtRoutes = new Hono<AppEnv>()
     query(govtSearchQuerySchema),
     async (c) => send(c, await searchTrips(c.req.valid('query')))
   )
-  // Opened from the search and from the dashboard's latest bills
+  // Opened from the search, the dashboard's latest bills and the Reports section
   .get(
     '/trips/:id',
     doc(G, 'Any trip, read-only'),
-    requirePermission('govt.search', 'govt.dashboard'),
+    requirePermission('govt.search', 'govt.dashboard', 'govt.reports.review'),
     async (c) => {
       const id = idParam(c)
       return id === null ? fail(c, 'manifest_not_found') : send(c, await getTripDetails(null, id))
@@ -114,10 +122,22 @@ export const govtRoutes = new Hono<AppEnv>()
   .get(
     '/documents/:id/file',
     doc(G, 'A trip attachment’s file'),
-    requirePermission('govt.search', 'govt.dashboard'),
+    requirePermission('govt.search', 'govt.dashboard', 'govt.reports.review'),
     async (c) => {
       const id = idParam(c)
       return await sendFile(c, id === null ? undefined : await findOwnedDocumentFile(null, id))
+    }
+  )
+  // A supervisor cancels a trip whose bill isn't paid yet (services/reviews.ts)
+  .post(
+    '/trips/:id/cancel',
+    doc(G, 'Cancel a trip whose bill isn’t paid yet'),
+    requirePermission('govt.reports.review'),
+    body(cancelTripSchema),
+    async (c) => {
+      const id = idParam(c)
+      if (id === null) return fail(c, 'manifest_not_found')
+      return sendTrip(c, await cancelTrip(c.get('user')!.id, id, c.req.valid('json')))
     }
   )
   // The validity margin and average speeds
@@ -156,22 +176,58 @@ export const govtRoutes = new Hono<AppEnv>()
       return send(c, await updateCharge(c.get('user')!.id, id, c.req.valid('json')))
     }
   )
-  // One file as is; several as one ZIP. Built on disk first (services/exports.ts), then streamed
-  // from there; the folder goes once the download is sent.
+  // Exports are prepared by the export worker (src/exportWorker.ts), queued in Redis: queue one,
+  // follow it, then download its file (kept an hour). One at a time per account.
   .post(
     '/exports',
-    doc(G, 'Export trips and bills as Excel or CSV (a file, or a ZIP of several)'),
+    doc(G, 'Queue an export of trips and bills as Excel or CSV (a file, or a ZIP of several)'),
     requirePermission('govt.exports'),
     body(exportSchema, 'missing_fields'),
     async (c) => {
-      liftRequestTimeout(c)
-      const result = await exportData(c.req.valid('json'))
-      if (!result.ok) return c.json(result, 413)
-      const { download: file, rows, cleanup } = result.data
-      const body = Bun.file(file.path)
-        .stream()
-        .pipeThrough(new TransformStream<Uint8Array, Uint8Array>({ flush: cleanup }))
-      return download(file.name, body, rows)
+      const result = await queueExport(c.get('user')!.id, c.req.valid('json'))
+      return result.ok ? c.json(result, 202) : fail(c, result.error)
+    }
+  )
+  .get(
+    '/exports/current',
+    doc(G, "The account's latest export, if it's still kept"),
+    requirePermission('govt.exports'),
+    async (c) => send(c, { ok: true, data: await latestExport(c.get('user')!.id) })
+  )
+  .get(
+    '/exports/:id',
+    doc(G, "An export's progress: queued (and how many are ahead), being prepared, done or failed"),
+    requirePermission('govt.exports'),
+    async (c) => {
+      const id = exportId(c.req.param('id'))
+      if (!id) return fail(c, 'export_not_found')
+      const result = await exportStatus(c.get('user')!.id, id)
+      return result.ok ? send(c, result) : fail(c, result.error)
+    }
+  )
+  .get(
+    '/exports/:id/file',
+    doc(G, "A finished export's file, with the rows written per dataset"),
+    requirePermission('govt.exports'),
+    async (c) => {
+      const id = exportId(c.req.param('id'))
+      if (!id) return fail(c, 'export_not_found')
+      const result = await exportFile(c.get('user')!.id, id)
+      if (!result.ok) return fail(c, result.error)
+      const stream = await objectStore.stream(result.data.key)
+      if (!stream) return fail(c, 'export_not_found')
+      return download(result.data.name, stream, result.data.rows)
+    }
+  )
+  .delete(
+    '/exports/:id',
+    doc(G, 'Cancel an export that is queued or being prepared'),
+    requirePermission('govt.exports'),
+    async (c) => {
+      const id = exportId(c.req.param('id'))
+      if (!id) return fail(c, 'export_not_found')
+      const result = await cancelExport(c.get('user')!.id, id)
+      return result.ok ? send(c, result) : fail(c, result.error)
     }
   )
   // Demo only

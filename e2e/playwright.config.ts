@@ -35,8 +35,10 @@ export default defineConfig({
   },
   webServer: [
     {
-      // Reset the database, then the API (which seeds the demo data on startup)
-      command: 'bun scripts/reset-db.ts && cd ../apps/api && bun src/index.ts',
+      // Reset the database, then the export worker and the API (which seeds the demo data on
+      // startup). Playwright stops the whole process group, the worker with it.
+      command:
+        'bun scripts/reset-db.ts && cd ../apps/api && (bun src/exportWorker.ts & bun src/index.ts)',
       cwd: new URL('.', import.meta.url).pathname,
       url: `${URLS.api}/health/ready`,
       env: E2E.apiEnv,

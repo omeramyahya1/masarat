@@ -8,7 +8,6 @@ import { closeDb } from './db'
 import { flushLogs, log, removeOldLogs } from './log'
 import { checkDbRole } from './services/dbRole'
 import { sweepUnusedUploads } from './services/documents'
-import { clearStaleExports } from './services/exports'
 import { ensureDemoData } from './services/demoData'
 import { markStopping } from './services/health'
 import { scheduleJob, stopJobs } from './services/jobs'
@@ -41,9 +40,8 @@ if (role.problems.length) {
   log.warn(message)
 }
 
-// Exports half-built when the API stopped (local scratch space). The demo companies are seeded
-// only in demo mode.
-clearStaleExports(0)
+// The demo companies are seeded only in demo mode. (Exports are built by the export worker,
+// src/exportWorker.ts, not here.)
 if (config.demoMode) {
   await ensureDemoData()
   log.info('Demo mode: demo accounts and data are seeded')
@@ -77,8 +75,9 @@ scheduleJob({
 
 const server = Bun.serve({
   port: config.port,
+  reusePort: config.reusePort,
   // A request that sends nothing for this long is closed; Postgres's own limit (shorter) has
-  // stopped its query by then. Exports lift it for themselves (routes/govt.ts).
+  // stopped its query by then. Demo regeneration lifts it for itself (routes/govt.ts).
   idleTimeout: config.requestTimeoutS,
   fetch: app.fetch
 })

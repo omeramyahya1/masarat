@@ -12,14 +12,21 @@ import { PASSENGERS_SLICE } from '@masarat/shared/dashboard'
 
 type Executor = Pick<AppDatabase, 'execute'>
 
+// The trip tables a statement reads: the all_* views (live and archived trips), or the live tables
+// alone when the trips are known to be live. Through the views Postgres has no statistics, so for
+// one trip it can misjudge the joins badly enough to read whole tables (seconds, not milliseconds).
+type Tables = (name: string) => SQL
+const viewsOf: Tables = (name) => sql.raw(`all_${name}`)
+const liveOf: Tables = (name) => sql.raw(name)
+
 // After a `paid` CTE (manifest_id, amount, day, cargo_type): each paid trip's taxes split across
 // its cargo items in proportion to their cost, as `cargo_shares` (day, key, revenue, manifest_id).
 // A trip without items (passengers, or from before items existed) counts under its own cargo type,
 // or as passengers. The dashboard's live query and the summary both use it, so they agree.
-export const cargoSharesSql = sql`
+const cargoShares = (t: Tables): SQL => sql`
 items AS (
   SELECT i.manifest_id, i.cargo_type, i.cost
-  FROM all_manifest_cargo_items i JOIN paid ON paid.manifest_id = i.manifest_id
+  FROM ${t('manifest_cargo_items')} i JOIN paid ON paid.manifest_id = i.manifest_id
 ),
 item_cost AS (
   SELECT manifest_id, sum(cost) AS cost FROM items GROUP BY manifest_id
@@ -36,17 +43,18 @@ cargo_shares AS (
   FROM paid LEFT JOIN item_cost ON item_cost.manifest_id = paid.manifest_id
   WHERE coalesce(item_cost.cost, 0) <= 0
 )`
+export const cargoSharesSql = cargoShares(viewsOf)
 
 // One statement: the rows for the paid payments matching `where` (on payments as p), added to
 // what's there. Days are Sudan days (the session's time zone). It reads the all_* views, so a
 // rebuild still counts the trips that moved to the archive.
-export const summarySql = (where: SQL): SQL => sql`
+export const summarySql = (where: SQL, t: Tables = viewsOf): SQL => sql`
 WITH paid AS (
   SELECT p.manifest_id, p.amount, p.paid_at::date AS day, m.category, m.cargo_type,
          m.origin_city_id, m.destination_city_id, m.company_id, m.trip_kind, v.vehicle_type,
          os.name AS origin_state, ds.name AS destination_state
-  FROM all_payments p
-  JOIN all_manifests m ON m.id = p.manifest_id
+  FROM ${t('payments')} p
+  JOIN ${t('manifests')} m ON m.id = p.manifest_id
   JOIN vehicles v ON v.id = m.vehicle_id
   JOIN cities oc ON oc.id = m.origin_city_id
   JOIN states os ON os.id = oc.state_id
@@ -54,7 +62,7 @@ WITH paid AS (
   JOIN states ds ON ds.id = dc.state_id
   WHERE p.status = 'paid' AND p.paid_at IS NOT NULL AND ${where}
 ),
-${cargoSharesSql},
+${cargoShares(t)},
 rows AS (
   SELECT day, 'total' AS dimension, '' AS key, NULL::text AS name, NULL::text AS name_ar,
          sum(amount)::float8 AS revenue, count(*)::int AS trips
@@ -82,7 +90,7 @@ rows AS (
   SELECT paid.day, 'charge', c.code,
          (array_agg(c.name ORDER BY c.id DESC))[1], (array_agg(c.name_ar ORDER BY c.id DESC))[1],
          sum(c.amount), count(*)
-  FROM paid JOIN all_manifest_charges c ON c.manifest_id = paid.manifest_id
+  FROM paid JOIN ${t('manifest_charges')} c ON c.manifest_id = paid.manifest_id
   GROUP BY paid.day, c.code
 )
 INSERT INTO daily_revenue (day, dimension, key, name, name_ar, revenue, trips)
@@ -95,7 +103,8 @@ ON CONFLICT (day, dimension, key) DO UPDATE SET
 
 // A trip whose payment was just recorded as paid: call inside that transaction, once
 export async function addPaidTrip(tx: Executor, manifestId: number): Promise<void> {
-  await tx.execute(summarySql(sql`p.manifest_id = ${manifestId}`))
+  // The trip being paid is live (its row is locked in this transaction)
+  await tx.execute(summarySql(sql`p.manifest_id = ${manifestId}`, liveOf))
 }
 
 // While bulk writes change the payments (demo seeding and regenerating, the load-test seeder), the

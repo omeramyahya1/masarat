@@ -99,6 +99,41 @@
       "when": 1795678710215,
       "tag": "0013_dashboard_facts",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1795680056499,
+      "tag": "0014_supervisor_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1795680065912,
+      "tag": "0015_seed_supervisor_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1795680090196,
+      "tag": "0016_trip_reviews",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1795692276309,
+      "tag": "0017_name_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795853975566,
+      "tag": "0018_dashboard_facts_month",
+      "breakpoints": true
     }
   ]
 }

@@ -39,9 +39,17 @@ route.
 
 The government portal's routes are done: `/govt/reference`, `/govt/companies`,
 `POST /govt/dashboard` (`govt.dashboard`; filters and view as JSON), `GET /govt/search` (paged,
-`govt.search`), `/govt/trips/:id` and `/govt/documents/:id/file` (`govt.search` or
-`govt.dashboard`), `GET|POST /govt/charges` and `PUT /govt/charges/:id` (taxes and fees, `govt.charges`), `GET|PUT /govt/settings` (validity margin and average speeds, `govt.settings`), `POST /govt/exports`
-(`govt.exports`; one file or a ZIP) and `POST /govt/demo/regenerate` (demo mode). The report prints from the browser, so
+`govt.search`), `/govt/trips/:id` and `/govt/documents/:id/file` (`govt.search`,
+`govt.dashboard` or `govt.reports.review`), `POST /govt/trips/:id/cancel` (a trip whose bill is
+unpaid, `govt.reports.review`), the reports (`routes/reports.ts`, `services/reviews.ts`):
+`POST /govt/reports` (report a certified trip, `govt.reports.create`), `GET /govt/reports` (paged,
+by status) and `POST /govt/reports/:id/{dismiss,revoke}` (`govt.reports.review`; each change answers
+the trip's page), `GET|POST /govt/charges` and `PUT /govt/charges/:id` (taxes and fees, `govt.charges`), `GET|PUT /govt/settings` (validity margin and average speeds, `govt.settings`), the data exports
+(`govt.exports`, `services/exportQueue.ts`; prepared by the export worker, one at a time per account): `POST /govt/exports`
+(queue one: 202 with the job; `export_in_progress` while another is under way), `GET /govt/exports/current` (the latest,
+for the dialog), `GET /govt/exports/:id` (queued with how many are ahead, being prepared, done, failed or cancelled),
+`GET /govt/exports/:id/file` (the file, one file or a ZIP, with `X-Export-Rows`; kept an hour) and
+`DELETE /govt/exports/:id` (cancel), and `POST /govt/demo/regenerate` (demo mode). The report prints from the browser, so
 `govt:save-report-pdf` has no route.
 
 Public: `GET /verify/:token`, what a manifest's QR code opens (rate-limited per IP).

@@ -1,13 +1,13 @@
 // Turns the shared analytics filters (src/shared/analytics.ts) into query conditions, for the
 // dashboard, the report, the raw data export and the government search
-import { and, eq, exists, inArray, or, type SQL, type SQLWrapper } from 'drizzle-orm'
+import { and, eq, inArray, type SQL, type SQLWrapper } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { cities, companies, getDb, states, tripViews, vehicles } from '../db'
+
+// A set of trip tables: the all_* views (default), the live tables or the archive's
+type TripTables = Pick<typeof tripViews, 'manifests'>
 import type { AnalyticsFilters } from '@masarat/shared/analytics'
 import type { CompanyOption } from '@masarat/shared/analytics'
-
-// Reads live and archived trips alike (the all_* views)
-const { manifestCargoItems, manifests } = tripViews
 
 // The trip's cities as the filters refer to them; a query using tripConditions joins these
 export const originCity = alias(cities, 'filter_origin')
@@ -17,9 +17,12 @@ export const destinationCity = alias(cities, 'filter_destination')
 const inState = (stateId: SQLWrapper, name: string): SQL =>
   inArray(stateId, getDb().select({ id: states.id }).from(states).where(eq(states.name, name)))
 
-// Conditions on the trip itself (route, cargo, vehicle, company); the date range is applied by each
+// Conditions on the trip itself (route, kind, trip type, vehicle, cargo); the date range is applied by each
 // query to the date it is about. Undefined when no such filter is set.
-export function tripConditions(f: AnalyticsFilters): SQL | undefined {
+export function tripConditions(
+  f: AnalyticsFilters,
+  { manifests }: TripTables = tripViews
+): SQL | undefined {
   const conditions: (SQL | undefined)[] = [
     f.originCityId ? eq(manifests.originCityId, f.originCityId) : undefined,
     f.destinationCityId ? eq(manifests.destinationCityId, f.destinationCityId) : undefined,
@@ -28,32 +31,21 @@ export function tripConditions(f: AnalyticsFilters): SQL | undefined {
     f.category ? eq(manifests.category, f.category) : undefined,
     f.tripKind ? eq(manifests.tripKind, f.tripKind) : undefined,
     f.vehicleType ? eq(vehicles.vehicleType, f.vehicleType) : undefined,
-    // Any item of that type (a trip can mix them), or the trip's own type for trips from before
-    // cargo items existed
-    f.cargoType
-      ? or(
-          eq(manifests.cargoType, f.cargoType),
-          exists(
-            getDb()
-              .select({ id: manifestCargoItems.id })
-              .from(manifestCargoItems)
-              .where(
-                and(
-                  eq(manifestCargoItems.manifestId, manifests.id),
-                  eq(manifestCargoItems.cargoType, f.cargoType)
-                )
-              )
-          )
-        )
-      : undefined
+    // The trip's main cargo type (its costliest item's), as the dashboard's nightly aggregates
+    // count it, so the dashboard, the report and the exports agree
+    f.cargoType ? eq(manifests.cargoType, f.cargoType) : undefined
   ].filter((c): c is SQL => c !== undefined)
   return conditions.length > 0 ? and(...conditions) : undefined
 }
 
 // "This manifest id is one of the filtered trips", for queries that start from payments,
 // certificates, tax lines or cargo items. Undefined when no trip filter is set.
-export function inFilteredTrips(column: SQLWrapper, f: AnalyticsFilters): SQL | undefined {
-  const conditions = tripConditions(f)
+export function inFilteredTrips(
+  column: SQLWrapper,
+  f: AnalyticsFilters,
+  { manifests }: TripTables = tripViews
+): SQL | undefined {
+  const conditions = tripConditions(f, { manifests })
   if (!conditions) return undefined
   return inArray(
     column,

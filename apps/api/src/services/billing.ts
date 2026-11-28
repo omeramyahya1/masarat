@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto'
-import { and, eq, ne, sql } from 'drizzle-orm'
+import { and, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 // The Node build: the package's root export has no condition TypeScript's bundler resolution picks
 import bwipjs from 'bwip-js/node'
@@ -31,6 +31,7 @@ import { getSettings } from './settings'
 import { addPaidTrip } from './dailyRevenue'
 import { findOwnedDriver } from './drivers'
 import { esali } from './esali'
+import { reviewOf } from './reviews'
 import { toTripRecord, tripColumns, writeCharges, type TripRow } from './trips'
 
 // Who booked the trip
@@ -145,8 +146,11 @@ export async function getTripDetails(
       }
     : null
 
+  // A revoked clearance's receipt and manifest are no longer valid: the company doesn't get them
+  // (the trip page shows the revocation instead); the government still sees them
+  const withheld = scope !== null && trip.status === 'revoked'
   const certificateRecord: CertificateRecord | null =
-    certificate && payment
+    certificate && payment && !withheld
       ? {
           certificateNo: certificate.certificateNo,
           manifestNo: certificate.manifestNo,
@@ -163,6 +167,9 @@ export async function getTripDetails(
         }
       : null
 
+  // The supervisor's decision for both sides; the reports only for the government
+  const review = await reviewOf(trip.id, scope === null)
+
   return {
     ok: true,
     data: {
@@ -175,7 +182,8 @@ export async function getTripDetails(
       vehicleCapacity,
       payment: paymentRecord,
       certificate: certificateRecord,
-      archived
+      archived,
+      ...review
     }
   }
 }
@@ -242,13 +250,14 @@ export async function generateBill(
 }
 
 // Checks the bill with E-Sali; once paid, records the payment and issues the receipt and the
-// authorized manifest
+// authorized manifest. A trip a supervisor cancelled is never authorized, whatever E-Sali says.
 export async function refreshBillStatus(
   scope: CompanyScope,
   manifestId: number
 ): Promise<FleetResult<TripDetails>> {
   const trip = await findOwnedTrip(scope, manifestId)
   if (!trip) return { ok: false, error: 'manifest_not_found' }
+  if (trip.status === 'cancelled') return { ok: false, error: 'trip_cancelled' }
   const payment = await paymentOf(trip.id)
   if (!payment) return { ok: false, error: 'not_billed' }
 
@@ -258,6 +267,14 @@ export async function refreshBillStatus(
       const paidAt = bill.paidAt ?? new Date()
       const issuedAt = new Date()
       await getDb().transaction(async (tx) => {
+        // The trip first, as cancelTrip locks it: a supervisor cancelling it at the same moment
+        // either waits for this, or has already cancelled it and nothing is recorded
+        const [locked] = await tx
+          .select({ status: manifests.status })
+          .from(manifests)
+          .where(eq(manifests.id, trip.id))
+          .for('update')
+        if (!locked || !['billed', 'paid'].includes(locked.status)) return
         // Only one refresh records the payment, even when two run at once: the other finds it
         // paid already and changes nothing (the summary must count it once)
         const recorded = await tx
@@ -268,7 +285,9 @@ export async function refreshBillStatus(
             paymentRef: bill.paymentRef ?? null,
             bank: 'E-Sali'
           })
-          .where(and(eq(payments.id, payment.id), ne(payments.status, 'paid')))
+          .where(
+            and(eq(payments.id, payment.id), notInArray(payments.status, ['paid', 'cancelled']))
+          )
           .returning({ id: payments.id })
         if (recorded.length === 0) return
         await addPaidTrip(tx, trip.id)
@@ -286,7 +305,10 @@ export async function refreshBillStatus(
             )
           })
           .onConflictDoNothing()
-        await tx.update(manifests).set({ status: 'certified' }).where(eq(manifests.id, trip.id))
+        await tx
+          .update(manifests)
+          .set({ status: 'certified' })
+          .where(and(eq(manifests.id, trip.id), inArray(manifests.status, ['billed', 'paid'])))
       })
     }
   }
@@ -301,6 +323,7 @@ export async function simulatePayment(
   if (!config.demoMode) return { ok: false, error: 'forbidden' }
   const trip = await findOwnedTrip(scope, manifestId)
   if (!trip) return { ok: false, error: 'manifest_not_found' }
+  if (trip.status === 'cancelled') return { ok: false, error: 'trip_cancelled' }
   const payment = await paymentOf(trip.id)
   if (!payment) return { ok: false, error: 'not_billed' }
   await esali.simulatePayment(payment.billId)

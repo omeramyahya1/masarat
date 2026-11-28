@@ -177,7 +177,8 @@
     "billed": "Pending payment",
     "paid": "Paid",
     "certified": "Authorized",
-    "cancelled": "Cancelled"
+    "cancelled": "Cancelled",
+    "revoked": "Clearance revoked"
   },
   "plates": {
     "states": {
@@ -312,8 +313,13 @@
       "document_too_large": "The file is larger than 20 MB.",
       "zero_bill": "This trip's taxes and fees come to 0 SDG, so there is no bill to pay. The tax rates and fees need to be reviewed by the tax administration before this trip can be authorized.",
       "query_timeout": "This took too long. Narrow the search or choose a shorter period, then try again.",
+      "server_busy": "The system is very busy right now. Try again in a moment.",
       "export_too_large_for_excel": "Too many rows for Excel: {{rows}}. An Excel sheet holds at most {{limit}} rows. Choose CSV, or a shorter period.",
       "export_too_large": "This export is too big to download as one archive. Choose a shorter period, fewer datasets, or one format.",
+      "export_in_progress": "You already have an export being prepared. Wait for it to finish, or cancel it first.",
+      "export_not_found": "That export is no longer available. Start it again.",
+      "export_not_ready": "The export isn’t ready yet.",
+      "export_failed": "The export stopped before it finished. Start it again.",
       "forbidden": "You don't have access to this.",
       "password_change_required": "Please choose your own password first.",
       "branch_required": "Choose the branch the trip is booked at.",
@@ -328,7 +334,14 @@
       "invalid_template": "A template needs a bus, a departure time (HH:MM) and a duration.",
       "invalid_settings": "Enter a margin from 0 to 720 hours and a speed from 10 to 150 km/h.",
       "invalid_period": "Choose a period of at most 92 days that ends after it starts.",
-      "invalid_request": "The request is incomplete or not in the expected form. Reload the page and try again."
+      "invalid_request": "The request is incomplete or not in the expected form. Reload the page and try again.",
+      "not_certified": "Only a trip with an issued clearance can be reported or revoked.",
+      "not_pending": "Only a trip whose bill isn't paid yet can be cancelled.",
+      "trip_cancelled": "This trip was cancelled by the government. It can't be paid or authorized.",
+      "report_open": "This trip has already been reported. A supervisor is reviewing it.",
+      "report_not_found": "Report not found.",
+      "report_closed": "This report has already been decided.",
+      "invalid_review": "Choose a reason and write a note of up to 500 characters."
     },
     "groupSummary": "{{count}} vehicles",
     "list": {
@@ -674,7 +687,15 @@
       "manifestNo": "Manifest no."
     },
     "payDemo": "Pay {{billId}}",
-    "demo": "Demo"
+    "demo": "Demo",
+    "cancelled": {
+      "label": "Bill cancelled",
+      "body": "This bill was cancelled with the trip and can no longer be paid."
+    },
+    "revoked": {
+      "title": "Clearance revoked",
+      "body": "The tax was paid, but the government revoked the receipt and the manifest. They are no longer valid."
+    }
   },
   "certificate": {
     "dialogTitle": "Receipt and manifest",
@@ -1047,7 +1068,15 @@
       "dataSaved": "Downloaded: {{rows}}.",
       "rowCount": "{{dataset}} {{count}} rows",
       "includeIdNumbers": "Include passengers' ID numbers",
-      "includeIdNumbersHint": "Personal data: only when the file needs them, and handle it with care."
+      "includeIdNumbersHint": "Personal data: only when the file needs them, and handle it with care.",
+      "queued_one": "Waiting for its turn: {{count}} export ahead of it.",
+      "queued_other": "Waiting for its turn: {{count}} exports ahead of it.",
+      "queuedNext": "Waiting for its turn: next in line.",
+      "preparing": "Preparing the files…",
+      "keepsGoing": "You can close this window: the export goes on, and it’s here when you come back (for an hour once it’s ready).",
+      "cancelExport": "Cancel export",
+      "ready": "Your last export is ready: {{rows}}.",
+      "download": "Download"
     },
     "settings": {
       "tab": "Settings",
@@ -1160,7 +1189,8 @@
       "pending": "Pending",
       "paid": "Paid",
       "expired": "Expired",
-      "failed": "Failed"
+      "failed": "Failed",
+      "cancelled": "Cancelled"
     }
   },
   "listView": {
@@ -1268,7 +1298,14 @@
         "title": "Couldn't check this manifest",
         "body": "Masarat can't be reached right now. Check your connection and try again."
       },
-      "passengerCount": "{{seated}} passengers, {{infants}} infants"
+      "passengerCount": "{{seated}} passengers, {{infants}} infants",
+      "revoked": "Revoked manifest",
+      "revokedOn": "Revoked on {{date}}. This vehicle is not cleared to travel.",
+      "revokedNoDate": "This vehicle is not cleared to travel.",
+      "underReview": {
+        "title": "Reported — under review",
+        "body": "The authorities are reviewing this manifest. It stays valid until they decide."
+      }
     }
   },
   "members": {
@@ -1415,7 +1452,8 @@
       "scopeLocked": "Members have this role, so its reach can't change. Give them another role first.",
       "permissions": "What it can do",
       "save": "Save role"
-    }
+    },
+    "govt_supervisor": "Government supervisor"
   },
   "branches": {
     "title": "Branches",
@@ -1509,6 +1547,96 @@
       "duration": "Takes (hours:minutes)",
       "durationHint": "The estimated arrival is the departure plus this.",
       "save": "Save template"
+    }
+  },
+  "review": {
+    "reasons": {
+      "forged_document": "Suspected forged document",
+      "cargo_mismatch": "Cargo doesn't match the manifest",
+      "wrong_vehicle": "Wrong vehicle or trailers",
+      "passenger_mismatch": "Passengers don't match the list",
+      "other": "Other"
+    },
+    "reportStatuses": {
+      "open": "Under review",
+      "revoked": "Clearance revoked",
+      "dismissed": "Dismissed"
+    },
+    "actions": {
+      "report": "Report",
+      "cancelTrip": "Cancel trip",
+      "dismiss": "Dismiss",
+      "revoke": "Revoke clearance",
+      "title": "Review",
+      "reportHint": "Something wrong with this clearance? Report it for a supervisor to review.",
+      "cancelHint": "The bill isn't paid yet. A supervisor can cancel the trip so it can't be paid or authorized."
+    },
+    "open": {
+      "title": "Reported — under review",
+      "body": "A supervisor is reviewing this report. The clearance stays valid until it's revoked."
+    },
+    "reportedBy": "Reported by {{name}} on {{date}}",
+    "resolvedBy": "{{status}}: {{name}} on {{date}}",
+    "history": "Reports",
+    "decision": {
+      "revoke": {
+        "title": "Clearance revoked",
+        "body": "The government revoked this trip's clearance on {{date}}. Its receipt and manifest are no longer valid."
+      },
+      "cancel": {
+        "title": "Trip cancelled",
+        "body": "The government cancelled this trip on {{date}}, before its bill was paid. It can't be paid or authorized."
+      },
+      "reason": "Reason",
+      "note": "Supervisor's note",
+      "by": "By {{name}}"
+    },
+    "dialog": {
+      "report": {
+        "title": "Report trip #{{id}}",
+        "body": "A supervisor will review this clearance. It stays valid until they revoke it. The company doesn't see reports.",
+        "confirm": "Send report"
+      },
+      "dismiss": {
+        "title": "Dismiss the report on trip #{{id}}",
+        "body": "The clearance stays valid. Note why nothing is wrong.",
+        "confirm": "Dismiss report"
+      },
+      "revoke": {
+        "title": "Revoke the clearance of trip #{{id}}",
+        "body": "The receipt and the manifest stop being valid at once, and the verify page shows them as revoked. This can't be undone. The company sees the reason and your note.",
+        "confirm": "Revoke clearance"
+      },
+      "cancel": {
+        "title": "Cancel trip #{{id}}",
+        "body": "Its bill isn't paid yet. Once cancelled, it can't be paid or authorized. This can't be undone. The company sees the reason and your note.",
+        "confirm": "Cancel trip"
+      }
+    },
+    "fields": {
+      "reason": "Reason",
+      "note": "Note",
+      "noteHint": "Only government staff see this note. Up to 500 characters.",
+      "companyNoteHint": "The company will see this note. Up to 500 characters."
+    },
+    "section": {
+      "tab": "Reports",
+      "title": "Reports",
+      "subtitle": "Clearances reported by government staff, newest first. Open one to review the trip, its attachments and its documents.",
+      "filter": "Status",
+      "all": "All",
+      "count": "{{count}} reports",
+      "empty": "No reports here.",
+      "openTrip": "Open trip #{{id}}",
+      "columns": {
+        "trip": "Trip",
+        "company": "Company",
+        "vehicle": "Vehicle",
+        "route": "Route",
+        "reason": "Reason",
+        "reportedBy": "Reported by",
+        "status": "Status"
+      }
     }
   }
 }

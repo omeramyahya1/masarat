@@ -6,7 +6,7 @@ import { sql } from 'drizzle-orm'
 import { strFromU8, unzipSync } from 'fflate'
 import { getDb } from '../src/db'
 import { verifyManifest } from '../src/services/verify'
-import { resetData, signedIn, type Browser } from './helpers'
+import { resetData, signedIn, type Browser, exportThrough } from './helpers'
 
 const OWNER = { companyName: 'Nile Buses', address: 'Khartoum', tin: '300123' }
 
@@ -263,13 +263,13 @@ describe('the government and passenger trips', () => {
       formats: ['csv'],
       labels: { columns: {}, sheets: {}, values: {} }
     }
-    const csv = strFromU8(new Uint8Array((await govt.call('POST', '/govt/exports', input)).body))
+    const csv = strFromU8(new Uint8Array((await exportThrough(govt, input)).body))
     expect(csv).toContain(`"'=HYPERLINK(""http://evil.example"",""x"")"`)
     expect(csv).toContain(",'+1+1")
     // The seat stays a number
     expect(csv.split('\r\n')[1]).toContain(',1,')
 
-    const xlsx = await govt.call('POST', '/govt/exports', { ...input, formats: ['xlsx'] })
+    const xlsx = await exportThrough(govt, { ...input, formats: ['xlsx'] })
     const { default: ExcelJS } = await import('exceljs')
     const workbook = new ExcelJS.Workbook()
     await workbook.xlsx.load(xlsx.body)
@@ -318,15 +318,15 @@ describe('the government and passenger trips', () => {
       formats: ['csv'],
       labels: { columns: {}, sheets: {}, values: {} }
     }
-    const without = await govt.call('POST', '/govt/exports', input)
+    const without = await exportThrough(govt, input)
     expect(without.headers.get('x-export-rows')).toBe('{"passengers":3}')
     const text = strFromU8(new Uint8Array(without.body))
     expect(text).not.toContain(NID)
     expect(text.split('\r\n')[0]).not.toContain('idNumber')
-    const withIds = await govt.call('POST', '/govt/exports', { ...input, includeIdNumbers: true })
+    const withIds = await exportThrough(govt, { ...input, includeIdNumbers: true })
     expect(strFromU8(new Uint8Array(withIds.body))).toContain(NID)
     // Several files still come zipped
-    const both = await govt.call('POST', '/govt/exports', {
+    const both = await exportThrough(govt, {
       ...input,
       datasets: ['trips', 'passengers']
     })

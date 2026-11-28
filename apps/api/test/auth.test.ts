@@ -225,7 +225,8 @@ describe('sign-up and profile', () => {
       password: PASSWORD
     })
     expect(taken).toMatchObject({ status: 409, body: { ok: false, error: 'username_taken' } })
-    expect(await getDb().$count(roles)).toBe(2 + 3)
+    // The government's three fixed roles and the company's three
+    expect(await getDb().$count(roles)).toBe(3 + 3)
 
     const profile = await b.call('PATCH', '/auth/profile', {
       fullName: 'Renamed',
@@ -407,7 +408,7 @@ describe('government users', () => {
     ).toBe('admin_exists')
     // …and isn't offered when creating or changing an account
     const offered = (await b.call('GET', '/govt/users/roles')).body.data as { key: string }[]
-    expect(offered.map((r) => r.key)).toEqual(['govt_agent'])
+    expect(offered.map((r) => r.key)).toEqual(['govt_supervisor', 'govt_agent'])
     // A company's role can't be given to a government user
     const companyRoles = await getDb().select().from(roles).where(eq(roles.key, 'company_admin'))
     for (const role of companyRoles) {

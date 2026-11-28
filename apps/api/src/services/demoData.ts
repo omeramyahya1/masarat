@@ -6,12 +6,15 @@ import { randomBytes } from 'crypto'
 import { log } from '../log'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import {
+  archive,
   branches,
   certificates,
   cities,
   companies,
   drivers,
   esaliSimBills,
+  tripDecisions,
+  tripReports,
   getDb,
   manifestCargoItems,
   manifests,
@@ -20,6 +23,7 @@ import {
   tripDocuments,
   tripPassengers,
   tripTemplates,
+  tripViews,
   payments,
   roles,
   users,
@@ -1116,28 +1120,54 @@ async function deleteDemoCompanies(): Promise<void> {
       .select({ id: vehicles.id })
       .from(vehicles)
       .where(inArray(vehicles.companyId, companyIds))
+    // Live and archived demo trips alike (the all_* views): the nightly job may have moved some
     const demoManifests = tx
-      .select({ id: manifests.id })
-      .from(manifests)
-      .where(inArray(manifests.vehicleId, demoVehicles))
+      .select({ id: tripViews.manifests.id })
+      .from(tripViews.manifests)
+      .where(inArray(tripViews.manifests.vehicleId, demoVehicles))
     const demoBills = tx
-      .select({ billId: payments.billId })
-      .from(payments)
-      .where(inArray(payments.manifestId, demoManifests))
+      .select({ billId: tripViews.payments.billId })
+      .from(tripViews.payments)
+      .where(inArray(tripViews.payments.manifestId, demoManifests))
 
     await tx.delete(esaliSimBills).where(inArray(esaliSimBills.billId, demoBills))
-    await tx.delete(certificates).where(inArray(certificates.manifestId, demoManifests))
-    await tx.delete(manifestCargoItems).where(inArray(manifestCargoItems.manifestId, demoManifests))
-    await tx.delete(tripPassengers).where(inArray(tripPassengers.manifestId, demoManifests))
-    await tx.delete(manifestCharges).where(inArray(manifestCharges.manifestId, demoManifests))
-    await tx.delete(manifestTrailers).where(inArray(manifestTrailers.manifestId, demoManifests))
-    // Files attached by hand to a demo company's trips go too
-    const attached = await tx
-      .delete(tripDocuments)
-      .where(inArray(tripDocuments.manifestId, demoManifests))
-      .returning({ key: tripDocuments.storedName })
-    await tx.delete(payments).where(inArray(payments.manifestId, demoManifests))
-    await tx.delete(manifests).where(inArray(manifests.vehicleId, demoVehicles))
+    // Their reviews point to the trips by id (no foreign key)
+    await tx.delete(tripDecisions).where(inArray(tripDecisions.manifestId, demoManifests))
+    await tx.delete(tripReports).where(inArray(tripReports.manifestId, demoManifests))
+    // Each trip's rows, from the live tables and the archive (children first)
+    const attached: { key: string }[] = []
+    for (const t of [
+      {
+        manifests,
+        certificates,
+        manifestCargoItems,
+        tripPassengers,
+        manifestCharges,
+        manifestTrailers,
+        tripDocuments,
+        payments
+      },
+      archive
+    ]) {
+      const ids = tx
+        .select({ id: t.manifests.id })
+        .from(t.manifests)
+        .where(inArray(t.manifests.vehicleId, demoVehicles))
+      await tx.delete(t.certificates).where(inArray(t.certificates.manifestId, ids))
+      await tx.delete(t.manifestCargoItems).where(inArray(t.manifestCargoItems.manifestId, ids))
+      await tx.delete(t.tripPassengers).where(inArray(t.tripPassengers.manifestId, ids))
+      await tx.delete(t.manifestCharges).where(inArray(t.manifestCharges.manifestId, ids))
+      await tx.delete(t.manifestTrailers).where(inArray(t.manifestTrailers.manifestId, ids))
+      // Files attached by hand to a demo company's trips go too
+      attached.push(
+        ...(await tx
+          .delete(t.tripDocuments)
+          .where(inArray(t.tripDocuments.manifestId, ids))
+          .returning({ key: t.tripDocuments.storedName }))
+      )
+      await tx.delete(t.payments).where(inArray(t.payments.manifestId, ids))
+      await tx.delete(t.manifests).where(inArray(t.manifests.vehicleId, demoVehicles))
+    }
     await tx.delete(tripTemplates).where(inArray(tripTemplates.companyId, companyIds))
     await tx.delete(vehicles).where(inArray(vehicles.companyId, companyIds))
     await tx.delete(drivers).where(inArray(drivers.companyId, companyIds))

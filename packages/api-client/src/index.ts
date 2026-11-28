@@ -45,8 +45,16 @@ import type {
   TripDetails
 } from '@masarat/shared/billing'
 import type { DashboardData, DashboardHistory, DashboardToday } from '@masarat/shared/dashboard'
+import type {
+  CancelTripInput,
+  DecisionInput,
+  DismissInput,
+  ReportInput,
+  ReportListQuery,
+  ReportListRow
+} from '@masarat/shared/reviews'
 import type { AnalyticsFilters, DashboardView, CompanyOption } from '@masarat/shared/analytics'
-import type { ExportInput, ExportRows } from '@masarat/shared/exports'
+import type { ExportInput, ExportJob, ExportRows } from '@masarat/shared/exports'
 import type { SystemSettings } from '@masarat/shared/settings'
 import type { ChargeInput, ChargesView } from '@masarat/shared/tax'
 import type { TemplateInput, TemplateRecord } from '@masarat/shared/templates'
@@ -159,15 +167,10 @@ export interface GovtAPI {
   getTrip: (manifestId: number) => Promise<FleetResult<TripDetails>>
   // Any trip's attachment, for the preview
   documentFile: (documentId: number) => Promise<FleetResult<DownloadedFile>>
-  // Raw data (trips, bills, cargo items, tax lines): one Excel or CSV file, or a ZIP of several,
-  // with the rows written per dataset
-  // Refused with the counts when a dataset has more rows than an Excel sheet holds
-  exportData: (
-    input: ExportInput
-  ) => Promise<
-    | FleetResult<DownloadedFile & { rows: ExportRows }>
-    | { ok: false; error: 'export_too_large_for_excel' | 'export_too_large'; rows: ExportRows }
-  >
+  // Raw data (trips, bills, cargo items, passengers, tax lines): prepared by the export worker.
+  // Queue one, follow it until it's done, then download its file (one Excel or CSV file, or a ZIP
+  // of several, kept an hour). One at a time per account (export_in_progress).
+  exports: ExportsAPI
   // The validity margin and average speeds (government admins)
   settings: () => Promise<FleetResult<SystemSettings>>
   updateSettings: (input: SystemSettings) => Promise<FleetResult<SystemSettings>>
@@ -178,6 +181,35 @@ export interface GovtAPI {
   updateCharge: (id: number, input: ChargeInput) => Promise<FleetResult<ChargesView>>
   // Demo only: rebuilds the seeded demo companies' data
   regenerateDemoData: () => Promise<FleetResult<null>>
+  // Reports on issued clearances; each change answers the trip's page
+  reports: ReportsAPI
+  // A supervisor cancels a trip whose bill isn't paid yet
+  cancelTrip: (manifestId: number, input: CancelTripInput) => Promise<FleetResult<TripDetails>>
+}
+
+// Government portal → Export → Data (services/exportQueue.ts)
+export interface ExportsAPI {
+  start: (input: ExportInput) => Promise<FleetResult<ExportJob>>
+  // Queued (with how many are ahead), being prepared, done, failed (with the counts for the size
+  // limits) or cancelled
+  status: (id: string) => Promise<FleetResult<ExportJob>>
+  // The account's latest export, while it's kept (the dialog picks it up again)
+  current: () => Promise<FleetResult<ExportJob | null>>
+  cancel: (id: string) => Promise<FleetResult<ExportJob>>
+  // The finished file, with the rows written per dataset
+  file: (id: string) => Promise<FleetResult<DownloadedFile & { rows: ExportRows }>>
+}
+
+// Government portal → Reports (services/reviews.ts)
+export interface ReportsAPI {
+  // Supervisors: one page of the reports, newest first
+  list: (query: ReportListQuery) => Promise<FleetResult<Page<ReportListRow>>>
+  // Any government user with govt.reports.create: report a certified trip
+  create: (input: ReportInput) => Promise<FleetResult<TripDetails>>
+  // Supervisors: the clearance stays valid
+  dismiss: (reportId: number, input: DismissInput) => Promise<FleetResult<TripDetails>>
+  // Supervisors: the clearance is revoked for good
+  revoke: (reportId: number, input: DecisionInput) => Promise<FleetResult<TripDetails>>
 }
 
 export interface AuthAPI {
@@ -271,7 +303,7 @@ async function download(
   }
 }
 
-// A download without its response, which only the export reads
+// A download without its response, which only the export's file reads
 async function file(path: string): Promise<FleetResult<DownloadedFile>> {
   const result = await download('GET', path)
   return result.ok
@@ -380,24 +412,37 @@ const govt: GovtAPI = {
   search: (input) => request('GET', `/govt/search${queryString(input)}`),
   getTrip: (id) => request('GET', `/govt/trips/${id}`),
   documentFile: (id) => file(`/govt/documents/${id}/file`),
-  exportData: async (input) => {
-    const result = await download('POST', '/govt/exports', input)
-    if (!result.ok) return result
-    const { blob, fileName, response } = result.data
-    let rows: ExportRows = {}
-    try {
-      rows = JSON.parse(response.headers.get('x-export-rows') ?? '{}') as ExportRows
-    } catch {
-      // The counts are only for the dialog's summary
+  exports: {
+    start: (input) => request('POST', '/govt/exports', input),
+    status: (id) => request('GET', `/govt/exports/${id}`),
+    current: () => request('GET', '/govt/exports/current'),
+    cancel: (id) => request('DELETE', `/govt/exports/${id}`),
+    file: async (id) => {
+      const result = await download('GET', `/govt/exports/${id}/file`)
+      if (!result.ok) return result
+      const { blob, fileName, response } = result.data
+      let rows: ExportRows = {}
+      try {
+        rows = JSON.parse(response.headers.get('x-export-rows') ?? '{}') as ExportRows
+      } catch {
+        // The counts are only for the dialog's summary
+      }
+      return { ok: true, data: { blob, fileName, rows } }
     }
-    return { ok: true, data: { blob, fileName, rows } }
   },
   settings: () => request('GET', '/govt/settings'),
   updateSettings: (input) => request('PUT', '/govt/settings', input),
   charges: () => request('GET', '/govt/charges'),
   addCharge: (input) => request('POST', '/govt/charges', input),
   updateCharge: (id, input) => request('PUT', `/govt/charges/${id}`, input),
-  regenerateDemoData: () => request('POST', '/govt/demo/regenerate')
+  regenerateDemoData: () => request('POST', '/govt/demo/regenerate'),
+  reports: {
+    list: (query) => request('GET', `/govt/reports${queryString(query)}`),
+    create: (input) => request('POST', '/govt/reports', input),
+    dismiss: (id, input) => request('POST', `/govt/reports/${id}/dismiss`, input),
+    revoke: (id, input) => request('POST', `/govt/reports/${id}/revoke`, input)
+  },
+  cancelTrip: (id, input) => request('POST', `/govt/trips/${id}/cancel`, input)
 }
 
 const config: ConfigAPI = {

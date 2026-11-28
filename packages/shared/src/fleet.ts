@@ -18,8 +18,18 @@ export const QUANTITY_UNITS = ['ton', 'liter', 'seat'] as const
 export const CARGO_TYPES = ['fuel', 'liquids', 'containers', 'general_cargo'] as const
 // Units a cargo item can be entered in; each converts to its vehicle's capacity unit
 export const ITEM_UNITS = ['kg', 'ton', 'liter', 'm3'] as const
-export const MANIFEST_STATUSES = ['draft', 'billed', 'paid', 'certified', 'cancelled'] as const
-export const PAYMENT_STATUSES = ['pending', 'paid', 'expired', 'failed'] as const
+// revoked: a supervisor revoked the issued clearance (certified before). cancelled: a supervisor
+// cancelled the trip while its bill was unpaid. Both are final (packages/shared/src/reviews.ts).
+export const MANIFEST_STATUSES = [
+  'draft',
+  'billed',
+  'paid',
+  'certified',
+  'revoked',
+  'cancelled'
+] as const
+// cancelled: the trip was cancelled before its bill was paid, so the bill no longer counts
+export const PAYMENT_STATUSES = ['pending', 'paid', 'expired', 'failed', 'cancelled'] as const
 // Domestic, or crossing the border (imports need a certificate of origin and an authorization)
 export const TRIP_KINDS = ['domestic', 'import', 'export'] as const
 // Supporting documents a trip can have attached
@@ -36,6 +46,7 @@ export type QuantityUnit = (typeof QUANTITY_UNITS)[number]
 export type CargoUnit = Exclude<QuantityUnit, 'seat'>
 export type CargoType = (typeof CARGO_TYPES)[number]
 export type ManifestStatus = (typeof MANIFEST_STATUSES)[number]
+export type PaymentStatus = (typeof PAYMENT_STATUSES)[number]
 export type ItemUnit = (typeof ITEM_UNITS)[number]
 export type TripKind = (typeof TRIP_KINDS)[number]
 export type DocumentType = (typeof DOCUMENT_TYPES)[number]
@@ -405,16 +416,39 @@ export type FleetErrorCode =
   | 'invalid_document'
   | 'document_too_large'
   | 'zero_bill'
+  // Reviews (packages/shared/src/reviews.ts): only an issued clearance can be reported or revoked
+  | 'not_certified'
+  // Only a trip whose bill is still unpaid can be cancelled
+  | 'not_pending'
+  // The trip was cancelled by a supervisor: it can't be paid or authorized any more
+  | 'trip_cancelled'
+  // The trip already has an open report (a supervisor is reviewing it)
+  | 'report_open'
+  | 'report_not_found'
+  // The report was already dismissed or acted on
+  | 'report_closed'
+  // A report or decision needs a reason and a note of up to 500 characters
+  | 'invalid_review'
   // The account may not do this (another role, not an admin, or a demo-only action)
   | 'forbidden'
   // The account must replace its temporary password first
   | 'password_change_required'
   // A query ran past the server's time limit (narrow the search or the period)
   | 'query_timeout'
+  // The server is handling as many requests as it can: try again in a moment
+  | 'server_busy'
   // A dataset has more rows than an Excel sheet holds (choose CSV or a shorter period)
   | 'export_too_large_for_excel'
   // An export too big to send as one ZIP (choose a shorter period, or fewer datasets or formats)
   | 'export_too_large'
+  // The account already has an export queued or being prepared (one at a time)
+  | 'export_in_progress'
+  // No such export for this account (or its file has expired)
+  | 'export_not_found'
+  // The export's file isn't ready yet
+  | 'export_not_ready'
+  // The export stopped on the server (an error, or the worker stopped); start it again
+  | 'export_failed'
   | 'unknown'
 
 export type FleetResult<T> = { ok: true; data: T } | { ok: false; error: FleetErrorCode }
@@ -453,7 +487,7 @@ export const TRIP_GROUPS = [
 ] as const
 export type TripGroup = (typeof TRIP_GROUPS)[number]
 // "billed" also matches the legacy "paid" status
-export const TRIP_STATUS_FILTERS = ['draft', 'billed', 'certified'] as const
+export const TRIP_STATUS_FILTERS = ['draft', 'billed', 'certified', 'revoked', 'cancelled'] as const
 
 // The longest period the trips list shows at once (about a quarter)
 export const MAX_PERIOD_DAYS = 92

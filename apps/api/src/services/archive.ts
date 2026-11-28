@@ -4,15 +4,16 @@
 // verify page, vehicles' and drivers' trip counts). Nothing is deleted: how long the archive keeps
 // trips is the agency's decision (docs/deployment).
 //
-// A trip moves once it left more than HOT_DAYS ago (30) and is finished: authorized (certified) or
-// cancelled, or a draft nobody has touched for HOT_DAYS. A billed trip waiting for payment stays
-// live until it's paid. Trips move in batches, each one transaction (copy, then delete), so a run
+// A trip moves once it left more than HOT_DAYS ago (30) and is finished: authorized (certified),
+// revoked or cancelled, or a draft nobody has touched for HOT_DAYS. A billed trip waiting for
+// payment stays live until it's paid, and a trip with an open report until a supervisor decides
+// (services/reviews.ts; reports and decisions point to the trip by id, so they follow it). Trips move in batches, each one transaction (copy, then delete), so a run
 // can stop anywhere and the next one carries on; the daily revenue summary isn't touched (it
 // already counts every paid trip). The job runs at night (ARCHIVE_HOURS), on one instance.
 import { getTableColumns, getTableName, sql, type SQL } from 'drizzle-orm'
 import type { PgTable } from 'drizzle-orm/pg-core'
 import { config } from '../config'
-import { archive, getDb } from '../db'
+import { archive, getDb, tripReports } from '../db'
 import { log } from '../log'
 
 export const archiveLimits = { batch: 5_000 }
@@ -32,9 +33,11 @@ const CHILDREN = [
   archive.certificates
 ]
 
+// The columns a copy writes: not the generated ones (the name keys), which Postgres computes
 const columnList = (table: PgTable): SQL =>
   sql.raw(
     Object.values(getTableColumns(table))
+      .filter((column) => !column.generated)
       .map((column) => `"${column.name}"`)
       .join(', ')
   )
@@ -63,8 +66,10 @@ export async function archiveBatch(cutoff: Date): Promise<number> {
       CREATE TEMP TABLE archive_batch ON COMMIT DROP AS
       SELECT id FROM manifests
       WHERE departure_at < ${cutoff.toISOString()}::timestamptz
-        AND (status IN ('certified', 'cancelled')
+        AND (status IN ('certified', 'revoked', 'cancelled')
           OR (status = 'draft' AND updated_at < ${cutoff.toISOString()}::timestamptz))
+        AND NOT EXISTS (SELECT 1 FROM ${tripReports}
+          WHERE ${tripReports.manifestId} = manifests.id AND ${tripReports.status} = 'open')
       ORDER BY id
       LIMIT ${archiveLimits.batch}
       FOR UPDATE SKIP LOCKED`)

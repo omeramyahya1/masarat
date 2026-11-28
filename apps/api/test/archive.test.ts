@@ -7,7 +7,7 @@ import { count, eq, sql } from 'drizzle-orm'
 import { archive, certificates, dailyRevenue, getDb, manifests } from '../src/db'
 import { archiveDueTrips, archiveLimits, nightlyArchive } from '../src/services/archive'
 import { rebuildDailyRevenue } from '../src/services/dailyRevenue'
-import { resetData, signedIn, type Browser } from './helpers'
+import { resetData, signedIn, type Browser, exportThrough } from './helpers'
 
 const LABELS = { columns: {}, sheets: {}, values: {} }
 const DAY_MS = 86_400_000
@@ -179,7 +179,7 @@ describe('archived trips stay readable', () => {
       trip.oldPaid
     )
     expect((await govt.call('GET', `/govt/trips/${trip.oldPaid}`)).body.data.archived).toBe(true)
-    const exported = await govt.call('POST', '/govt/exports', {
+    const exported = await exportThrough(govt, {
       filters: { range: { preset: 'custom', from: dayOnly(60), to: dayOnly(0) } },
       dateBasis: 'trip',
       status: 'all',
@@ -212,4 +212,24 @@ describe('archived trips stay readable', () => {
     expect(vehicles.body.data[0].tripCount).toBe(4)
     expect((await owner.call('DELETE', `/vehicles/${vehicleId}`)).body.error).toBe('vehicle_in_use')
   })
+})
+
+describe('regenerating demo data with archived demo trips', () => {
+  test('the archived demo trips go too, and the demo is seeded again', async () => {
+    const { ensureDemoData, regenerateDemoData } = await import('../src/services/demoData')
+    await ensureDemoData()
+    // The demo's history reaches back a year: most of it moves to the archive
+    expect(await archiveDueTrips()).toBeGreaterThan(0)
+    await regenerateDemoData()
+    const [row] = await getDb().execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM archive.manifests m
+      JOIN vehicles v ON v.id = m.vehicle_id
+      JOIN companies c ON c.id = v.company_id
+      WHERE c.is_demo`)
+    expect(row.n).toBe(0)
+    const [live] = await getDb().execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM manifests m JOIN companies c ON c.id = m.company_id
+      WHERE c.is_demo`)
+    expect(live.n).toBeGreaterThan(0)
+  }, 180_000)
 })

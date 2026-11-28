@@ -7,6 +7,7 @@ import {
   newMemberSchema,
   roleSchema
 } from '@masarat/shared/schemas'
+import { GOVT_ROLE_KEYS, type GovtRoleKey } from '@masarat/shared/permissions'
 import { createBranch, listBranches, updateBranch } from '../services/branches'
 import { updateCompany } from '../services/companies'
 import {
@@ -108,7 +109,12 @@ export const memberRoutes = (sideOf: (c: AppContext) => Side): Hono<AppEnv> =>
     .get('/roles', doc('Members', 'The roles an account can be given'), async (c) => {
       const side = sideOf(c)
       const all = await listRoles(side)
-      const data = side.kind === 'govt' ? all.filter((r) => r.key !== 'govt_admin') : all
+      // The government's fixed roles highest first (GOVT_ROLE_KEYS)
+      const rank = (key: string | null): number => GOVT_ROLE_KEYS.indexOf(key as GovtRoleKey)
+      const data =
+        side.kind === 'govt'
+          ? all.filter((r) => r.key !== 'govt_admin').sort((a, b) => rank(a.key) - rank(b.key))
+          : all
       return send(c, { ok: true, data })
     })
     .post(

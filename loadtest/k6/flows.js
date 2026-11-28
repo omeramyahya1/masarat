@@ -1,5 +1,6 @@
 // What each kind of user does, one iteration at a time. The rates are set by the scenario files.
 import { check, sleep } from 'k6'
+import { Rate, Trend } from 'k6/metrics'
 import http from 'k6/http'
 import {
   BASE,
@@ -22,6 +23,14 @@ import {
   upload,
   validTokens
 } from './lib.js'
+
+// How long a data export took, queued to downloaded
+const exportJob = new Trend('export_job_ms', true)
+// Every export's outcome: true once its file is downloaded; false when it couldn't be queued,
+// failed, took past EXPORT_WAIT_MS, or its file didn't download (lib.js: any false fails the run)
+const exportOk = new Rate('export_ok')
+// The export target (export_job_ms < 15 min): an export still waiting then has missed it
+export const EXPORT_WAIT_MS = 15 * 60 * 1000
 
 // A 1 MB PDF (the API checks the first bytes), made once per VU
 const PDF_BYTES = 1024 * 1024
@@ -52,8 +61,8 @@ let form = null
 // A clerk books a trip at their branch and takes it through to the authorized manifest: open the
 // form, maybe attach the invoice and packing list, save, generate the bill, pay it (simulated),
 // refresh the status, and open the documents
-export function booking() {
-  if (!signIn(clerks)) return
+export function booking(data) {
+  if (!signIn(clerks, data)) return
   if (!form) {
     const reference = mustHave(api('GET', '/trips/reference', { kind: 'read' }), 'reference')
     const vehicles = mustHave(api('GET', '/vehicles', { kind: 'read' }), 'vehicles')
@@ -146,9 +155,9 @@ const LIST_VIEWS = [
   'pageSize=25&page=3'
 ]
 let myTrips = []
-export function browse() {
+export function browse(data) {
   // One in five is an accountant (company-wide), the rest clerks (their branch)
-  if (!signIn(__VU % 5 === 0 ? accountants : clerks)) return
+  if (!signIn(__VU % 5 === 0 ? accountants : clerks, data)) return
   const roll = Math.random()
   if (roll < 0.15) {
     api('GET', '/auth/me', { kind: 'read' })
@@ -188,8 +197,8 @@ const RANGES = [
 ]
 const BREAKDOWNS = ['route', 'originState', 'destinationState', 'cargoType', 'company', 'tripKind']
 let dashboardView = null
-export function govtDashboard() {
-  if (!signIn(govtSeniors)) return
+export function govtDashboard(data) {
+  if (!signIn(govtSeniors, data)) return
   // A new view 3 times in 10 (and the first time); otherwise a refresh of today
   if (!dashboardView || Math.random() < 0.3) {
     const filters = { range: pick(RANGES) }
@@ -205,8 +214,8 @@ export function govtDashboard() {
 
 // The other 95 government agents review: they search (this week's trips 9 times in 10), open a
 // trip, and look at one of its documents about a third of the time
-export function govtReview() {
-  if (!signIn(govtAgents)) return
+export function govtReview(data) {
+  if (!signIn(govtAgents, data)) return
   const term = Math.random() < 0.9 ? pick(recentTerms) : pick(olderTerms)
   const results = api('GET', `/govt/search?query=${encodeURIComponent(term)}&page=1&pageSize=25`, {
     kind: 'read',
@@ -227,13 +236,16 @@ export function govtReview() {
   }
 }
 
-// An occasional export: a month of trips and bills as Excel
-export function exportData() {
-  if (!signIn(govtUsers)) return
-  api('POST', '/govt/exports', {
+// An occasional export: a month of trips and bills as Excel. The API queues it; the export worker
+// prepares it; the portal asks how it's going every 2 seconds, then downloads the file. The whole
+// wait is export_job_ms (thresholds in lib.js).
+export function exportData(data) {
+  if (!signIn(govtUsers, data)) return
+  const started = Date.now()
+  const job = api('POST', '/govt/exports', {
     kind: 'export',
-    expect: 'raw',
-    timeout: '120s',
+    name: 'POST /govt/exports',
+    expect: 'queued',
     body: {
       filters: { range: { preset: '30d' } },
       dateBasis: 'trip',
@@ -243,6 +255,33 @@ export function exportData() {
       labels: { sheets: {}, columns: {}, values: {} }
     }
   })
+  if (!job) {
+    exportOk.add(false)
+    return
+  }
+  let status = job.status
+  while (status === 'queued' || status === 'running') {
+    if (Date.now() - started > EXPORT_WAIT_MS) break
+    sleep(2)
+    const now = api('GET', `/govt/exports/${job.id}`, {
+      kind: 'read',
+      name: 'GET /govt/exports/:id'
+    })
+    status = now ? now.status : status
+  }
+  check(status, { 'export done': (s) => s === 'done' })
+  if (status !== 'done') {
+    exportOk.add(false)
+    return
+  }
+  const file = api('GET', `/govt/exports/${job.id}/file`, {
+    kind: 'export',
+    name: 'GET /govt/exports/:id/file',
+    expect: 'raw',
+    timeout: '300s'
+  })
+  exportOk.add(file.status === 200)
+  if (file.status === 200) exportJob.add(Date.now() - started)
 }
 
 // A checkpoint officer scans a QR code: mostly valid documents, some expired; each scan from its

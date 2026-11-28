@@ -48,7 +48,17 @@ const STATUS: Record<string, ContentfulStatusCode> = {
   too_many_attempts: 429,
   query_timeout: 503,
   not_ready: 503,
+  server_busy: 503,
   admin_exists: 409,
+  report_not_found: 404,
+  report_open: 409,
+  report_closed: 409,
+  not_certified: 409,
+  not_pending: 409,
+  trip_cancelled: 409,
+  export_in_progress: 409,
+  export_not_found: 404,
+  export_not_ready: 409,
   invalid_request: 400,
   unknown: 500
 }

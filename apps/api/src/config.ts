@@ -61,6 +61,9 @@ export function buildConfig(env: Env) {
     appEnv,
     production,
     port: Number(env.PORT ?? 3000),
+    // Several API processes on one server share the port (Linux spreads the connections between
+    // them): one process per CPU, since a Bun process runs its JavaScript on one core
+    reusePort: env.REUSE_PORT === 'true',
     // The API connects as the least-privileged role (masarat_app: reads and writes rows, never
     // changes the schema); migrations, seeding and the tests' setup as the owner
     databaseUrl: required('DATABASE_URL', DEV.databaseUrl),
@@ -72,6 +75,12 @@ export function buildConfig(env: Env) {
     // REQUEST_TIMEOUT_S (at most 255). Migrations and seeding have no limit.
     statementTimeoutMs: positiveNumber('STATEMENT_TIMEOUT_MS', 15_000),
     exportStatementTimeoutMs: positiveNumber('EXPORT_STATEMENT_TIMEOUT_MS', 120_000),
+    // Requests handled at once per instance; past that the API answers 503 server_busy at once
+    // (http/loadShed.ts). About ten times the Postgres pool: enough for bursts, short of a backlog.
+    maxInFlight: positiveNumber('MAX_IN_FLIGHT', 200),
+    // Exports prepared at once by the export workers; unset: one per active government admin or
+    // supervisor (services/exportQueue.ts)
+    exportConcurrency: env.EXPORT_CONCURRENCY ? positiveNumber('EXPORT_CONCURRENCY', 1) : null,
     requestTimeoutS: Math.min(255, positiveNumber('REQUEST_TIMEOUT_S', 30)),
     // How long a stopping API waits for the requests in flight
     shutdownGraceMs: positiveNumber('SHUTDOWN_GRACE_MS', 25_000),
@@ -94,9 +103,7 @@ export function buildConfig(env: Env) {
       dir: env.LOG_DIR === '' ? null : resolve(env.LOG_DIR ?? 'logs'),
       retentionDays: positiveNumber('LOG_RETENTION_DAYS', 7),
       // Human-readable console output (development); production always writes JSON
-      pretty: !production && env.LOG_PRETTY !== 'false',
-      // Queries slower than this are logged with their request
-      slowQueryMs: positiveNumber('SLOW_QUERY_MS', 500)
+      pretty: !production && env.LOG_PRETTY !== 'false'
     },
     // Trips stay in the live tables this many days after departure, then move to the archive
     hotDays: positiveNumber('HOT_DAYS', 30),

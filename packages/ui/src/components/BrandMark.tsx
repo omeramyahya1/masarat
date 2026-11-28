@@ -5,7 +5,7 @@ import lockup from '../assets/brand/logo-horizontal.svg'
 // The Masarat logo (brand/README.md). The mark is decorative: it always sits next to the
 // translated name, which is what screen readers read.
 export function BrandMark({ className = 'h-8 w-auto' }: { className?: string }): React.JSX.Element {
-  return <img src={mark} alt="" className={className} />
+  return <img src={mark} alt="" width={734} height={410} className={className} />
 }
 
 // The full logo: the mark, a divider and the bilingual wordmark (مسارات over MASARAT)
@@ -15,5 +15,5 @@ export function BrandLockup({
   className?: string
 }): React.JSX.Element {
   const { t } = useTranslation()
-  return <img src={lockup} alt={t('app.name')} className={className} />
+  return <img src={lockup} alt={t('app.name')} width={1814} height={418} className={className} />
 }

@@ -743,10 +743,12 @@ export async function currentFigures(
       .innerJoin(destinationCity, eq(t.manifests.destinationCityId, destinationCity.id)) as never
     return joined.where(and(where, tripFilter)) as unknown as T
   }
-  const activeOf = (t: Tables): Promise<{ value: number }[]> =>
+  // A reader: the database, or the snapshot transaction below
+  type Reader = Pick<typeof db, 'select'>
+  const activeOf = (t: Tables, q: Reader): Promise<{ value: number }[]> =>
     withTrips(
       t,
-      db
+      q
         .select({ value: count() })
         .from(t.certificates)
         .innerJoin(t.manifests, eq(t.certificates.manifestId, t.manifests.id))
@@ -755,9 +757,9 @@ export async function currentFigures(
       and(eq(t.manifests.status, 'certified'), gte(t.certificates.validUntil, now))
     )
   // The range's latest paid (or unpaid) bills in one set of tables
-  const latestBills = (t: Tables, paid: boolean): Promise<BillRow[]> => {
+  const latestBills = (t: Tables, paid: boolean, q: Reader): Promise<BillRow[]> => {
     const when = paid ? t.payments.paidAt : t.payments.createdAt
-    return db
+    return q
       .select({
         id: t.payments.id,
         manifestId: t.payments.manifestId,
@@ -791,7 +793,22 @@ export async function currentFigures(
     : undefined
   const countOf = (rows: { value: number }[]): number => rows[0]?.value ?? 0
 
-  const [[pending], activeLive, activeArchived, vehicleRows, companyRows, ...latest] =
+  // The live and the archive tables read in one snapshot: a trip the archiver moves meanwhile is
+  // then counted, and its bill listed, once (in one set of tables or the other), never twice or
+  // not at all
+  const split = db.transaction(
+    (tx) =>
+      Promise.all([
+        activeOf(liveTables, tx),
+        activeOf(archive, tx),
+        latestBills(liveTables, true, tx),
+        latestBills(liveTables, false, tx),
+        latestBills(archive, true, tx),
+        latestBills(archive, false, tx)
+      ]),
+    { isolationLevel: 'repeatable read', accessMode: 'read only' }
+  )
+  const [[pending], vehicleRows, companyRows, [activeLive, activeArchived, ...latest]] =
     await Promise.all([
       withTrips(
         liveTables,
@@ -802,8 +819,6 @@ export async function currentFigures(
         livePayments.manifestId,
         eq(livePayments.status, 'pending')
       ),
-      activeOf(liveTables),
-      activeOf(archive),
       db.select({ value: count() }).from(vehicles).where(vehicleScope),
       filters.vehicleType
         ? db
@@ -811,10 +826,7 @@ export async function currentFigures(
             .from(vehicles)
             .where(vehicleScope)
         : db.select({ value: count() }).from(companies),
-      latestBills(liveTables, true),
-      latestBills(liveTables, false),
-      latestBills(archive, true),
-      latestBills(archive, false)
+      split
     ])
   const activeRows = [{ value: countOf(activeLive) + countOf(activeArchived) }]
 

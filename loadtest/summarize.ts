@@ -6,7 +6,7 @@ import { existsSync, readdirSync, readFileSync } from 'fs'
 import { join, resolve } from 'path'
 
 const root = resolve(process.argv[2] ?? join(import.meta.dir, 'results'))
-const KINDS = ['read', 'write', 'login', 'verify', 'dashboard', 'export'] as const
+const KINDS = ['read', 'write', 'login', 'session', 'verify', 'dashboard', 'export'] as const
 
 type Metric = Record<string, number>
 const ms = (v: number | undefined): string =>

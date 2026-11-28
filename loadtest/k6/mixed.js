@@ -53,6 +53,9 @@ const SCENARIOS = Object.fromEntries(
         rate,
         timeUnit: '1h',
         duration: DURATION,
+        // How long iterations still running at the end may finish (GRACEFUL_STOP=6m lets a short
+        // export-only run time its exports to the download)
+        gracefulStop: __ENV.GRACEFUL_STOP || '30s',
         preAllocatedVUs: Math.max(2, Math.ceil(perMinuteNow * vusPerUnit)),
         // Room for responses up to ~4× slower than expected, and no more: past that the server is
         // past its limit, and k6 drops the late iterations (a failure, see dropped_iterations in

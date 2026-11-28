@@ -81,6 +81,17 @@ loadtest/run.sh soak 0-1 4-7 8g 20 1 3h
 # New k6 data files (users, lookups by age) from data already seeded, without reseeding
 loadtest/stack.sh seed --data-only
 
+# Older history: 6 more months at 3,000 trips a day before the oldest trip, then into the archive
+taskset -c 13-19 loadtest/stack.sh seed --append --days 180 --trips-per-day 3000
+loadtest/stack.sh archive
+loadtest/stack.sh seed --data-only
+
+# Round 4's layout: 2 API processes sharing the port on 0-1, Postgres 2-9, the export worker 10,
+# Redis 11, MinIO 12, k6 13-19, bookings at 2,000 trips a day
+loadtest/stack.sh services-up 11 12
+TRIPS_PER_DAY=2000 API_PROCS=2 WORKER_CPUS=10 K6_CPUS=13-19 \
+  loadtest/run.sh knee v8 0-1 2-9 4g 10 "1 2 3 4 6 8"
+
 # The table of every run so far
 bun loadtest/summarize.ts
 
@@ -89,7 +100,13 @@ loadtest/stack.sh down
 loadtest/stack.sh wipe
 ```
 
-Arguments of `run.sh`: label, API CPUs, Postgres CPUs, Postgres memory, the API's pool size (`DB_POOL_MAX`), the scale, then optionally the duration and the flows. Results go to `loadtest/results/<label>/scale-<scale>/` (gitignored); see the top of `run.sh`.
+Arguments of `run.sh`: label, API CPUs, Postgres CPUs, Postgres memory, the API's pool size (`DB_POOL_MAX`, per process), the scale, then optionally the duration and the flows. Results go to `loadtest/results/<label>/scale-<scale>/` (gitignored); see the top of `run.sh`. Its environment:
+
+- `API_PROCS`: API processes, all on the API CPUs, sharing the port (`REUSE_PORT`), as a server runs one per CPU (a Bun process runs its JavaScript on one core)
+- `WORKER_CPUS`, `K6_CPUS`: where the export worker and k6 run (2-3 and 12-19 by default)
+- `TRIPS_PER_DAY`: the booking rate (20,000 by default); only bookings change
+
+A run's `result` is PASS, FAIL, or EXPORT-ONLY when only the exports' SLOs failed (the export worker fell behind its queue). A knee series goes on past EXPORT-ONLY, so the API's and Postgres's limit is still found; `failed` lists the thresholds that failed.
 
 The seeder (`apps/api/src/scripts/loadSeed.ts`) refuses any database whose name doesn't contain "load". It also seeds the demo companies, and writes the users and the lookup values the k6 scripts read into `loadtest/data/`. Everyone the test signs in as has the password `load2026`. Trips booked during the tests stay in the database; reseed (`wipe`, then step 1) to start clean.
 

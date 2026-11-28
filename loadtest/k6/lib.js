@@ -143,6 +143,9 @@ export const thresholds = {
   // An arrival-rate run that couldn't start its iterations on time (no VU free) didn't send the
   // load it claims: no iteration may be dropped
   dropped_iterations: ['count==0'],
+  // The exports' share of them, so a run where only the export worker fell behind tells itself
+  // apart (loadtest/run.sh: EXPORT-ONLY)
+  'dropped_iterations{scenario:exportData}': ['count==0'],
   checks: ['rate>0.999'],
   'http_req_duration{kind:read}': ['p(95)<500'],
   'http_req_duration{kind:write}': ['p(95)<1000'],

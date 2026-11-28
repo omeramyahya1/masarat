@@ -83,7 +83,7 @@ verdict() {
   local dropped export_dropped others
   dropped=$(jq '.metrics.dropped_iterations.count // 0' "$summary")
   export_dropped=$(jq '.metrics["dropped_iterations{scenario:exportData}"].count // 0' "$summary")
-  others=$(grep -cvE '^(export_job_ms|http_req_duration\{kind:export\}|dropped_iterations\{scenario:exportData\})$' "$dir/failed")
+  others=$(grep -cvE '^(export_job_ms|export_ok|http_req_duration\{kind:export\}|dropped_iterations\{scenario:exportData\})$' "$dir/failed")
   if grep -qx dropped_iterations "$dir/failed" && [[ $dropped == "$export_dropped" ]]; then
     others=$((others - 1))
   fi
@@ -97,7 +97,7 @@ run_one() {
   mkdir -p "$dir"
   echo "== $label: API on CPUs $api_cpus (pool $pool), Postgres on $db_cpus with $db_mem; scale $scale for $duration"
   # The export worker, on its own CPUs (it would be its own server)
-  loadtest/stack.sh worker-up "${WORKER_CPUS:-2-3}" >/dev/null
+  loadtest/stack.sh worker-up "${WORKER_CPUS:-2-3}" >/dev/null || { echo "   FAIL (export worker didn't start)"; return 1; }
   # Same size as last time: keep Postgres running, so its cache stays warm
   if [[ $(cat "$STATE/db-size" 2>/dev/null) != "$db_cpus $db_mem" ]]; then
     loadtest/stack.sh db-up "$db_cpus" "$db_mem" >/dev/null
@@ -107,7 +107,7 @@ run_one() {
     (cd loadtest/k6 && taskset -c "$K6_CPUS" "$K6" run --quiet --summary-mode disabled -e SCALE=0.3 -e DURATION=90s \
       -e TRIPS_PER_DAY="$TRIPS_PER_DAY" mixed.js >/dev/null 2>&1)
   fi
-  loadtest/stack.sh api-up "$api_cpus" "$pool" >/dev/null
+  loadtest/stack.sh api-up "$api_cpus" "$pool" >/dev/null || { echo "   FAIL (the API didn't start)"; return 1; }
   # Exports queued by an earlier run (or the warm-up)
   podman exec masarat_redis_1 redis-cli -n 1 --scan --pattern 'exports:*' 2>/dev/null |
     xargs -r podman exec masarat_redis_1 redis-cli -n 1 del >/dev/null 2>&1 || true
@@ -115,6 +115,8 @@ run_one() {
   psql_load "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'masarat_load'
              AND pid <> pg_backend_pid() AND state <> 'idle'" >/dev/null
   psql_load 'SELECT pg_stat_statements_reset()' >/dev/null
+  # A summary left by an earlier run of this label and scale must not decide this one
+  rm -f "$dir/summary.json" "$dir/failed"
   sample "$dir/stats.csv" &
   local sampler=$!
   (cd loadtest/k6 && taskset -c "$K6_CPUS" "$K6" run -e SCALE="$scale" -e DURATION="$duration" -e FLOWS="$flows" \
@@ -127,14 +129,16 @@ run_one() {
              ORDER BY total_exec_time DESC LIMIT 25" >"$dir/queries.txt"
   tail -50 "$STATE/api.log" >"$dir/api.log"
   tail -50 "$STATE/worker.log" >"$dir/worker.log"
-  # k6 exits 99 when a threshold failed
+  # k6 exits 99 when a threshold failed; any other failure (a script error, an abort) is a FAIL
+  # whatever the summary says
   if [[ $code -eq 0 ]]; then
     echo PASS >"$dir/result"
     : >"$dir/failed"
-  elif [[ -s $dir/summary.json ]]; then
+  elif [[ $code -eq 99 && -s $dir/summary.json ]]; then
     verdict "$dir/summary.json" "$dir" >"$dir/result"
   else
     echo FAIL >"$dir/result"
+    echo "k6 exit $code" >"$dir/failed"
   fi
   echo "   $(cat "$dir/result") (k6 exit $code)$([[ -s $dir/failed ]] && echo ": $(tr '\n' ' ' <"$dir/failed")")"
   [[ $(cat "$dir/result") != FAIL ]]

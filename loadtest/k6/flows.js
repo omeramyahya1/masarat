@@ -1,6 +1,6 @@
 // What each kind of user does, one iteration at a time. The rates are set by the scenario files.
 import { check, sleep } from 'k6'
-import { Trend } from 'k6/metrics'
+import { Rate, Trend } from 'k6/metrics'
 import http from 'k6/http'
 import {
   BASE,
@@ -26,6 +26,11 @@ import {
 
 // How long a data export took, queued to downloaded
 const exportJob = new Trend('export_job_ms', true)
+// Every export's outcome: true once its file is downloaded; false when it couldn't be queued,
+// failed, took past EXPORT_WAIT_MS, or its file didn't download (lib.js: any false fails the run)
+const exportOk = new Rate('export_ok')
+// The export target (export_job_ms < 15 min): an export still waiting then has missed it
+export const EXPORT_WAIT_MS = 15 * 60 * 1000
 
 // A 1 MB PDF (the API checks the first bytes), made once per VU
 const PDF_BYTES = 1024 * 1024
@@ -250,10 +255,13 @@ export function exportData(data) {
       labels: { sheets: {}, columns: {}, values: {} }
     }
   })
-  if (!job) return
+  if (!job) {
+    exportOk.add(false)
+    return
+  }
   let status = job.status
   while (status === 'queued' || status === 'running') {
-    if (Date.now() - started > 30 * 60 * 1000) break
+    if (Date.now() - started > EXPORT_WAIT_MS) break
     sleep(2)
     const now = api('GET', `/govt/exports/${job.id}`, {
       kind: 'read',
@@ -262,14 +270,18 @@ export function exportData(data) {
     status = now ? now.status : status
   }
   check(status, { 'export done': (s) => s === 'done' })
-  if (status !== 'done') return
-  api('GET', `/govt/exports/${job.id}/file`, {
+  if (status !== 'done') {
+    exportOk.add(false)
+    return
+  }
+  const file = api('GET', `/govt/exports/${job.id}/file`, {
     kind: 'export',
     name: 'GET /govt/exports/:id/file',
     expect: 'raw',
     timeout: '300s'
   })
-  exportJob.add(Date.now() - started)
+  exportOk.add(file.status === 200)
+  if (file.status === 200) exportJob.add(Date.now() - started)
 }
 
 // A checkpoint officer scans a QR code: mostly valid documents, some expired; each scan from its

@@ -110,17 +110,30 @@ api_up() {
   export DB_POOL_MAX=$pool
   if ((procs > 1)); then export REUSE_PORT=true; fi
   : >"$STATE/api.pid"
-  (
-    cd apps/api
-    for i in $(seq "$procs"); do
-      local log=$STATE/api.log
-      ((i > 1)) && log=$STATE/api-$i.log
-      INSTANCE_NAME=load-api-$i taskset -c "$cpus" bun src/index.ts >"$log" 2>&1 &
-      echo $! >>"$STATE/api.pid"
-      # One at a time: each runs its startup work (jobs, checks) before the next starts
-      for _ in $(seq 60); do grep -q 'API listening' "$log" 2>/dev/null && break; sleep 1; done
+  local i log pid ready
+  for i in $(seq "$procs"); do
+    log=$STATE/api.log
+    ((i > 1)) && log=$STATE/api-$i.log
+    (cd apps/api && INSTANCE_NAME=load-api-$i exec taskset -c "$cpus" bun src/index.ts) >"$log" 2>&1 &
+    pid=$!
+    echo "$pid" >>"$STATE/api.pid"
+    # One at a time: each runs its startup work (jobs, checks) before the next starts. Each must
+    # be listening itself (with a shared port, one process's health check answers for all)
+    ready=false
+    for _ in $(seq 60); do
+      kill -0 "$pid" 2>/dev/null || break
+      if grep -q 'API listening' "$log" 2>/dev/null; then
+        ready=true
+        break
+      fi
+      sleep 1
     done
-  )
+    if [[ $ready != true ]]; then
+      echo "API process $i didn't start (see $log)" >&2
+      api_down
+      return 1
+    fi
+  done
   for _ in $(seq 60); do
     curl -sf "http://localhost:${API_PORT}/health/ready" >/dev/null && break
     sleep 1
@@ -136,16 +149,23 @@ worker_up() {
   worker_down
   api_env
   export DB_POOL_MAX=8 INSTANCE_NAME=load-exports
-  (
-    cd apps/api
-    taskset -c "$cpus" bun src/exportWorker.ts >"$STATE/worker.log" 2>&1 &
-    echo $! >"$STATE/worker.pid"
-  )
+  (cd apps/api && exec taskset -c "$cpus" bun src/exportWorker.ts) >"$STATE/worker.log" 2>&1 &
+  local pid=$! ready=false
+  echo "$pid" >"$STATE/worker.pid"
   for _ in $(seq 30); do
-    grep -q 'Export worker started' "$STATE/worker.log" 2>/dev/null && break
+    kill -0 "$pid" 2>/dev/null || break
+    if grep -q 'Export worker started' "$STATE/worker.log" 2>/dev/null; then
+      ready=true
+      break
+    fi
     sleep 1
   done
-  echo "Export worker up on CPUs $cpus (pid $(cat "$STATE/worker.pid"))"
+  if [[ $ready != true ]]; then
+    echo "The export worker didn't start (see $STATE/worker.log)" >&2
+    worker_down
+    return 1
+  fi
+  echo "Export worker up on CPUs $cpus (pid $pid)"
 }
 
 worker_down() {

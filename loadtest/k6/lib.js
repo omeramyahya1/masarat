@@ -217,6 +217,8 @@ export const thresholds = {
   'http_req_duration{kind:export}': ['p(95)<15000'],
   // A month of national trips and bills as Excel, queued to downloaded
   export_job_ms: ['p(95)<900000'],
+  // Not one export may fail, time out or not download (flows.js exportData)
+  export_ok: ['rate==1'],
   ...Object.fromEntries(
     ENDPOINTS.map((name) => [`http_req_duration{name:${name}}`, ['p(95)<600000']])
   )

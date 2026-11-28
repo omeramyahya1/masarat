@@ -360,9 +360,14 @@ if (APPEND) {
   BUSES_PER_COMPANY = fleet.buses
   DRIVERS_PER_COMPANY = fleet.drivers
   if (!args.people) {
+    // This script's people are 10000000000 + their number in a pool of about this size (the first
+    // seed's, from its trips a day: ~65 a company); the largest number under twice that is the
+    // pool's end (the demo's passengers, and those booked by k6, have IDs far from it)
+    const estimate = Math.round((COMPANIES * 65 * BUS_SHARE * 43 * 30) / 2.5)
     const [pool] = await sql<{ n: number | null }[]>`
-      SELECT max(id_number::bigint - 10000000000)::int + 1 AS n FROM people
-      WHERE id_type = 'national_id' AND id_number ~ '^1[0-9]{10}$'`
+      SELECT (max(id_number::bigint) - 10000000000 + 1)::int AS n FROM people
+      WHERE id_type = 'national_id' AND id_number ~ '^1[0-9]{10}$'
+        AND id_number::bigint < ${10_000_000_000 + 2 * estimate}`
     if (pool?.n) PEOPLE = pool.n
   }
   const [{ oldest }] = await sql<{ oldest: number }[]>`

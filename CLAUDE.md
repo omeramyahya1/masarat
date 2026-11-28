@@ -19,6 +19,13 @@ The Electron demo showed both panels in one window with a toggle. The web apps d
 
 **Terms**: a _transport company_ (code: `company`; "fleet owner" in the MVP) signs up, owns vehicles and drivers, and books trips at its _branches_. Its people are _members_, each with a _role_. The government's people are _users_ of the government portal, with a government role.
 
+## Brand
+
+- **The logo** (`brand/`, see its README): the two-tone "M" mark, the wordmark مسارات / MASARAT, the full logo and the app icon, as SVG and PNG, traced from the approved artwork (its Figma components are the editable source).
+- **Colours**: the logo's dark green `#01392E` and light green `#03814C`. The `brand` scale in `packages/ui/src/assets/main.css` is built on them (`brand-900` and `brand-600`; `brand-700` `#036a40` is buttons and links, white text above 4.5:1). Use `brand-*` classes or `var(--color-brand-*)`, never new hex values; the Excel export's header fill is `brand-50`.
+- **In the apps** (`components/BrandMark.tsx`): `BrandMark` (the mark, decorative) next to the translated `app.name` in the site and portal headers, `BrandLockup` (the full logo, alt `app.name`) in the landing hero. The favicons and `apple-touch-icon` are in `packages/ui/public`, every web app's `publicDir`; each `index.html` links them and sets `theme-color`.
+- **Official documents** (the receipt, the manifests, the government report) carry the Sudan emblem only, never the Masarat logo.
+
 ## Login and sessions
 
 - **One login, on masarat.com** (`apps/site`): username and password only; the account's kind picks the portal. After login the site goes to `?next=` when it's a page of the user's own portal (`destinationFor` in `packages/ui/src/lib/urls.ts`; anything else would be an open redirect), otherwise to the portal's home. A signed-in user who opens masarat.com is sent straight on.
@@ -80,6 +87,7 @@ Login, both portals and the verify page work end to end on Postgres.
 Bun workspaces (`apps/api`, `apps/site`, `apps/*-portal`, `packages/*`):
 
 - `packages/shared` (`@masarat/shared/<module>`): domain rules in plain TS (plates, phones, permissions and roles, members and branches, trip cost and taxes, bill IDs, analytics filters, demo companies), used by the API and both portals.
+- `brand/`: the logo kit (see _Brand_).
 - `packages/ui` (`@masarat/ui/<path>`, a path alias in `tsconfig.base.json` and in each portal's `vite.config.ts`): the React code both portals use:
   - `AppShell` (header, session check and redirects, user bar; provides the account to `useAccount` / `useCan` / `useRoleName` in `lib/account.tsx`)
   - `members/` (the Team / Users screen both portals share)

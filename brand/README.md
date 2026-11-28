@@ -4,17 +4,17 @@ The approved Masarat logo, traced into vectors from the approved artwork. The ed
 
 ## Files
 
-| File | What it is |
-| --- | --- |
-| `svg/masarat-logo-horizontal.svg` | The full logo: the mark, a divider, and the wordmark (مسارات over MASARAT). 1814 × 418 |
-| `svg/masarat-mark.svg` | The two-tone "M" on its own. 734 × 410 |
-| `svg/masarat-wordmark.svg` | مسارات over MASARAT, as outlines. 908 × 400 |
-| `svg/masarat-app-icon.svg` | The mark on a light green rounded square. 512 × 512 |
-| `png/masarat-logo-horizontal.png`, `@2x` | 1814 and 3628 px wide, transparent |
-| `png/masarat-mark-512.png`, `-1024` | 512 and 1024 px wide, transparent |
-| `png/masarat-app-icon-{192,512,1024}.png` | App icon, transparent corners |
-| `png/apple-touch-icon.png` | 180 × 180, opaque and full-bleed (iOS rounds it itself) |
-| `png/favicon-{16,32}.png` | Browser tab icons |
+| File                                      | What it is                                                                             |
+| ----------------------------------------- | -------------------------------------------------------------------------------------- |
+| `svg/masarat-logo-horizontal.svg`         | The full logo: the mark, a divider, and the wordmark (مسارات over MASARAT). 1814 × 418 |
+| `svg/masarat-mark.svg`                    | The two-tone "M" on its own. 734 × 410                                                 |
+| `svg/masarat-wordmark.svg`                | مسارات over MASARAT, as outlines. 908 × 400                                            |
+| `svg/masarat-app-icon.svg`                | The mark on a light green rounded square. 512 × 512                                    |
+| `png/masarat-logo-horizontal.png`, `@2x`  | 1814 and 3628 px wide, transparent                                                     |
+| `png/masarat-mark-512.png`, `-1024`       | 512 and 1024 px wide, transparent                                                      |
+| `png/masarat-app-icon-{192,512,1024}.png` | App icon, transparent corners                                                          |
+| `png/apple-touch-icon.png`                | 180 × 180, opaque and full-bleed (iOS rounds it itself)                                |
+| `png/favicon-{16,32}.png`                 | Browser tab icons                                                                      |
 
 The words are outlines, not live text, so they look the same everywhere.
 
